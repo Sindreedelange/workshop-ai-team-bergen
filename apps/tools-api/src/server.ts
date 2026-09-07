@@ -136,13 +136,29 @@ type Matrikkeleiendom = {
   kilde?: unknown;
 };
 
-/** Kroppen på POST /mcp/tools/invoke. */
+/** Kroppen på de to invoke-rutene. */
 type InvokeKropp = {
   name?: string;
-  toolArgs?: Verktoyargumenter;
-  args?: Verktoyargumenter;
   arguments?: Verktoyargumenter;
 };
+
+const INVOKE_FELTER = new Set(["name", "arguments"]);
+
+/**
+ * Leser en invoke-kropp og avviser nøkler rutene ikke leser.
+ *
+ * Uten sjekken blir en feilstavet eller utdatert nøkkel et kall uten argumenter,
+ * og svaret ser riktig ut: `matrikkel_finn_veger` uten `gate` returnerer den
+ * første gaten i seeden med `ok: true`.
+ */
+async function lesInvokeKropp(request: IncomingMessage): Promise<InvokeKropp> {
+  const body = (await readRequestBody(request) || {}) as InvokeKropp;
+  const ukjente = Object.keys(body).filter((felt) => !INVOKE_FELTER.has(felt));
+  if (ukjente.length > 0) {
+    throw clientError(`Ukjent felt i kroppen: ${ukjente.join(", ")}. Argumentene sendes som "arguments".`);
+  }
+  return body;
+}
 
 /**
  * En feil med en HTTP-status kallstedet skal se.
@@ -461,7 +477,7 @@ const toolDefs: Verktoy[] = [
   },
   {
     name: "suggest_step_tools",
-    description: "Ask the AI gateway which MCP tools are relevant for a given process step. Returns tools to call proactively for context and/or to validate user answers.",
+    description: "Ask the AI gateway which tools are relevant for a given process step. Returns tools to call proactively for context and/or to validate user answers.",
     inputSchema: {
       type: "object",
       required: ["steg"],
@@ -711,7 +727,7 @@ async function fetchJson(url: string): Promise<unknown> {
   try {
     const res = await fetch(url, {
       signal: controller.signal,
-      headers: { "User-Agent": "workshop-ai-mcp/0.1 (+local sandbox)" }
+      headers: { "User-Agent": "workshop-ai-tools/0.1 (+local sandbox)" }
     });
     const data = (await res.json()) as { feilmelding?: string; feil?: string };
     if (!res.ok) {
@@ -1020,9 +1036,9 @@ async function invokeTool(name: string | undefined, args: Verktoyargumenter = {}
   }
 
   if (name === "consent_response") {
-    const session = await api<{ aktivtSamtykkeId?: string }>(`/api/prosessoekter/${args.oektsId}`);
+    const session = await api<{ aktivtSamtykkeId?: string }>(`/api/prosessoekter/${argSti(args.oektsId)}`);
     if (!session.aktivtSamtykkeId) {
-      const opprett = await api<{ oekt?: { aktivtSamtykkeId?: string } }>(`/api/prosessoekter/${args.oektsId}/handling`, {
+      const opprett = await api<{ oekt?: { aktivtSamtykkeId?: string } }>(`/api/prosessoekter/${argSti(args.oektsId)}/handling`, {
         method: "POST",
         body: JSON.stringify({ handling: "opprett-samtykke" })
       });
@@ -1350,7 +1366,7 @@ async function invokeTool(name: string | undefined, args: Verktoyargumenter = {}
     return data;
   }
 
-  throw clientError(`Ukjent tool: ${name}. Se GET /mcp/tools for gyldige navn.`, 404);
+  throw clientError(`Ukjent tool: ${name}. Se GET /verktoy for gyldige navn.`, 404);
 }
 
 const server = createServer(async (request: IncomingMessage, response: ServerResponse) => {
@@ -1385,42 +1401,22 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
       return;
     }
 
-    /*
-     * The paths keep the /mcp prefix. They are wire format - process-agent, the
-     * cookbook and the spec all name them - and renaming a path is a different
-     * decision from renaming a service. It is the one place left where the prefix
-     * still claims a protocol this service does not speak.
-     *
-     * `protocol` is not a path, and it did describe the service. It said
-     * "mcp-style-http", which is what the whole rename was for.
-     */
-    if (request.method === "GET" && url.pathname === "/mcp") {
-      json(response, 200, {
-        name: "innbyggerdialog-tools-api",
-        protocol: "rest",
-        version: "0.1.0"
-      });
-      return;
-    }
-
-    if (request.method === "GET" && url.pathname === "/mcp/tools") {
+    if (request.method === "GET" && url.pathname === "/verktoy") {
       json(response, 200, { tools: toolDefs });
       return;
     }
 
-    if (request.method === "POST" && url.pathname === "/mcp/tools/invoke") {
-      const body = await readRequestBody(request) as InvokeKropp;
-      const toolArgs = body.toolArgs || body.args || body["arguments"] || {};
-      const result = await invokeTool(body.name, toolArgs);
+    if (request.method === "POST" && url.pathname === "/verktoy/invoke") {
+      const body = await lesInvokeKropp(request);
+      const result = await invokeTool(body.name, body.arguments || {});
       json(response, 200, { ok: true, tool: body.name, result });
       return;
     }
 
-    const byName = url.pathname.match(/^\/mcp\/tools\/([^/]+)\/invoke$/);
+    const byName = url.pathname.match(/^\/verktoy\/([^/]+)\/invoke$/);
     if (request.method === "POST" && byName) {
-      const body = await readRequestBody(request) as InvokeKropp;
-      const toolArgs = body.toolArgs || body.args || body["arguments"] || {};
-      const result = await invokeTool(byName[1], toolArgs);
+      const body = await lesInvokeKropp(request);
+      const result = await invokeTool(byName[1], body.arguments || {});
       json(response, 200, { ok: true, tool: byName[1], result });
       return;
     }

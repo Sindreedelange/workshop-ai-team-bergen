@@ -18,6 +18,7 @@ import {
   hasInjeksjonsmarkorer,
   manglendeGrunnlagFor,
   sanitizeSporsmaalKontekst,
+  utenIdentifikatorer,
   validateAnswer
 } from "./sporsmaalsperrer.ts";
 
@@ -795,7 +796,7 @@ function buildTemplateResponse(type: string, body: AiKropp) {
   };
 }
 
-// Tool selection - which MCP tools are relevant for a given process step
+// Tool selection - which tools are relevant for a given process step
 
 function heuristicToolChoice(body: AiKropp) {
   const steg = body?.steg || {};
@@ -2170,6 +2171,14 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
     }
 
     if (url.pathname === "/trace" || url.pathname === "/trace.json") {
+      // Samme grunn som /admin/provider: CORS er «*», og sporet bærer hele
+      // prompten. Uten dette kan enhver nettside i deltakerens nettleser lese den.
+      if (!sammeOpphav(request)) {
+        jsonResponse(response, 403, {
+          feil: "Sporet svarer bare på kall fra denne tjenestens egen side eller fra en klient uten Origin."
+        });
+        return;
+      }
       const filter = {
         limit: Number(url.searchParams.get("limit")) || 50,
         sporingsId: url.searchParams.get("sporingsId"),
@@ -2312,7 +2321,9 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
     if (request.method === "POST" && gyldigeStier.includes(url.pathname)) {
       const body = await readRequestBody(request) as AiKropp;
       const type = url.pathname.replace("/ai/", "");
-      const svar = await buildAiResponse(type, body);
+      // Her og ikke hos den som kaller: /ai/sporsmaal projiseres alt, og disse fem
+      // gjorde det ikke. Én port foran alle kallstedene er en ingen kan glemme.
+      const svar = await buildAiResponse(type, { ...body, kontekst: utenIdentifikatorer(body?.kontekst) } as AiKropp);
       await addRevisjon({
         sporingsId: body.sporingsId || newId("flyt"),
         handling: "KI_KALL",

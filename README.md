@@ -8,6 +8,62 @@ En samarbeidsvennlig sandkasse for hackathon og utforskning av moderne innbygger
 
 Målet er å gjøre det enkelt for interne og eksterne utviklingsteam å prototype kommunale tjenester med syntetiske data, tydelige API-er, sporbarhet og mockede integrasjoner. Hvilken form tjenesten får - dialog, skjema, oversikt, varsling eller noe annet - er teamets valg.
 
+## Innhold
+
+<details>
+<summary>Alle seksjonene</summary>
+
+- [Før du begynner](#før-du-begynner)
+- [Hva sandkassen er](#hva-sandkassen-er)
+- [Designprinsipp for hackathon](#designprinsipp-for-hackathon)
+- [Status](#status)
+- [Hvordan starte den](#hvordan-starte-den)
+- [Hvordan stoppe den](#hvordan-stoppe-den)
+- [Oversikt over tjenester og porter](#oversikt-over-tjenester-og-porter)
+- [Demo-brukere](#demo-brukere)
+- [Demo-flyt](#demo-flyt)
+- [Eksempel på API-kall](#eksempel-på-api-kall)
+- [Sjekker du kan kjøre](#sjekker-du-kan-kjøre)
+- [Hvor syntetiske data ligger](#hvor-syntetiske-data-ligger)
+- [Hvordan legge til nye prosesser](#hvordan-legge-til-nye-prosesser)
+- [Hvordan legge til nye syntetiske datasett](#hvordan-legge-til-nye-syntetiske-datasett)
+- [Samarbeid](#samarbeid)
+- [Kjente begrensninger](#kjente-begrensninger)
+- [Viktige filer](#viktige-filer)
+
+</details>
+
+## Før du begynner
+
+Dette må du ha installert på maskinen din:
+
+| Hva                               | Trengs til | Hent den |
+|-----------------------------------|---|---|
+| **Docker**, installert og startet | å kjøre sandkassen. Det eneste kravet for `./start.sh --mock` | [docs.docker.com](https://docs.docker.com/get-docker/) |
+| **git**                           | å hente repoet | [git-scm.com](https://git-scm.com/downloads) |
+| **Node 22.18 eller nyere**        | å hente et token (`node scripts/token.ts`), og å kjøre testskriptene. **Nesten alle API-kall krever token**, så i praksis trenger du Node så snart du gjør noe selv | [nodejs.org](https://nodejs.org/en/download) |
+| **pnpm**                          | å kjøre `pnpm <skript>` i det hele tatt. `pnpm install` i tillegg bare til `pnpm lint`, live reload på Windows, og Bedrock-provideren - verken sandkassen eller de andre testskriptene trenger et `pnpm install` | [pnpm.io](https://pnpm.io/installation) |
+| **Homebrew** (bare macOS)         | at skriptet kan installere Ollama for deg. Ikke nødvendig med `--mock` | [brew.sh](https://brew.sh) |
+
+Har du allerede Node, er `corepack enable` som regel nok til å få pnpm - `package.json`
+sier hvilken versjon som skal brukes. Følger ikke Corepack med din Node-versjon, tar
+lenken over de andre veiene.
+
+Sjekk at du har det:
+
+```bash
+docker --version && node --version && git --version
+```
+
+**Portene `3000`, `3001`, `8080`–`8087` og `11434` må være ledige.** Er en av dem
+opptatt, står det i `docs/feilsoking.md` hvordan du finner ut hvilken.
+
+**Sett av tid første gang: 4-7 minutter** med `./start.sh --mock`, **12–25 minutter**
+med språkmodell, og vesentlig mer på delt konferansenett. Språkmodellen er fra 400 MB
+til 9 GB avhengig av hvor mye minne maskinen har. Senere oppstarter tar sekunder.
+
+På Windows: kjør fra Git Bash (følger med Git for Windows) eller [WSL](https://learn.microsoft.com/windows/wsl/install) - se [«På Windows»](#på-windows) lenger ned.
+
 > [!NOTE]
 > **Deltaker på hackathon? Denne filen er ikke inngangen din.** Tre sider, i rekkefølge:
 >
@@ -18,12 +74,14 @@ Målet er å gjøre det enkelt for interne og eksterne utviklingsteam å prototy
 >    tjenester, og hva som er frosset
 >
 > Kom tilbake hit når du vil ha hele bildet: alle flagg, porter og kjente begrensninger.
+>
+> [`docs/README.md`](docs/README.md) er kartet over all dokumentasjonen.
 
 ## Hva sandkassen er
 
 Sandkassen er en lokal utviklingsarena for å utforske hvordan innbyggere kan møte kommunen. Demoene her er dialogbaserte fordi en samtale var raskeste vei til å ta i bruk alle API-ene samtidig - ikke fordi dialog er svaret. Se `docs/oppdraget.md`.
 
-Seks demo-case er publisert; `Redusert foreldrebetaling i barnehage` er
+Sju demo-case er publisert; `Redusert foreldrebetaling i barnehage` er
 flaggskipet og det eneste som er dekket av en informasjonsmodell. Casene og hvilken
 testbruker som hører til hver, står i `docs/deltakerstart.md`.
 
@@ -35,7 +93,7 @@ Høy autonomi, og nok støtte til at teamene faktisk rekker å levere: felles AP
 
 ## Status
 
-Ti kjørende tjenester, én valgfri avhengighet i kjøretid, seks komplette demo-case. På plass:
+Elleve kjørende tjenester, én valgfri avhengighet i kjøretid, sju komplette demo-case. På plass:
 
 - samtykkeflyt med sperre på inntektsdata uten samtykke, håndhevet ett sted
 - revisjonslogg over all datatilgang
@@ -43,21 +101,12 @@ Ti kjørende tjenester, én valgfri avhengighet i kjøretid, seks komplette demo
 - syntetiske data forankret i Folkeregisterets informasjonsmodell og KS Fiks beregnings-API
 - KI-spor: hvert modellkall lagres med prompt og svar, lesbart på `GET /trace`
 - evals av KI-laget: `pnpm test:eval`
-- OpenAPI for alle åtte API-tjenestene, komplett og holdt i takt med koden av
+- OpenAPI for alle ni API-tjenestene, komplett og holdt i takt med koden av
   `pnpm test:openapi`: hver rute dokumentert, med `security:` per rute
 
 ## Hvordan starte den
 
-**Forutsetninger:**
-
-| | Trengs til |
-|---|---|
-| **Docker**, installert og startet | å kjøre sandkassen. Det eneste kravet for `./start.sh --mock` |
-| **Homebrew** (bare macOS) | at skriptet kan installere Ollama for deg. Ikke nødvendig med `--mock` |
-| **Node 22.18 eller nyere** | å hente et token (`node scripts/token.ts`), og å kjøre testskriptene. **Nesten alle API-kall krever token**, så i praksis trenger du Node så snart du gjør noe selv |
-| **pnpm** | å kjøre `pnpm <skript>` i det hele tatt. `pnpm install` i tillegg bare til `pnpm lint`, live reload på Windows, og Bedrock-provideren - verken sandkassen eller de andre testskriptene trenger et `pnpm install` |
-
-På Windows: se [«På Windows»](#på-windows) lenger ned.
+Kravene til maskinen står under [«Før du begynner»](#før-du-begynner).
 
 **Vil du bare se noe kjøre? Start her:**
 
@@ -80,11 +129,8 @@ Skriptet finner ut hvilken plattform du er på, velger modell ut fra minnet i
 maskinen, starter tjenestene, og verifiserer at modellen faktisk svarer før den
 melder klar.
 
-**Sett av tid første gang: 12–25 minutter**, mer med en stor modell, og vesentlig
-mer på delt konferansenett. Språkmodellen er fra 400 MB til 9 GB avhengig av hvor
-mye minne du har. Senere oppstarter tar sekunder.
-
-Skriptet spør før det laster ned. På macOS spør det i tillegg før det installerer Ollama, siden den kjører nativt der; på Linux og WSL kjører Ollama i container og installeres ikke. `./start.sh -y` hopper over alle spørsmål.
+Tidsbruken første gang står under [«Før du begynner»](#før-du-begynner); en stor modell
+legger seg i overkant av det. Skriptet spør før det laster ned. På macOS spør det i tillegg før det installerer Ollama, siden den kjører nativt der; på Linux og WSL kjører Ollama i container og installeres ikke. `./start.sh -y` hopper over alle spørsmål.
 
 Stopp med `./start.sh -d`.
 
@@ -96,7 +142,7 @@ faktisk svarer.
 
 `start.bat` og `stop.bat` finnes i repoet, men de er et nødløsningsalternativ, ikke en
 ekvivalent. `start.bat` sjekker portene, lager `.env` hvis den mangler, og venter til alle
-ti tjenestene svarer på `/helse`. Den tar `--reset`, `--reload`, `-d`, `--down` og
+elleve tjenestene svarer på `/helse`. Den tar `--reset`, `--reload`, `-d`, `--down` og
 `--help`, men ingen modellflagg. **Den kjører alltid uten
 språkmodell** - den laster verken ned eller velger modell, så alt annet enn maltekst
 ville vært en tom lovnad. Vil du ha en ekte modell, bruk Git Bash eller WSL og
@@ -184,6 +230,9 @@ Logger: `docker compose logs -f ai-gateway`.
 
 ### Manuell oppstart
 
+<details>
+<summary>Kommandoene, per plattform</summary>
+
 `./start.sh` gjør dette for deg. Les skriptet hvis du vil se detaljene - det er kommentert.
 
 macOS, med Ollama nativt på verten:
@@ -194,7 +243,7 @@ ollama pull qwen2.5:14b
 cp .env.example .env          # OLLAMA_BASE_URL=http://host.docker.internal:11434
 docker compose up -d --no-deps sandbox-backend fiks-simulator ai-gateway \
   tools-api process-agent matrikkel-mock digdir-mock pasientjournal-mock \
-  demo-gui process-builder
+  politiattest-mock demo-gui process-builder
 ```
 
 **Hele listen må med** - særlig `digdir-mock` og `matrikkel-mock`, som svikter stille
@@ -223,6 +272,8 @@ docker compose --profile models up ollama-pull-all
 
 Modellene er `qwen2.5:0.5b` (raskest), `qwen2.5:7b` (balansert), `qwen2.5:14b` (best av Qwen-variantene), `llama3.1:8b` og `mistral-nemo`.
 
+</details>
+
 ## Hvordan stoppe den
 
 ```bash
@@ -239,7 +290,7 @@ Tjenestene, portene og rollene deres ligger i `apps/shared/tjenester.json`, og
 <http://localhost:3001> viser dem med levende helsestatus og en lenke rett inn i
 API-utforskeren for hver.
 
-Fire ting tabellen ikke sier, og som er verdt å vite før noe feiler:
+To ting tabellen ikke sier, og som er verdt å vite før noe feiler:
 
 - **`digdir-mock` (`8086`) utsteder alle tokens.** Er den nede, svarer hvert autentisert
   kall 401 mens `docker compose ps` ser helt frisk ut, fordi tokenfeilen svelges i
@@ -247,32 +298,11 @@ Fire ting tabellen ikke sier, og som er verdt å vite før noe feiler:
 - **`matrikkel-mock` (`8085`) er kjerne, selv om den ser valgfri ut.** Uten den feiler
   alle `matrikkel_*`-verktøy og hele `fartsdempende-tiltak`-casen med «fetch failed»,
   mens alt annet ser normalt ut.
-- **`tools-api` (`8083`) er REST, ikke MCP.** Den svarer `protocol: "rest"`.
-  `/mcp/*`-stiene står igjen - de er wire-format. Navnehistorikken står i
-  `apps/tools-api/README.md`.
-- **`brreg-mcp` og `folkeregister-mcp` har ingen port og er ikke del av demoflyten.** De
-  er ekte MCP over stdio, som en klient som Claude Code eller Cursor starter selv. De
-  fire verktøyene deres finnes også i `tools-api` over REST, mot de samme
-  seed-filene, så de utvider ikke sandkassen. Se avsnittet under.
 
 Hver API-tjeneste serverer sin egen spesifikasjon på `/openapi.yaml`, samme spesifikasjon
 lest som JSON på `/openapi-ruter.json`, og en lesbar side på `/docs`. Den midterste er det
 API-utforskeren rendrer, og `pnpm test:openapi` holder alle tre i takt med koden.
 
-
-## Koble MCP-serverne til editoren din
-
-`brreg-mcp` og `folkeregister-mcp` er ekte MCP over stdio. De gir fire
-oppslagsverktøy mot registerdataene - de samme oppslagene `tools-api` allerede
-eksponerer over REST, så de utvider ikke sandkassen. I Claude Code, fra repo-roten:
-
-```bash
-claude mcp add brreg -- node "$PWD/apps/brreg-mcp/src/server.ts"
-claude mcp add folkeregister -- node "$PWD/apps/folkeregister-mcp/src/server.ts"
-```
-
-Detaljer, klientkonfigurasjon for andre editorer og verifisering med
-`@modelcontextprotocol/inspector`: `apps/brreg-mcp/README.md`.
 
 ## Demo-brukere
 
@@ -296,7 +326,7 @@ bekrefter, søknaden sendes inn og oppretter en oppgave i Fiks-simulatoren - og
 revisjonsloggen viser hver datatilgang underveis.
 
 Demo-GUI-en er prosessdrevet: stegene leses fra valgt prosessdefinisjon, og flyten
-kjøres via prosessøkt-API-et i backend. Alle seks casene, og hvilken testbruker som
+kjøres via prosessøkt-API-et i backend. Alle sju casene, og hvilken testbruker som
 hører til hver, står i tabellen i `docs/deltakerstart.md` §3, pinnet i
 `data/deltakercaser.json`.
 
@@ -360,19 +390,11 @@ Bulk-smoketesten mot matrikkel-mocken sampler 40 gater og 25 adresser fra
 seed-datasettet:
 
 ```bash
-npx pnpm test:bergen-matrikkel
+pnpm test:bergen-matrikkel
 ```
 
 Den krever **nett**: adresser som bommer i seed-filen slår over på live
 Geonorge-oppslag, og uten nett svarer matrikkel-mock 500.
-
-De to MCP-serverne testes hver for seg, og de krever verken nett eller kjørende
-stack - de spawnes som subprosess:
-
-```bash
-pnpm test:brreg-mcp
-pnpm test:folkeregister-mcp
-```
 
 ## Hvor syntetiske data ligger
 
@@ -389,6 +411,7 @@ Syntetiske data ligger under `data/`:
 - `data/fritidsaktiviteter.json` og `data/fritidsdeltakelse.json` - grunnlaget for fritidskort
 - `data/tjenestetilbud.json` - kommunale tilbud med målgruppe og kapasitet, grunnlaget for støttekontakt
 - `data/legeerklaeringer.json` - legeerklæringer til TT-kort, lest av `pasientjournal-mock`
+- `data/politiattester.json` - politiattester til vandelskontroll, lest av `politiattest-mock`
 - `data/matrikkel.json` - 388 gater og 18 349 eiendommer i 97 kommuner, lest av `matrikkel-mock`
 - `data/eierforhold.json` - tinglyst eierskap per matrikkelenhet, slått sammen av `matrikkel-mock` ved innlasting
 - `data/matrikkel.seed.json` - liten firegaters fixture for mockens egne tester
@@ -446,11 +469,10 @@ Dette repoet er lagt opp for flere team. Se:
   verifiseres mot utstederens nøkler, og pid-bindingen holder. Det som er forenklet er
   klientassertionen - den valideres på form, ikke signatur. Se
   `apps/digdir-mock/README.md`
-- `tools-api` er REST, ikke MCP. Bare `/mcp/*`-stiene bærer prefikset videre, som
-  wire-format. Se `docs/architecture.md`
 
 ## Viktige filer
 
+- [`docs/README.md`](docs/README.md) - kartet over all dokumentasjonen
 - `docs/deltakerstart.md` - start her hvis du er deltaker
 - `docs/ordliste.md` - forvaltningstermene forklart slik de brukes i sandkassen
 - `apps/shared/tjenester.json` - tjenestene, portene, rollene. Sannhetskilden

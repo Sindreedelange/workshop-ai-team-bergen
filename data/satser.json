@@ -12,6 +12,7 @@
       "navn": "Redusert foreldrebetaling i barnehage",
       "tjeneste": "barnehage",
       "regel": "MAKS_ANDEL_AV_INNTEKT",
+      "kilde": "Forskrift om foreldrebetaling i barnehager, slik den er framstilt av Bergen kommune.",
       "beskrivelse": "Foreldrebetalingen skal maksimalt utgjøre 6 % av husholdningens skattepliktige person- og kapitalinntekt."
     },
     {
@@ -19,6 +20,7 @@
       "navn": "Gratis kjernetid i barnehage, 2–5 år",
       "tjeneste": "barnehage",
       "regel": "INNTEKTSGRENSE",
+      "kilde": "Forskrift om foreldrebetaling i barnehager, slik den er framstilt av Bergen kommune.",
       "inntektsgrense": 692465,
       "alderFraAar": 2,
       "alderTilAar": 5,
@@ -29,6 +31,7 @@
       "navn": "Gratis kjernetid i barnehage, 1 år",
       "tjeneste": "barnehage",
       "regel": "INNTEKTSGRENSE",
+      "kilde": "Forskrift om foreldrebetaling i barnehager, slik den er framstilt av Bergen kommune.",
       "inntektsgrense": 220000,
       "alderFraAar": 1,
       "alderTilAar": 1,
@@ -39,6 +42,7 @@
       "navn": "Gratis SFO-plass, 1. trinn",
       "tjeneste": "sfo",
       "regel": "INNTEKTSGRENSE",
+      "kilde": "Kommunale SFO-vedtekter, slik de er framstilt av Bergen kommune.",
       "inntektsgrense": 350000,
       "trinnFra": 1,
       "trinnTil": 1
@@ -48,6 +52,7 @@
       "navn": "Redusert betaling i SFO, 2.–3. trinn",
       "tjeneste": "sfo",
       "regel": "INNTEKTSGRENSE",
+      "kilde": "Kommunale SFO-vedtekter, slik de er framstilt av Bergen kommune.",
       "inntektsgrense": 154917,
       "trinnFra": 2,
       "trinnTil": 3
@@ -57,6 +62,7 @@
       "navn": "Redusert betaling i SFO, 4. trinn",
       "tjeneste": "sfo",
       "regel": "INNTEKTSGRENSE",
+      "kilde": "Kommunale SFO-vedtekter, slik de er framstilt av Bergen kommune.",
       "inntektsgrense": 651017,
       "trinnFra": 4,
       "trinnTil": 4
@@ -66,6 +72,7 @@
       "navn": "Fritidskort-støtte",
       "tjeneste": "fritid",
       "regel": "INNTEKTSGRENSE",
+      "kilde": "Syntetisk kommunal fritidskortordning laget for sandkassen.",
       "inntektsgrense": 360000,
       "alderFraAar": 6,
       "alderTilAar": 18,
@@ -76,6 +83,7 @@
       "navn": "Støttekontakt",
       "tjeneste": "stottekontakt",
       "regel": "TJENESTEBEHOV",
+      "kilde": "Syntetiske kommunale tjenestetilbud laget for sandkassen.",
       "tilbudsdatasett": "tjenestetilbud",
       "beskrivelse": "Behovsavklaring mot kommunens registrerte tilbud. Vurderes på alder og kapasitet, ikke inntekt."
     },
@@ -84,6 +92,7 @@
       "navn": "TT-kort (tilrettelagt transport)",
       "tjeneste": "transport",
       "regel": "TRANSPORTBEHOV",
+      "kilde": "Vestland fylkeskommune sin rettleiing for brukergodkjenning til transportordninga for funksjonshemma.",
       "soekerAlderFraAar": 10,
       "varighetMinstAar": 2,
       "fylkesnummer": "46",
@@ -96,6 +105,55 @@
       },
       "kvotetilleggLangtTilPost": 1300,
       "beskrivelse": "Vurderes bare på nedsatt funksjonsevne, aldri på inntekt. Krever legeerklæring som sier at tilstanden varer i minst to år. Kvotebeløpene er referanse, ikke et beregnet vedtak: de publiserte kronebeløpene lar seg ikke avstemme mot multiplikatorene i forskriften."
+    },
+    {
+      "id": "politiattest-stottekontakt",
+      "navn": "Vandelskontroll - støttekontakt",
+      "tjeneste": "vandel",
+      "regel": "VANDELSKONTROLL",
+      "kilde": "Helse- og omsorgstjenesteloven § 5-4, jf. politiregisterloven § 41 nr. 1 og § 40.",
+      "formaal": "stottekontakt",
+      "hjemmel": "helse- og omsorgstjenesteloven § 5-4, jf. politiregisterloven § 41 nr. 1 og § 40",
+      "attesttype": "helse-og-omsorgsattest",
+      "maksAlderMaaneder": 3,
+      "absoluttUtelukkelse": [],
+      "beskrivelse": "Kommunen skal kreve politiattest av den som får tilbud om stilling eller oppdrag der hen yter helse- og omsorgstjenester. Ingen anmerkning utelukker automatisk: hver merknad er en egnethetsvurdering en saksbehandler må gjøre.",
+      "slikSoekerDu": "Du søker selv hos politiet, med denne bekreftelsen som vedlegg. Behandlingstiden er rundt to uker, og attesten kommer i din digitale postkasse.",
+      "oppbevaring": "Kommunen ser attesten, registrerer at kontrollen er gjort, og beholder den ikke."
+    },
+    {
+      "id": "politiattest-barnehage",
+      "navn": "Vandelskontroll - barnehage",
+      "tjeneste": "vandel",
+      "regel": "VANDELSKONTROLL",
+      "kilde": "Barnehageloven § 30, jf. politiregisterloven § 39 første ledd.",
+      "formaal": "barnehage",
+      "hjemmel": "barnehageloven § 30, jf. politiregisterloven § 39 første ledd",
+      "attesttype": "barneomsorgsattest",
+      "maksAlderMaaneder": 3,
+      "absoluttUtelukkelse": [
+        "seksuallovbrudd-mot-mindreaarig"
+      ],
+      "beskrivelse": "Den som skal arbeide i barnehage må legge fram barneomsorgsattest. Den som er dømt for seksuelle overgrep mot mindreårige er utelukket, og utelukkelsen følger direkte av loven. Andre anmerkninger er en egnethetsvurdering.",
+      "slikSoekerDu": "Du søker selv hos politiet, med denne bekreftelsen som vedlegg. Behandlingstiden er rundt to uker, og attesten kommer i din digitale postkasse.",
+      "oppbevaring": "Kommunen ser attesten og registrerer at kontrollen er gjort. Forskriften krever at den makuleres straks den er brukt i tilsettingssaken."
+    },
+    {
+      "id": "politiattest-skole",
+      "navn": "Vandelskontroll - skole og SFO",
+      "tjeneste": "vandel",
+      "regel": "VANDELSKONTROLL",
+      "kilde": "opplæringsloven § 17-11, jf. politiregisterloven § 39 første ledd.",
+      "formaal": "skole",
+      "hjemmel": "opplæringsloven § 17-11, jf. politiregisterloven § 39 første ledd",
+      "attesttype": "barneomsorgsattest",
+      "maksAlderMaaneder": 3,
+      "absoluttUtelukkelse": [
+        "seksuallovbrudd-mot-mindreaarig"
+      ],
+      "beskrivelse": "Attesten kreves bare av den som får tilbud om stillingen, og skal ikke være eldre enn tre måneder. Forskriften sier at merknader kan føre til endring i tilbodet om stilling - altså skjønn, med unntak for det loven utelukker direkte.",
+      "slikSoekerDu": "Du søker selv hos politiet, med denne bekreftelsen som vedlegg. Behandlingstiden er rundt to uker, og attesten kommer i din digitale postkasse.",
+      "oppbevaring": "Kommunen ser attesten og registrerer at kontrollen er gjort. Forskriften krever at den makuleres straks den er brukt i tilsettingssaken."
     }
   ],
   "syntetisk": true

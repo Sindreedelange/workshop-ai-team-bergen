@@ -1,5 +1,28 @@
 # Syntetiske data
 
+## Innhold
+
+<details>
+<summary>Alle seksjonene</summary>
+
+- [Prinsipp](#prinsipp)
+- [Kildedata og kjøringstilstand](#kildedata-og-kjøringstilstand)
+- [Datasett](#datasett)
+- [Kart over koblingene](#kart-over-koblingene)
+- [Spec-forankring](#spec-forankring)
+- [Fødselsnumrene er syntetiske, og merket som det](#fødselsnumrene-er-syntetiske-og-merket-som-det)
+- [Hvem kan logge inn](#hvem-kan-logge-inn)
+- [Døde, utflyttede og inaktive](#døde-utflyttede-og-inaktive)
+- [Scenariodekning](#scenariodekning)
+- [Adressebeskyttelse: seeden er ikke maskert](#adressebeskyttelse-seeden-er-ikke-maskert)
+- [Hva som er forfattet, og hvorfor](#hva-som-er-forfattet-og-hvorfor)
+- [Kjente grenser](#kjente-grenser)
+- [Regler](#regler)
+- [Nåværende innhold](#nåværende-innhold)
+- [Neste steg](#neste-steg)
+
+</details>
+
 ## Prinsipp
 
 All data i sandkassen skal være syntetisk. Ingen reelle personopplysninger skal brukes.
@@ -15,11 +38,13 @@ Data er delt i to mapper, og skillet er absolutt:
 
 Tjenestene leser fra `state/` hvis filen finnes der, og faller ellers tilbake på kilden i `data/`. Første gang noe skrives, opprettes kopien i `state/` automatisk. Det finnes ingen initialiseringskommando.
 
-Konsekvensen er at en demokjøring aldri endrer arbeidstreet. Kjører du en flyt og deretter `git status`, skal den være ren.
+> [!NOTE]
+> Konsekvensen er at en demokjøring aldri endrer arbeidstreet. Kjører du en flyt og deretter `git status`, skal den være ren.
 
 ### Fella: `state/` skygger for `data/`
 
-Dette koster folk mye tid, så les det før du begynner å redigere.
+> [!WARNING]
+> Dette koster folk mye tid, så les det før du begynner å redigere.
 
 I det øyeblikket du lagrer noe i prosessbyggeren, skrives
 `state/prosessdefinisjoner.json`. Fra da av leses **den**, og alt du redigerer for
@@ -80,18 +105,19 @@ Kildedata i `data/`:
 | `barnehageplasser.json`, `sfoplasser.json` | Plass og månedspris, som 6 %-regelen måles mot |
 | `tjenestetilbud.json` | Kommunale tilbud med målgruppe og ledige plasser. Grunnlaget for behovsavklaring |
 | `legeerklaeringer.json` | Legeerklæringer til TT-kort, formet som journalutdrag. Nøklet på fødselsnummer, lest bare av `pasientjournal-mock` |
+| `politiattester.json` | Politiattester til vandelskontroll, formet som attesten innbyggeren framviser. Nøklet på fødselsnummer, lest bare av `politiattest-mock` |
 | `fritidsaktiviteter.json` | Katalog over fritidsaktiviteter med aldersgrenser |
 | `fritidsdeltakelse.json` | Hvilke barn som deltar i hvilken aktivitet, og til hvilken pris |
 | `informasjonsmodeller.json` | Begreper og attributter, med kodeverdier som `pnpm test` holder mot dataene |
 | `prosessdefinisjoner.json` | Prosesskatalog med publiserte prosesser og maler |
 | `forventet-utfall.json` | Hva hver husstand er ment å demonstrere. Pinnet, aldri regenerert |
-| `deltakercaser.json` | Case-til-person-tabellen i `docs/deltakerstart.md`, pinnet |
+| `deltakercaser.json` | Case-til-person-tabellen i [`docs/deltakerstart.md`](deltakerstart.md), pinnet |
 | `brreg.seed.json` | 200 syntetiske foretak fra Tenor. Ingen kobling til befolkningen |
 
-**`docs/testpersoner.md` er den genererte oversikten over hele befolkningen** - én rad
-per person med alder, status, husstand, hvem som kan logge inn, hvem som eier noe og
-hvem som har inntektsdata. Den skrives av importen og `pnpm test` feiler hvis den er
-ute av takt.
+**[`docs/testpersoner.md`](testpersoner.md) er den genererte oversikten over hele
+befolkningen** - én rad per person med alder, status, husstand, hvem som kan logge inn,
+hvem som eier noe og hvem som har inntektsdata. Den skrives av importen og `pnpm test`
+feiler hvis den er ute av takt.
 
 ### Generert, ikke redigert
 
@@ -291,20 +317,37 @@ på plass, og `pnpm test` feiler hvis noen «rydder opp» i seeden.
 
 - hver post skal være merket som syntetisk der det er relevant
 - datasett skal være konsistente på tvers av relasjoner
-- eksempelpersoner skal være enkle å bruke i demo - se `docs/testpersoner.md`
+- eksempelpersoner skal være enkle å bruke i demo - se
+  [`docs/testpersoner.md`](testpersoner.md)
 - nye datasett skal dokumenteres før de tas i bruk
 - tjenester skriver aldri i `data/`
 - filer i `data/` og `state/` skal lagres som UTF-8 (Unicode)
 
 ## Nåværende innhold
 
-`pnpm test` skriver de faktiske tallene ved hver kjøring, og `docs/testpersoner.md`
-har dem i tabell. Bruk dem som kilde, ikke en liste her.
+`pnpm test` skriver de faktiske tallene ved hver kjøring, og
+[`docs/testpersoner.md`](testpersoner.md) har dem i tabell. Bruk dem som kilde, ikke en
+liste her.
 
 - 394 personer i registeret, 369 av dem bosatte
 - 200 husstander, 281 inntektsrader, 298 rader i kontaktregisteret
 - 388 gater og 18 349 eiendommer i 97 kommuner, 176 med registrert eier. `matrikkel-mock` injiserer Bønesheien ved innlasting, så `/helse` sier 389 og 18 350
-- 9 ordninger og 237 tjenestetilbud
+- 12 ordninger og 237 tjenestetilbud
 - 22 legeerklæringer, én per søker
+- 8 politiattester, én per søker
 - 15 barnehageplasser, 11 SFO-plasser, 34 fritidsdeltakelser
 - 6 prosessdefinisjoner + 1 mal
+
+---
+
+## Neste steg
+
+**Hvilken testperson skal du bruke?** [`docs/testpersoner.md`](testpersoner.md) har hele
+befolkningen med en `Logg inn`-kolonne, og
+[`docs/deltakerstart.md`](deltakerstart.md#3-hvilken-bruker-til-hvilken-case) knytter
+bruker til case.
+
+**Trenger du data som ikke finnes?** «Egne testdata» i
+[`docs/bygg-selv.md`](bygg-selv.md) viser hvordan du legger dem til uten å røre `data/`.
+
+**Tilbake til kartet:** [`docs/README.md`](README.md).

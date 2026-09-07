@@ -39,6 +39,12 @@ type Stegresultat = {
   // Kontaktinfo fra KRR (hent-kontaktinfo i stottekontakt-behov).
   reservert?: boolean;
   kanVarsles?: boolean;
+  // Bekreftelsen på formål (hent-formaal i politiattest-oppdrag).
+  hjemmel?: string;
+  attesttype?: string;
+  slikSoekerDu?: string;
+  // Attesten, minimert av minimerAttest: aldri hva anmerkningene gjelder.
+  politiattest?: { attesttype?: string; utstedt?: string; antallAnmerkninger?: number } | null;
   // SUBMIT svarer med soknadsraden, dokumentet og utfallet av kvitteringen.
   soknadId?: string;
   soknadsdokument?: string;
@@ -77,7 +83,8 @@ const kildePerDatakilde: Record<string, string> = {
   inntekt: "Skatteetaten, via KS Fiks",
   kontaktinfo: "Kontakt- og reservasjonsregisteret, via KS Fiks",
   tjenestebehov: "kommunens egne registre",
-  helseopplysninger: "pasientjournalen hos den som ga helsehjelpen"
+  helseopplysninger: "pasientjournalen hos den som ga helsehjelpen",
+  politiattest: "politiattesten du har fått fra politiet, og som du framviser selv"
 };
 
 function kildeTekst(dataKilder: string[] | undefined): string {
@@ -171,6 +178,23 @@ function summarizeResult(steg: ProsessSteg | null | undefined, result: Stegresul
      * SvarUt sitt eget første trinn - kan varsles og ikke reservert - og
      * statuslinja etter innsending navngir kanalen som ble valgt.
      */
+    // Bekreftelsen på formål. Dette er dokumentet søkeren skal ta med til politiet,
+    // så hjemmelen og attesttypen må fram - ikke «steget ble gjennomført».
+    if (result.hjemmel && result.attesttype) {
+      const framgangsmaate = result.slikSoekerDu ? ` ${result.slikSoekerDu}` : "";
+      return `Du trenger en ${result.attesttype} etter ${result.hjemmel}.${framgangsmaate}`;
+    }
+    // Attesten selv er minimert: type, dato og antall, aldri hva anmerkningene gjelder.
+    if ("politiattest" in result) {
+      const attest = result.politiattest;
+      if (!attest) {
+        return "Jeg finner ingen politiattest registrert på deg for dette formålet ennå.";
+      }
+      const merknader = attest.antallAnmerkninger === 0
+        ? "uten anmerkninger"
+        : `med ${attest.antallAnmerkninger} anmerkning(er)`;
+      return `Jeg har hentet politiattesten din: en ${attest.attesttype} utstedt ${attest.utstedt}, ${merknader}.`;
+    }
     if (typeof result.reservert === "boolean") {
       return result.kanVarsles && !result.reservert
         ? "Jeg har hentet kontaktopplysningene dine. Kontaktregisteret sier at du kan varsles digitalt, så post fra kommunen kan gå til din digitale postkasse."
@@ -544,10 +568,32 @@ function isNeiSvar(text: string): boolean {
   return ["nei", "ikke", "stopp", "senere", "ikke nå", "nei takk"].some((match) => lower.includes(match));
 }
 
+// Tekst som bare betyr «gå videre». Sammenlignes mot rå input, så ordene står
+// både med og uten norske tegn.
+function erFortsettSignal(text: string): boolean {
+  const lower = normalize(text);
+  return isJaSvar(text)
+    || ["start", "fortsett", "neste", "klar", "kjør på", "kjor pa", "gå videre", "ga videre"].some((match) => lower.includes(match));
+}
+
+function enesteValgfelt(steg: ProsessSteg | null | undefined): SpoersmaalsFelt | null {
+  const felter = steg?.felter || [];
+  if (felter.length !== 1) return null;
+  const felt = felter[0];
+  return felt.type === "valg" && (felt.alternativer || []).length > 0 ? felt : null;
+}
+
 function buildSporsmaalsHjelp(steg: ProsessSteg | null | undefined): string {
   const felter = steg?.felter || [];
   if (felter.length === 0) {
     return "Fortell gjerne med dine egne ord.";
+  }
+  // Et lukket alternativsett skal vises. Uten det måtte innbyggeren gjette
+  // ordet, og en gjetning som ikke treffer, avvises.
+  const valgfelt = enesteValgfelt(steg);
+  if (valgfelt) {
+    const liste = (valgfelt.alternativer || []).map((alternativ) => `- ${alternativLabel(alternativ)}`).join("\n");
+    return `${valgfelt.label}\n${liste}`;
   }
   if (felter.length === 1) {
     return `Fortell gjerne litt om dette: ${felter[0].label}`;
@@ -626,12 +672,14 @@ async function aiExplain(promptType: string, context: Record<string, unknown> = 
   return "";
 }
 
-async function goNext(): Promise<void> {
+async function goNext(valg: { tegnSteg?: boolean } = {}): Promise<void> {
   if (!oekt || oekt.status === "FULLFORT" || oekt.status === "AVVIST") return;
   if (oekt.stegIndex >= ((oekt.totaltAntallSteg ?? 0) - 1)) return;
   oekt = await req<Prosessoekt>(`/api/prosessoekter/${oekt.oektsId}/neste`, { method: "POST", body: "{}" });
   updateSessionInfo();
-  await renderStep();
+  if (valg.tegnSteg !== false) {
+    await renderStep();
+  }
 }
 
 /* ── Innsendingen ──────────────────────────────────────────────────────
@@ -928,6 +976,19 @@ function renderQuickActionsFor(steg: ProsessSteg, feilrutetTekst: string | null 
     knapper.push({ label: "Start", onClick: () => goNext() });
   }
 
+  const valgfelt = enesteValgfelt(steg);
+  if (steg.type === "QUESTION" && valgfelt) {
+    for (const alternativ of valgfelt.alternativer || []) {
+      const verdi = alternativVerdi(alternativ);
+      knapper.push({
+        label: alternativLabel(alternativ),
+        // hoppOverSporsmaalsruting: et trykk er aldri et spørsmål, og verdien
+        // skal inn uendret.
+        onClick: () => sendMessage(verdi, { hoppOverSporsmaalsruting: true })
+      });
+    }
+  }
+
   if (steg.type === "CONSENT_REQUEST") {
     knapper.push(
       { label: "Ja, det går fint", onClick: () => ensureConsentDecision("SAMTYKKET", "Takk, jeg ordner det.") },
@@ -967,6 +1028,19 @@ function renderQuickActionsFor(steg: ProsessSteg, feilrutetTekst: string | null 
 
 function normalize(text: string): string {
   return text.toLowerCase().trim();
+}
+
+// Egen funksjon framfor et nytt sendMessage-kall: sendMessage skriver
+// innbyggerens melding i loggen øverst, så en runde til dobler den.
+async function svarPaaSpoersmaal(steg: ProsessSteg, tekst: string): Promise<void> {
+  if (!oekt) return;
+  oekt = await req<Prosessoekt>(`/api/prosessoekter/${oekt.oektsId}/svar`, {
+    method: "POST",
+    body: JSON.stringify({ stegId: steg.id, svar: tekst })
+  });
+  addMsg("assistant", acknowledgeSvar(steg, tekst));
+  updateSessionInfo();
+  await goNext();
 }
 
 async function sendMessage(
@@ -1009,18 +1083,21 @@ async function sendMessage(
       // Any input at an info step means the user has read the information
       // and wants to move on - whether they say "fortsett", name a street,
       // or anything else that is not a side-question.
-      await goNext();
+      //
+      // Men var teksten mer enn et «gå videre», var den svaret på spørsmålet
+      // som kommer. Da sendes den inn i stedet for å kastes.
+      const nesteSteg = (aktivProsess?.steg || [])[oekt.stegIndex + 1];
+      const svarerFramfor = nesteSteg?.type === "QUESTION" && !erFortsettSignal(reellTekst);
+      await goNext({ tegnSteg: !svarerFramfor });
+      const nyttSteg = oekt?.aktivtSteg;
+      if (svarerFramfor && nyttSteg?.type === "QUESTION") {
+        await svarPaaSpoersmaal(nyttSteg, reellTekst);
+      }
       return;
     }
 
     if (steg.type === "QUESTION") {
-      oekt = await req<Prosessoekt>(`/api/prosessoekter/${oekt.oektsId}/svar`, {
-        method: "POST",
-        body: JSON.stringify({ stegId: steg.id, svar: reellTekst })
-      });
-      addMsg("assistant", acknowledgeSvar(steg, reellTekst));
-      updateSessionInfo();
-      await goNext();
+      await svarPaaSpoersmaal(steg, reellTekst);
       return;
     }
 

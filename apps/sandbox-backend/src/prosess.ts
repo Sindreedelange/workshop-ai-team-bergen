@@ -2,7 +2,8 @@ import { maskinportenHeader } from "../../digdir-mock/src/client.ts";
 import { aktorFor, type Caller } from "./autentisering.ts";
 import { aiBaseUrl, fiksBaseUrl, fiksDialogToken } from "./config.ts";
 import { HttpError } from "./errors.ts";
-import { runRessurs } from "./ressurser.ts";
+import { findRessurs, runRessurs, samtykkekildeFor } from "./ressurser.ts";
+import { hasGyldigSamtykke } from "./regler.ts";
 import { addRevisjon } from "./revisjon.ts";
 import { updateJson } from "../../shared/jsonstore.ts";
 import type { Person } from "../../shared/innbyggerdata.ts";
@@ -10,14 +11,73 @@ import { buildSoknadsdokument } from "./kvittering.ts";
 import { sendKvittering } from "./svarut.ts";
 import { findPerson, newId } from "./state.ts";
 import { buildAdvarsel, callUpstream, tryUpstream } from "./upstream.ts";
+import { alternativVerdi, alternativLabel } from "./types.ts";
 import type {
   ProsessDefinisjon,
   ProsessSteg,
+  SpoersmaalsFelt,
   Prosessoekt,
   SjekkResultat,
   Stegtype,
   State
 } from "./types.ts";
+
+/*
+ * Svaret på et lukket alternativsett kanoniseres her, og nowhere else: begge
+ * skrivepunktene (POST /svar og QUESTION-handleren) kaller denne.
+ *
+ * Uten den ble «Støttekontakt» lagret som den sto, og feilen kom to steg senere
+ * fra selectOrdningForFormaal - på et steg som ikke hadde noe med svaret å
+ * gjøre, og med økten alt flyttet dit.
+ */
+function brett(tekst: string): string {
+  return tekst
+    .toLowerCase()
+    .replace(/æ/g, "ae")
+    // NFKD tar «å» og «é»; «ø» har ingen dekomponering og må stå for seg.
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .replace(/ø/g, "o")
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function kanoniserAlternativ(felt: SpoersmaalsFelt, verdi: unknown): string {
+  const alternativer = felt.alternativer || [];
+  const brettet = brett(String(verdi));
+  const treff = alternativer.find(
+    (alternativ) => brett(alternativVerdi(alternativ)) === brettet
+      || brett(alternativLabel(alternativ)) === brettet
+  );
+  if (!treff) {
+    const gyldige = alternativer.map(alternativVerdi).join(", ");
+    throw new HttpError(`Ugyldig svar på feltet ${felt.id}. Gyldige: ${gyldige}.`, 400);
+  }
+  return alternativVerdi(treff);
+}
+
+export function normaliserValgsvar(steg: ProsessSteg, svar: unknown): unknown {
+  if (steg.type !== "QUESTION") return svar;
+  const valgfelter = (steg.felter || []).filter(
+    (felt) => felt.type === "valg" && (felt.alternativer || []).length > 0
+  );
+  if (valgfelter.length === 0) return svar;
+
+  // /stegvis poster et objekt nøklet på felt-id, /chat poster en ren streng.
+  if (typeof svar === "string") {
+    return (steg.felter || []).length === 1
+      ? kanoniserAlternativ(valgfelter[0], svar)
+      : svar;
+  }
+  if (!svar || typeof svar !== "object") return svar;
+
+  const ut: Record<string, unknown> = { ...(svar as Record<string, unknown>) };
+  for (const felt of valgfelter) {
+    if (ut[felt.id] !== undefined && ut[felt.id] !== "") {
+      ut[felt.id] = kanoniserAlternativ(felt, ut[felt.id]);
+    }
+  }
+  return ut;
+}
 
 function replaceParametere(url: string, oekt: Prosessoekt) {
   let result = url;
@@ -52,9 +112,73 @@ function replaceParametere(url: string, oekt: Prosessoekt) {
   return result;
 }
 
-export function buildProsessoektRespons(oekt: Prosessoekt, prosess: ProsessDefinisjon | null) {
+// Katalogen håndhever samtykket, så kilden leses derfra og ikke fra stegets
+// eget kreverSamtykke - to erklæringer kunne bare komme ut av takt.
+function samtykkekildeForSteg(
+  tilstand: State,
+  oekt: Prosessoekt,
+  steg: ProsessSteg | undefined,
+  kaller: Caller
+): string | null {
+  if (!steg || steg.type !== "DATA_FETCH" || !steg.api?.url) return null;
+  const url = new URL(`http://localhost${replaceParametere(steg.api.url, oekt)}`);
+  const treff = findRessurs(steg.api.method || "GET", url.pathname);
+  if (!treff) return null;
+  const { ressurs, parametere } = treff;
+  const sok = url.searchParams;
+  return samtykkekildeFor(ressurs, {
+    tilstand,
+    parametere,
+    sok,
+    // Samme rekkefølge som runRessurs: en kilde som avhenger av ?personId= skal
+    // avgjøres likt når data hentes og når økten serverer dem om igjen.
+    personId: parametere.personId || sok.get("personId") || oekt.personId || "",
+    sporingsId: oekt.sporingsId,
+    oekt,
+    steg,
+    kaller
+  });
+}
+
+/**
+ * Resultatene økten kan svare med nå, ikke de den kunne svare med da stegene kjørte.
+ *
+ * Et samtykke kan være trukket eller ha utløpt i mellomtiden, og uten dette
+ * serverte hver henting av økten dem ut igjen uten at porten var innom.
+ */
+export function resultaterNaa(
+  tilstand: State,
+  oekt: Prosessoekt,
+  prosess: ProsessDefinisjon | null,
+  kaller: Caller
+) {
+  const beholdt: Record<string, unknown> = {};
+  const gjenlest = new Set<string>();
+  for (const [stegId, resultat] of Object.entries(oekt.resultater || {})) {
+    const steg = prosess?.steg?.find((kandidat) => kandidat.id === stegId);
+    const kilde = samtykkekildeForSteg(tilstand, oekt, steg, kaller);
+    if (!kilde) {
+      beholdt[stegId] = resultat;
+      continue;
+    }
+    if (hasGyldigSamtykke(tilstand, oekt.personId, kilde, oekt.aktivtSamtykkeId)) {
+      beholdt[stegId] = resultat;
+      gjenlest.add(kilde);
+    }
+  }
+  return { resultater: beholdt, gjenlest: [...gjenlest] };
+}
+
+export function buildProsessoektRespons(
+  oekt: Prosessoekt,
+  prosess: ProsessDefinisjon | null,
+  // Påkrevd med vilje: med en standardverdi ville en ny rute som glemmer den
+  // servert ugjennomgåtte resultater, og det ville typesjekket.
+  resultater: Record<string, unknown>
+) {
   return {
     ...oekt,
+    resultater,
     aktivtSteg: prosess?.steg?.[oekt.stegIndex] || null,
     totaltAntallSteg: prosess?.steg?.length || 0
   };
@@ -191,10 +315,11 @@ export const stegHandlers: Record<Stegtype, (k: StegContext) => unknown | Promis
   INFO: () => ({ type: "INFO", melding: "Informasjonssteg krever ingen handling." }),
 
   QUESTION: ({ oekt, steg, body }) => {
-    const svar = body.svar ?? oekt.svar[steg.id];
-    if (!svar) {
+    const raatt = body.svar ?? oekt.svar[steg.id];
+    if (!raatt) {
       throw new HttpError("Spørsmålssteg krever et svar.", 400);
     }
+    const svar = normaliserValgsvar(steg, raatt);
     oekt.svar[steg.id] = svar;
     return { type: "QUESTION", svar };
   },
@@ -298,7 +423,6 @@ export const stegHandlers: Record<Stegtype, (k: StegContext) => unknown | Promis
           sporingsId: oekt.sporingsId,
           kontekst: {
             tjeneste: prosess.navn,
-            personId: oekt.personId,
             prosessId: oekt.prosessId,
             data: oekt.resultater,
             svar: oekt.svar

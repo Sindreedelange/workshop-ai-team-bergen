@@ -1,5 +1,16 @@
 # Arkitektur
 
+## Innhold
+
+- [Målbilde](#målbilde)
+- [Arkitekturprinsipper](#arkitekturprinsipper)
+- [Autonomi og støtte](#autonomi-og-støtte)
+- [Samspill mellom tjenestene](#samspill-mellom-tjenestene)
+- [Dynamisk verktøyoppdagelse i agenten](#dynamisk-verktøyoppdagelse-i-agenten)
+- [Utskiftbarhet](#utskiftbarhet)
+- [Status og kjente avvik](#status-og-kjente-avvik)
+- [Neste steg](#neste-steg)
+
 ## Målbilde
 
 Tjenestene, portene og rollene deres står **ett sted**:
@@ -62,15 +73,59 @@ Disse finnes for å senke terskelen og spare tid, ikke for å definere én rikti
 5. `sandbox-backend` kaller `ai-gateway` for oppsummering og forklaring
 6. `sandbox-backend` henter matrikkeldata fra `matrikkel-mock` over HTTP (`MATRIKKEL_BASE_URL`, se `apps/sandbox-backend/src/matrikkel.ts`) og eksponerer dem via `GET /api/matrikkel/gater` og `SJEKK`-steg. Mocken er eneste leser av seeden, og eneste vei til SOAP-flaten
 7. `sandbox-backend` henter legeerklæringen fra `pasientjournal-mock` over HTTP (`PASIENTJOURNAL_BASE_URL`), bak samtykkeporten. Mocken er eneste leser av `data/legeerklaeringer.json`, og integrasjonen finnes ikke i virkeligheten - se `apps/pasientjournal-mock/README.md`
-8. `tools-api` eksponerer verktøy mot backend, ai-gateway og matrikkel-mock
-9. `process-agent` bruker `tools-api` for all tilstand og data; oppdager relevante verktøy dynamisk per steg via `suggest_step_tools`
-10. alle relevante hendelser sendes til revisjonslogg
+8. `sandbox-backend` leser politiattesten fra `politiattest-mock` over HTTP (`POLITIATTEST_BASE_URL`), bak samtykkeporten, og minimerer svaret før noe annet ser det: type, dato og antall anmerkninger, aldri hva de gjelder. Mocken er eneste leser av `data/politiattester.json`, og integrasjonen finnes ikke i virkeligheten - se `apps/politiattest-mock/README.md`
+9. `tools-api` eksponerer verktøy mot backend, ai-gateway og matrikkel-mock
+10. `process-agent` bruker `tools-api` for all tilstand og data; oppdager relevante verktøy dynamisk per steg via `suggest_step_tools`
+11. alle relevante hendelser sendes til revisjonslogg
+
+Tegnet opp, med samtykkeporten markert:
+
+```mermaid
+flowchart LR
+  subgraph klienter["Klienter"]
+    PB["process-builder"]
+    DG["demo-gui"]
+    PAG["process-agent"]
+  end
+
+  subgraph kjerne["Kjerne"]
+    SB["sandbox-backend"]
+    TA["tools-api"]
+    AG["ai-gateway"]
+  end
+
+  subgraph mocker["Mockede integrasjoner"]
+    FS["fiks-simulator"]
+    MM["matrikkel-mock"]
+    PJ["pasientjournal-mock"]
+    PA["politiattest-mock"]
+    DM["digdir-mock"]
+  end
+
+  PB --> SB
+  DG --> SB
+  PAG --> TA
+  TA --> SB
+  TA --> AG
+  TA --> MM
+  SB --> AG
+  SB --> MM
+  SB -->|"samtykke og beregning"| FS
+  SB -->|"bak samtykkeporten"| PJ
+  SB -->|"bak samtykkeporten"| PA
+  DM -.->|"token"| SB
+  DM -.->|"token"| FS
+```
+
+Pilene er hvem som kaller hvem. `digdir-mock` står for seg fordi den ikke kalles inn i
+en flyt: den utsteder tokenet `sandbox-backend` og `fiks-simulator` krever.
+
 
 ## Dynamisk verktøyoppdagelse i agenten
 
 Når agenten møter et `QUESTION`-steg kaller den `suggest_step_tools` i `tools-api`.
 Dette kallet sender stegdefinisjonens tekst og feltlabeler til `ai-gateway /ai/velg-verktoy`,
-som returnerer hvilke MCP-verktøy som er relevante (`kontekst`, `validering` eller begge).
+som returnerer hvilke verktøy som er relevante (`kontekst`, `validering` eller begge).
 Agenten kjører så `kontekst`-verktøy proaktivt og bruker `validering`-verktøy til å normalisere
 brukerens svar.
 
@@ -91,21 +146,10 @@ Det betyr at:
 
 ## Status og kjente avvik
 
-Alle ti tjenestene er implementert og kjører. Samtykkesperre, revisjonslogg,
-deterministisk vilkårsvurdering og seks demo-case er på plass. Det som følger er
+Alle elleve tjenestene er implementert og kjører. Samtykkesperre, revisjonslogg,
+deterministisk vilkårsvurdering og sju demo-case er på plass. Det som følger er
 avvik mellom hvordan sandkassen presenterer seg og hva den faktisk gjør - verdt å
 kjenne til før du bygger på den.
-
-**`tools-api` er REST, ikke MCP.** Den svarer `protocol: "rest"` og eksponerer 25
-verktøy over REST. Det er ingen JSON-RPC og ingen stdio- eller SSE-transport, så en
-MCP-klient som Claude Code eller Cursor kan ikke koble seg på. Verktøyene har derimot
-korrekt formede `inputSchema`, så veien til ekte MCP er kort.
-
-`apps/brreg-mcp` og `apps/folkeregister-mcp` er de eneste tingene i repoet som
-heter MCP, og de *er* MCP. Stiene `/mcp`, `/mcp/tools` og `/mcp/tools/invoke` står
-igjen, fordi en sti er wire-format: det er det ene stedet prefikset fortsatt hevder
-en protokoll tjenesten ikke snakker. Navnehistorikken står i
-`apps/tools-api/README.md`.
 
 **KI-fallback er delvis synlig.** Når modellen ikke svarer, faller `ai-gateway` tilbake
 til maltekst og setter et `advarsel`-felt. `GET /helse` rapporterer `modellNaaBar`, og
@@ -163,3 +207,16 @@ kommune og svares gjennom den. `sandbox-backend` holder det verifiserte
 innbyggertokenet, avgjør, og navngir innbyggeren i `aktor` på vei ut - hjemmelen er
 maskinens, handlingen er innbyggerens. `pnpm test:samtykke` pinner begge
 avvisningene.
+
+---
+
+## Neste steg
+
+**Skal du bygge på sandkassen i stedet for i den?**
+[`docs/bygg-selv.md`](bygg-selv.md) er siden for det.
+
+**Skal du endre selve sandkassen?** [`AGENTS.md`](../AGENTS.md) er
+maintainer-dokumentet, og [`CONTRIBUTING.md`](../CONTRIBUTING.md) sier når en endring
+er ferdig.
+
+**Tilbake til kartet:** [`docs/README.md`](README.md).

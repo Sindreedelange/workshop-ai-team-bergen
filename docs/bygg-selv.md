@@ -5,9 +5,23 @@ tvungen måte å bygge på.** De er der for å spare deg tid hvis de passer, og 
 hvordan API-ene brukes hvis de ikke gjør det.
 
 Denne siden er veien fra «demoen kjører» til noe du har laget selv. Har du ikke kjørt
-sandkassen ennå, start med `docs/deltakerstart.md`.
+sandkassen ennå, start med [`docs/deltakerstart.md`](deltakerstart.md).
 
 ---
+
+## Innhold
+
+- [Egen frontend, egen port](#egen-frontend-egen-port)
+- [Token, kort fortalt](#token-kort-fortalt)
+- [Finn ut hva som finnes, uten å lese spesifikasjonene](#finn-ut-hva-som-finnes-uten-å-lese-spesifikasjonene)
+- [Ting du ikke skal døpe om](#ting-du-ikke-skal-døpe-om)
+- [Utvide sandkassen innenfra](#utvide-sandkassen-innenfra)
+- [Egne testdata](#egne-testdata)
+- [Helt ny tjeneste](#helt-ny-tjeneste)
+- [Sjekker du kan kjøre underveis](#sjekker-du-kan-kjøre-underveis)
+- [Bruk Altinn Studio](#bruk-altinn-studio)
+- [Bruk digital lommebok](#bruk-digital-lommebok)
+- [Neste steg](#neste-steg)
 
 ## Egen frontend, egen port
 
@@ -61,7 +75,7 @@ Den er et vanlig skript, ikke en modul, så funksjonene ligger globalt:
 | `checkModell(aiBase)` | Er språkmodellen koblet på |
 
 Vil du heller skrive det selv, er hele runden dokumentert i
-`apps/digdir-mock/README.md`.
+[`apps/digdir-mock/README.md`](../apps/digdir-mock/README.md).
 
 ### Stil
 
@@ -69,7 +83,7 @@ Vil du heller skrive det selv, er hele runden dokumentert i
 hver komponent, lest ut av DOM-en. Kopier derfra. Komponentene er dokumentert på
 <https://designsystemet.no/no>, med [Storybook](https://design.ksdigital.no) og et
 Figma-bibliotek for KS Digital-temaet. Oppsettet i sandkassen står i
-`docs/designsystem.md`.
+[`docs/designsystem.md`](designsystem.md).
 
 I ditt eget prosjekt installerer du det fra npm - `pnpm add @ks-digital/designsystem-themes`
 og importer `base.css` + `ksdigital.css`. Da er resten klasser og `data-`-attributter på
@@ -147,7 +161,8 @@ tvil om et feltnavn, slå det opp der og ikke her.
 ## Utvide sandkassen innenfra
 
 Vil du heller bygge videre på prosessmotoren enn ved siden av den, er det nesten alltid
-ett av disse fire stedene. Hele oppskriften står i `docs/prosessmodell.md`.
+ett av disse fire stedene. Hele oppskriften står i
+[`docs/prosessmodell.md`](prosessmodell.md).
 
 | Du vil | Endre |
 |---|---|
@@ -201,6 +216,10 @@ To ting å huske:
 
 ## Helt ny tjeneste
 
+> [!TIP]
+> «Kopier en eksisterende» gjelder oppsettet, ikke hva tjenesten skal gjøre. Er det
+> ikke avgjort, se `.claude/skills/nytt-bruksomraade/SKILL.md` først.
+
 Sju steg, og de tre siste er de som gjør at CI feiler hvis du glemmer dem:
 
 1. `apps/<navn>/` med en `package.json` på sju linjer - kopier en eksisterende
@@ -251,3 +270,64 @@ Frontend i Altinn Studio appen kan byttes ut med noe eget.
 
 En demo-implementasjon av en app som er tenkt til å kjøre i parallell med sandkassen utvikles på https://altinn.studio/repos/ttd/ks-hackathon-demo og kan stjeles rått eller brukes til inspirasjon.
 Merk at du må ha en bruker i Altinn Studio for å få tilgang - du registrerer deg første gang ved å logge inn via Ansattporten med BankID eller MinID.
+
+---
+
+## Bruk digital lommebok
+
+Digital lommebok er løsningen som følger av EUs eIDAS 2.0-forordning, og som lar
+innbyggeren lagre og dele digitale bevis om seg selv. Tanken er den samme som
+spørsmålet om skjemaet i [`docs/oppdraget.md`](oppdraget.md): i stedet for at
+innbyggeren fyller ut opplysninger det offentlige alt har, viser hen fram et bevis
+rett fra lommeboken - og velger selv hva som deles, og med hvem.
+
+Tre roller er alt vokabularet du trenger for å komme i gang:
+
+- **utstederen** lager beviset og signerer det
+- **lommeboken** holder beviset, hos innbyggeren
+- **brukerstedet** mottar beviset og verifiserer det
+
+Digdirs egen dokumentasjon er på nynorsk og skriver «utstedar» og «brukarstad», og
+«verifikator» brukes om brukerstedet. Kjenner du de tre ordene, finner du resten selv.
+
+**Ingenting i denne sandkassen etterligner lommeboken.** Digdir driver en egen
+nasjonal sandkasse for den, med demo-lommebok, utsteder og brukersted, og du
+registrerer deg der selv. Skal du bruke lommeboken, snakker du altså med Digdirs
+sandkasse - ikke med noe som kjører på maskinen din herfra.
+
+**Digdir er til stede på hackathonet**, med utviklere og fagressurser. De holder et
+kort innlegg om lommeboken og sandkassen, og er tilgjengelige gjennom hele
+arrangementet for team som vil teste utstedelse, deling og verifisering. Det er den
+korteste veien inn, kortere enn å lese seg fram.
+
+**Én ting i sandkassen er formet for sporet.** Politiattesten er skoleeksempelet på et
+digitalt bevis: i virkeligheten er den en låst PDF som kan forfalskes, og sektoren har
+bedt om en verifiserbar løsning i årevis uten å få den. Hver attest fra
+`politiattest-mock` bærer derfor en `bevis`-blokk formet som et Verifiable Credential,
+med utsteder, subjekt, utstedelsesdato og gyldighet. Den kan utstedes i Digdirs
+lommebok, og framvisningssteget i `politiattest-oppdrag` er stedet der en verifisering
+hører hjemme i stedet for et oppslag.
+
+Vil du lese:
+
+- <https://samarbeid.digdir.no/digital-lommebok/digital-lommebok/2897> - prosjektet,
+  bakgrunnen og kontaktpersonene i Digdir
+- <https://docs.digdir.no/docs/lommebok/lommebok_om.html> - den tekniske
+  dokumentasjonen, blant annet hvordan du kommer i gang som utsteder eller brukersted
+
+---
+
+## Neste steg
+
+**Virker ikke noe av det over?** [`docs/feilsoking.md`](feilsoking.md) har ett symptom
+per avsnitt, med årsak og løsning.
+
+**Skal du lage en ny case inne i prosessmotoren?**
+[`docs/prosessmodell.md`](prosessmodell.md) forklarer stegtypene og hvordan du legger
+til en flyt.
+
+**Skal frontenden se ut som resten av KS Digital?**
+[`docs/designsystem.md`](designsystem.md) har oppsettet, og fallgruven som gjør at
+stilarket ser ut som det ikke lastet.
+
+**Tilbake til kartet:** [`docs/README.md`](README.md).

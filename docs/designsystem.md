@@ -6,7 +6,7 @@
 **Vi forventer at du bygger frontenden din i ditt eget prosjekt, utenfor dette repoet.**
 Sandkassen er API-ene du kaller - den er ikke ment som app-rammeverket ditt. Alle
 tjenestene svarer med `Access-Control-Allow-Origin: *`, så en app på din egen port snakker
-rett med dem. Oppskriften står i `docs/bygg-selv.md`.
+rett med dem. Oppskriften står i [`docs/bygg-selv.md`](bygg-selv.md).
 
 Ingen hindrer deg i å utvide `demo-gui` i stedet, og noen ganger er det raskeste vei til en
 demo. Da gjelder ekstra regler - de står under.
@@ -25,6 +25,16 @@ KS Digital-temaet ferdig på:
 for design og skisser.
 
 ---
+
+## Innhold
+
+- [Oppsett i ditt eget prosjekt](#oppsett-i-ditt-eget-prosjekt)
+- [Oppsett inne i sandkassen](#oppsett-inne-i-sandkassen)
+- [Hvor du slår opp](#hvor-du-slår-opp)
+- [Fallgruver](#fallgruver)
+- [Regler](#regler)
+- [Kommunevåpen](#kommunevåpen)
+- [Neste steg](#neste-steg)
 
 ## Oppsett i ditt eget prosjekt
 
@@ -158,8 +168,8 @@ Gjelder bare hvis du likevel bygger inne i dette repoet:
   andre team leser; de skal fortsatt virke.
 - **Aldri rediger `apps/shared/ds-base.css` eller `ds-ksdigital.css`.** De er hentet
   uendret fra temapakken, og `pnpm ds:hent` overskriver endringene dine.
-- **Språkregelen i `AGENTS.md` (`## Language`) gjelder her også.** Den er ikke gjengitt
-  her; klassenavn er teknikk og dermed engelske, og resten står der.
+- **Språkregelen i [`AGENTS.md`](../AGENTS.md) (`## Language`) gjelder her også.** Den
+  er ikke gjengitt her; klassenavn er teknikk og dermed engelske, og resten står der.
 - **Bygg DOM med `createElement` og `textContent`, ikke `innerHTML`.** Det er konvensjonen
   i resten av sandkassen, og innholdet kommer fra API-svar.
 
@@ -172,3 +182,12 @@ Gjelder bare hvis du likevel bygger inne i dette repoet:
 ```
 
 Filnavnet er kommunenummeret.
+
+---
+
+## Neste steg
+
+**Skal du koble frontenden på API-ene?** [`docs/bygg-selv.md`](bygg-selv.md) har token,
+CORS og hva som er frosset.
+
+**Tilbake til kartet:** [`docs/README.md`](README.md).

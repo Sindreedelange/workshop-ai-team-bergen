@@ -13,6 +13,11 @@
 // the same files off the same disk, so Person and Husstand belong to neither
 // service. Re-exported nowhere - a caller that needs Person imports it from there.
 import type { Husstand, MedFelter, Person, Plass, Samtykke } from "../../shared/innbyggerdata.ts";
+import type {
+  Anmerkningskategori,
+  Attestformaal,
+  Attesttype
+} from "../../shared/politiattest.ts";
 
 // --- process model --------------------------------------------------------
 
@@ -27,13 +32,25 @@ export type Stegtype =
 
 export type Feltype = "tekst" | "ja-nei" | "valg";
 
+// A plain string is both value and label. The object form separates them, so a
+// kodeverk value can be stored while the citizen reads an ordinary word.
+export type Alternativ = string | { verdi: string; label: string };
+
 export type SpoersmaalsFelt = {
   id: string;
   label: string;
   type: Feltype;
   obligatorisk?: boolean;
-  alternativer?: string[];
+  alternativer?: Alternativ[];
 };
+
+export function alternativVerdi(alternativ: Alternativ): string {
+  return typeof alternativ === "string" ? alternativ : alternativ.verdi;
+}
+
+export function alternativLabel(alternativ: Alternativ): string {
+  return typeof alternativ === "string" ? alternativ : alternativ.label;
+}
 
 export type ApiKall = {
   method?: string;
@@ -100,9 +117,16 @@ export type Regeltype =
   | "INNTEKTSGRENSE"
   | "MAKS_ANDEL_AV_INNTEKT"
   | "TJENESTEBEHOV"
-  | "TRANSPORTBEHOV";
+  | "TRANSPORTBEHOV"
+  | "VANDELSKONTROLL";
 
-export type Tjeneste = "barnehage" | "sfo" | "fritid" | "stottekontakt" | "transport";
+export type Tjeneste =
+  | "barnehage"
+  | "sfo"
+  | "fritid"
+  | "stottekontakt"
+  | "transport"
+  | "vandel";
 
 export const KVOTEKATEGORIER = [
   "ordinaer",
@@ -117,6 +141,7 @@ export type Ordning = {
   navn: string;
   tjeneste: Tjeneste;
   regel: Regeltype;
+  kilde: string;
   beskrivelse?: string;
   inntektsgrense?: number;
   alderFraAar?: number;
@@ -144,10 +169,28 @@ export type Ordning = {
    * process asks the citizen and the vedtak reads the legeerklæring.
    */
   kvotetilleggLangtTilPost?: number;
+  /** VANDELSKONTROLL: rollen attesten må være utstedt til. Formålet, med andre ord. */
+  formaal?: Attestformaal;
+  /** VANDELSKONTROLL: hjemmelen kontrollen gjøres etter, slik bekreftelsen oppgir den. */
+  hjemmel?: string;
+  /** VANDELSKONTROLL: attesttypen formålet gir rett til. */
+  attesttype?: Attesttype;
+  /** VANDELSKONTROLL: hvor gammel attesten kan være ved framvisning. Tre måneder. */
+  maksAlderMaaneder?: number;
+  /**
+   * VANDELSKONTROLL: anmerkningene som utelukker absolutt, uten skjønn. Tom liste
+   * betyr at hver anmerkning er en egnethetsvurdering et menneske må gjøre.
+   */
+  absoluttUtelukkelse?: Anmerkningskategori[];
+  /** VANDELSKONTROLL: hva innbyggeren skal gjøre, slik bekreftelsen sier det. */
+  slikSoekerDu?: string;
+  /** VANDELSKONTROLL: hva kommunen gjør med attesten etterpå. */
+  oppbevaring?: string;
 };
 
 export type Satser = {
   gjelderFra: string;
+  /** Kept in GET /api/regler/satser for wire compatibility; assessments use Ordning.kilde. */
   kilde: string;
   maksAndelAvInntekt: number;
   maanederMedBetaling: number;
@@ -159,8 +202,16 @@ export type Satser = {
  * The contract a SJEKK step must satisfy. If `godkjent` is false the oekt becomes
  * AVVIST and `melding` becomes `avvistMelding`. See docs/prosessmodell.md.
  */
+/**
+ * `godkjent` er toveis fordi den styrer rutingen. `utfall` finnes fordi et utfall
+ * kan slippe gjennom uten å være et ja - en anmerkning ingen lov utelukker skal til
+ * et menneske - og den som tegner resultatet må kunne si det uten å kjenne regelen.
+ */
+export type Sjekkutfall = "godkjent" | "avvist" | "til_manuell";
+
 export type SjekkResultat = {
   godkjent: boolean;
+  utfall?: Sjekkutfall;
   melding: string;
   grunnlag?: Record<string, unknown>;
 };

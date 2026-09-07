@@ -4,8 +4,25 @@ Finn symptomet som passer, og følg løsningen. Hvert avsnitt står for seg - du
 ikke lese filen fra toppen.
 
 Første stopp er alltid <http://localhost:3001>: den viser om alle tjenestene kjører og
-om modellen er koblet på. De tre raskeste sjekkene står i `docs/deltakerstart.md` §5;
-denne filen tar resten.
+om modellen er koblet på. De tre raskeste sjekkene står i
+[`docs/deltakerstart.md`](deltakerstart.md) §5; denne filen tar resten.
+
+## Innhold
+
+| Symptom | Det du ser |
+|---|---|
+| [Alt svarer 401](#alt-svarer-401) | Hvert autentisert kall svarer `401`, også kall som virket i går |
+| [401 etter at `state/` ble tømt](#401-etter-at-state-ble-tømt) | Alt virket, du nullstilte, og nå er alt `401` igjen |
+| [«fetch failed» på matrikkel-oppslag](#fetch-failed-på-matrikkel-oppslag) | Gate- eller eiendomsoppslag feiler, gjerne uten nett |
+| [Maltekst du ikke ba om](#maltekst-du-ikke-ba-om) | KI-svarene er generiske, og du kjørte ikke med `--mock` |
+| [Modellkall henger eller tar lang tid](#modellkall-henger-eller-tar-lang-tid) | Et steg står og spinner |
+| [Treg eller manglende modellnedlasting](#treg-eller-manglende-modellnedlasting) | Oppstart kommer ikke videre, typisk på delt nett |
+| [Port opptatt](#port-opptatt) | Oppstart stopper med at en port er i bruk |
+| [Container som ikke blir healthy](#container-som-ikke-blir-healthy) | `docker compose ps` viser noe annet enn `healthy` |
+| [«Cannot find module» i en container](#cannot-find-module-i-en-container) | En tjeneste krasjer ved oppstart |
+| [Windows-oppstart](#windows-oppstart) | `./start.sh` eller `start.bat` oppfører seg rart på Windows |
+| [Nullstille](#nullstille) | Du vil bare begynne på nytt |
+| [Neste steg](#neste-steg) | Du fant ikke symptomet her |
 
 ## Alt svarer 401
 
@@ -30,10 +47,12 @@ curl -s http://localhost:8086/helse
 
 Svarer ikke `:8086`, start den: `docker compose up -d digdir-mock`.
 
-Får du `403` i stedet, er du forbi autentiseringen - da er det hjemmelslaget som
-virker, ikke en feil. Og bare `sandbox-backend` (`:8080`) og `fiks-simulator`
-(`:8081`) håndhever hjemmel - en `401` fra `:8082`–`:8085` er noe annet.
-Se `docs/deltakerstart.md` §4 og `examples/curl/README.md` §3.
+> [!IMPORTANT]
+> Får du `403` i stedet, er du forbi autentiseringen - da er det hjemmelslaget som virker,
+> ikke en feil. Og bare `sandbox-backend` (`:8080`) og `fiks-simulator` (`:8081`)
+> håndhever hjemmel - en `401` fra `:8082`–`:8085` er noe annet. Se
+> [`docs/deltakerstart.md`](deltakerstart.md) §4 og
+> [`examples/curl/README.md`](../examples/curl/README.md) §3.
 
 ## 401 etter at `state/` ble tømt
 
@@ -72,7 +91,7 @@ curl -s http://localhost:8085/helse
 Er den oppe, men adressen finnes ikke: utenfor seed-filen prøver `matrikkel-mock` et
 live Geonorge-oppslag, og uten nett degraderer det til `404` («Fant ikke …») i stedet
 for en serverfeil. Hold deg til adresser i seedet (f.eks. `Storgata`), eller kom deg
-på nett. Se «Manuell oppstart» i `README.md` for hele tjenestelista.
+på nett. Se «Manuell oppstart» i [`README.md`](../README.md) for hele tjenestelista.
 
 ## Maltekst du ikke ba om
 
@@ -126,7 +145,7 @@ ingenting lastes ned. Andre utveier:
   `docker compose --profile models up ollama-pull-all`.
 - På macOS kjører Ollama nativt, så `ollama pull qwen2.5:14b` fungerer også direkte.
 
-Se «Hvordan starte den» i `README.md` for modellvalget og tidsbruken.
+Se «Hvordan starte den» i [`README.md`](../README.md) for modellvalget og tidsbruken.
 
 ## Port opptatt
 
@@ -134,7 +153,7 @@ Se «Hvordan starte den» i `README.md` for modellvalget og tidsbruken.
 in use».
 
 **Årsak:** Noe annet lytter på en av portene sandkassen bruker: `3000`, `3001`,
-`8080`–`8086`, og `11434` når Ollama kjører i container (Linux/WSL). Ofte er det en
+`8080`–`8087`, og `11434` når Ollama kjører i container (Linux/WSL). Ofte er det en
 gammel kjøring av sandkassen selv, eller en annen utviklingsserver på `3000`/`3001`.
 
 **Løsning:** Stopp en gammel kjøring først:
@@ -145,7 +164,7 @@ gammel kjøring av sandkassen selv, eller en annen utviklingsserver på `3000`/`
 
 Hjelper ikke det, finn prosessen som holder porten - `lsof -i :3000` på macOS og
 Linux, `netstat -ano | findstr :3000` på Windows - og stopp den. Portene per
-tjeneste står i tjenestetabellen i `README.md`.
+tjeneste står i tjenestetabellen i [`README.md`](../README.md).
 
 ## Container som ikke blir healthy
 
@@ -166,7 +185,7 @@ docker compose logs -f <tjeneste>
 Rett feilen og lagre; watcheren plukker den opp. `pnpm lint` finner samme feil uten
 å gå veien om containeren. Henger en frisk tjeneste likevel:
 `docker compose restart <tjeneste>`. Hvordan tjenestene overvåkes står i
-«Hva skriptet gjør for deg» i `README.md`.
+«Hva skriptet gjør for deg» i [`README.md`](../README.md).
 
 ## «Cannot find module» i en container
 
@@ -194,7 +213,7 @@ modellvalg og verifisering av at modellen svarer. `start.bat` finnes som nødlø
 den sjekker porter og venter til tjenestene svarer på `/helse`, men den kjører alltid
 uten språkmodell. Den setter `WATCH_POLL=1`, slik at kodeendringer plukkes opp med polling -
 filsystemhendelser når ikke gjennom Docker Desktops volummontering fra
-Windows-filsystemet. Detaljene står i «På Windows» i `README.md`.
+Windows-filsystemet. Detaljene står i «På Windows» i [`README.md`](../README.md).
 
 ## Nullstille
 
@@ -214,7 +233,7 @@ vil begynne på nytt.
 **Fella:** `--reset` er ikke bare en reset - den tømmer `state/` og starter deretter
 alt på vanlig måte, *inkludert modellnedlasting*. Ta derfor med `--mock` hvis du
 kjørte med `--mock`, ellers begynner den å laste ned flere gigabyte. Se «Valg» i
-`README.md`.
+[`README.md`](../README.md).
 
 Nullstillingen fjerner også admin-valget (`state/ai-provider-override.json`) og
 KI-sporet (`state/ai-trace.jsonl`).
@@ -223,5 +242,19 @@ KI-sporet (`state/ai-trace.jsonl`).
 
 **Fant du ikke symptomet ditt?** `docker compose logs -f <tjeneste>` og
 <http://localhost:8082/trace> er de to beste kildene til hva som faktisk skjedde.
-`docs/deltakerstart.md` §5 har de tre raske sjekkene, og `README.md` har manuell
-oppstart og modellvalg under «Hvordan starte den».
+[`docs/deltakerstart.md`](deltakerstart.md) §5 har de tre raske sjekkene, og
+[`README.md`](../README.md) har manuell oppstart og modellvalg under «Hvordan starte
+den».
+
+---
+
+## Neste steg
+
+**Fant du ikke symptomet her?** [`README.md`](../README.md) har hele bildet: alle flagg,
+alle porter, manuell oppstart og kjente begrensninger.
+
+**Usikker på om det du ser er en feil i det hele tatt?** Et `403` er hjemmelslaget som
+virker. [`docs/deltakerstart.md`](deltakerstart.md#4-ditt-første-eget-kall) forklarer
+forskjellen fra `401`.
+
+**Tilbake til kartet:** [`docs/README.md`](README.md).

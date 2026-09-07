@@ -3,10 +3,62 @@
 > **The maintainer document, for agents changing the sandbox itself.** If you are a
 > hackathon participant, `docs/oppdraget.md` is your starting point - you do not
 > need to read this file, and nothing here is part of the participant materials.
+> One exception: `CLAUDE.md` is `@AGENTS.md`, so in a fork this file is loaded for a
+> participant's agent as well, and
+> [New use-cases](#new-use-cases-diverge-before-you-build) is written for that case.
+
+## Contents
+
+<details>
+<summary>All sections</summary>
+
+- [What this repo is](#what-this-repo-is)
+- [New use-cases: diverge before you build](#new-use-cases-diverge-before-you-build)
+- [Service map (compose defaults)](#service-map-compose-defaults)
+- [Data and state model (important)](#data-and-state-model-important)
+- [Process-engine behavior to preserve](#process-engine-behavior-to-preserve)
+- [Adding a new case: what the last one taught](#adding-a-new-case-what-the-last-one-taught)
+- [Language](#language)
+- [Project conventions you must follow](#project-conventions-you-must-follow)
+- [Frontend: the KS Digital design system](#frontend-the-ks-digital-design-system)
+- [Developer workflows](#developer-workflows)
+- [Integration edges and env vars](#integration-edges-and-env-vars)
+- [Matrikkel integration pattern](#matrikkel-integration-pattern)
+- [Useful places before editing](#useful-places-before-editing)
+
+</details>
 
 ## What this repo is
 - `workshop-ai` is a municipal-dialog sandbox: process-driven user flows over synthetic data, with explicit consent, policy checks, and audit trail.
 - Services are intentionally split by responsibility (UI, orchestration, mocks, AI, tools, agent) and communicate over HTTP, not shared internal libraries.
+
+## New use-cases: diverge before you build
+
+This section is for an agent helping a hackathon participant build something new. The
+rest of the file is unchanged and still the maintainer document.
+
+**A new use-case does not start by copying an existing one.** The pull is strong, and
+this repo creates it: `docs/prosessmodell.md` says to copy `mal-enkel-soknad`,
+`docs/bygg-selv.md` says to copy an existing service, and every demo case walks the
+same road: `INFO` -> `DATA_FETCH` -> `CONSENT_REQUEST` -> `DATA_FETCH` -> `SJEKK` ->
+`SUMMARY` -> `SUBMIT`. Those are recipes for the plumbing, not a template for the
+idea. `docs/oppdraget.md` says the same thing to the participant: the demo clients
+look like an answer to what to build, and they are not.
+
+So when a participant asks for a new case, a new service or a new frontend and has not
+settled what it should be, **do not write code on the first turn**. Read what the
+sandbox actually offers, ask one question at a time, put up directions that genuinely
+differ, and let the participant choose before anything is built.
+
+`.claude/skills/nytt-bruksomraade/SKILL.md` carries the procedure and the axes the
+alternatives have to differ on. Follow it. Skip it when the participant has already
+decided. The rule is against building the default unexamined, not against
+building.
+
+What gets reused is the floor, not the shape: the frozen wire format, the consent
+gate, rules outside the model, and the audit trail. What must not be assumed is the
+rest: that the engine is linear, that a flow has seven steps, that the interface is a
+chat, or that every service is a søknad.
 
 ## Service map (compose defaults)
 - `apps/process-builder` (`3000`): process definition UI.
@@ -19,9 +71,10 @@
 - `apps/fiks-simulator` (`8081`): mock external integrations (consent/tasks/register-like endpoints).
 - `apps/matrikkel-mock` (`8085`): mock of Kartverket Matrikkel Geointegrasjon BasisService (SOAP + REST helpers). Runs from the shared `node:24-alpine` image on the same `./:/workspace` bind mount as every other service; `apps/matrikkel-mock/Dockerfile` exists only for running it standalone.
 - `apps/pasientjournal-mock` (`8087`): mock of an elektronisk pasientjournal, serving the legeerklæringer the TT-kort case is assessed against. **This integration does not exist in reality** - a journal is owned by the virksomhet that provided the care, there is no national API for a legeerklæring, and today the citizen carries a stamped PDF and uploads it. The mock is the structured form of that attachment, and its README says so first. Two things are deliberate: `fnr` is required, so the surface never answers a bulk query, and it is behind Maskinporten rather than ID-porten - real health data sits behind HelseID at Norsk helsenett, which the sandbox does not have. The only *service* that reads `data/legeerklaeringer.json`; the gate reads it too.
-- `apps/ai-gateway` (`8082`): AI provider abstraction (`mock|ollama|openrouter|telenor-ai-factory|bedrock`). Switch live, no restart, at `GET /admin` (or `POST /admin/provider`) - persisted to `state/ai-provider-override.json`, which overrides `AI_PROVIDER`/`BEDROCK_MODEL_ID` on next boot. Also exposes `POST /ai/velg-verktoy` for dynamic step-tool discovery.
-- `apps/tools-api` (`8083`): 25 tool endpoints wrapping backend + AI + matrikkel. Includes `suggest_step_tools`, `matrikkel_finn_veger`, `matrikkel_hent_eiendom`, `matrikkel_hent_eiere`. **REST, not the MCP protocol** - it answers `protocol: "rest"`, with no JSON-RPC and no stdio/SSE transport, so no MCP client can connect. The tools do carry well-formed `inputSchema`, so the road to real MCP is short. It was called `mcp-services` until 23.08.2026; the name was dropped rather than the disclaimer repeated in every doc. Its `/mcp/*` paths survive as wire format - the one place the prefix still claims a protocol the service does not speak.
 - `apps/brreg-mcp`, `apps/folkeregister-mcp` (no port): **these two are real MCP** - JSON-RPC 2.0 over stdio, newline-delimited, verified against `@modelcontextprotocol/inspector`. They are standalone servers for an external client (Claude Code, Cursor) to spawn; nothing in the sandbox talks to them. In particular `tools-api` does **not** - it reads the same `data/brreg.seed.json` and `data/folkeregister.seed.json` off disk and exposes its own REST equivalents, so the four brreg/folkeregister tools exist twice, in two protocols. Their compose entries only keep the containers alive on an idle stdin; they are not a dependency of anything.
+- `apps/politiattest-mock` (`8088`): mock of a politiattest, serving the attest the vandelskontroll case is assessed against. **This integration does not exist in reality** - there is no API for a politiattest, the attest is a locked PDF with no machine-readable content, it is issued to the citizen rather than to the kommune, and nobody can look it up. The mock is the structured form of the document the citizen presents, and its README says so first. It does not model politiets reaksjonsregister: it answers only for attests already issued for a stated formål. Three things are deliberate: `fnr` is required, so the surface never answers a bulk query; `formaal` is required too, because an attest exists for one purpose and a lookup without one is «what does this person have on them»; and it is behind Maskinporten rather than ID-porten. The only *service* that reads `data/politiattester.json`; the gate reads it too.
+- `apps/ai-gateway` (`8082`): AI provider abstraction (`mock|ollama|openrouter|bedrock`). Switch live, no restart, at `GET /admin` (or `POST /admin/provider`) - persisted to `state/ai-provider-override.json`, which overrides `AI_PROVIDER`/`BEDROCK_MODEL_ID` on next boot. Also exposes `POST /ai/velg-verktoy` for dynamic step-tool discovery.
+- `apps/tools-api` (`8083`): 25 tool endpoints wrapping backend + AI + matrikkel, over REST. Includes `suggest_step_tools`, `matrikkel_finn_veger`, `matrikkel_hent_eiendom`, `matrikkel_hent_eiere`. The catalogue is `GET /verktoy`; a tool is invoked over `POST /verktoy/invoke` or `POST /verktoy/{name}/invoke`.
 - `apps/process-agent` (`8084`): agent API using the tool endpoints. Discovers which tools to call per step via `suggest_step_tools` - but **also carries hardcoded shortcuts** for the `fartsdempende-tiltak` case: step ids `velg-gate`, `hent-gate`, `boliger-bekreft` and `begrunnelse`, plus the tool name `matrikkel_finn_veger`. The dynamic path is real; it is not the only path.
 
 ## Data and state model (important)
@@ -42,7 +95,8 @@
   +80 synthetic marker), `handleevne.ts` (who may act, and on whose behalf),
   `skjerming.ts` (masking), `samtykke.ts` (the samtykke kodeverk and expiry),
   `legeerklaering.ts` (the shape of a legeerklæring, and which one is the current
-  one - read by the journal mock, the backend and the gate). None of
+  one - read by the journal mock, the backend and the gate), `politiattest.ts` (the
+  shape of a politiattest, its four kodeverk, and which attest applies for a formål). None of
   them may import `regler.ts`. `vilkaar.ts` (the vedtak) is the same kind of module but
   stays in `sandbox-backend`: only the backend and the gate read it.
 - Seed/reference data lives in `data/*.json` (tracked, read-only during normal runs).
@@ -73,8 +127,9 @@
   CORS policy is a parameter, because the six copies it replaced had drifted apart) and
   `errors.ts` (`feilmelding`/`feilkode` for caught `unknown`). The rest are used by
   whoever needs them: `assets.ts` (static files and type stripping - the two frontends),
-  `registerdata.ts` (the shapes of `brreg.seed.json` and `folkeregister.seed.json` - the
-  two MCP servers and `tools-api`), `innbyggerdata.ts` (the shapes of `personer.json`,
+  `registerdata.ts` (the shapes of `brreg.seed.json` and `folkeregister.seed.json` -
+  `tools-api`, `fiks-simulator`, `matrikkel-mock` and `skjerming.ts`),
+  `innbyggerdata.ts` (the shapes of `personer.json`,
   `husstander.json`, the two plass-datasets and `samtykker.json` - `sandbox-backend` and
   `fiks-simulator`), `jsonstore.ts` (`seedDir`/`stateDir`, `readJson`, `updateJson` - the
   state I/O above and the one write queue that replaced three copies of it), the six
@@ -113,6 +168,19 @@
 - `SJEKK` is a deterministic rules evaluation in the backend. Decisions must stay
   reproducible and auditable - never move eligibility logic into the model. The model
   formulates (`SUMMARY`); it does not compute or decide.
+- **`VANDELSKONTROLL` answers three ways, and that is the point.** `godkjent` and
+  `krever_manuell_vurdering` both let the søknad through - the second because an
+  anmerkning that no statute excludes outright is an egnethetsvurdering a person makes,
+  so the engine must not decide it. Only the outcomes the law decides are decided here.
+  `grunnlag.vandelsutfall` names the branch, and `scripts/valider-data.ts` counts the
+  six branches from it rather than mirroring the rule.
+- **The politiattest read is minimised before anything else sees it.** `minimerAttest`
+  in `apps/sandbox-backend/src/politiattest.ts` returns type, date and a count, never
+  what the anmerkninger are about. The `DATA_FETCH` result is stored on the session and
+  goes into the `SUMMARY` prompt and `state/ai-trace.jsonl`; straffedommer are artikkel
+  10-opplysninger and do not need to pass through a model to be phrased. The rule reads
+  the whole attest; every other caller reads the minimised view. `pnpm test:vilkaar`
+  pins that the grunnlag carries no category.
 - **Eligibility logic lives in one place: `vilkaar.ts`.** `evaluateVilkaar` is the only way
   in; `regelHandlers` is private, so a new rule type does not widen the interface. The
   module is pure and synchronous - the income basis arrives as a parameter - so an outcome
@@ -156,6 +224,57 @@
   backend uses for «samtykke mangler». `pnpm test:upstream` pins all of it,
   including that the call sites still hand their fetches over.
 - Audit events are first-class output (`state/revisjonslogg.json`); keep behavior observable.
+
+## Adding a new case: what the last one taught
+
+The politiattest case was reviewed end to end after it landed, and the bugs it
+turned up were not in the prose - every one of them sat under a paragraph in this
+file that described the intended behaviour correctly. What was missing was a check
+under the paragraph. Six shapes, all of which recurred:
+
+**A claim about a surface must be checked on every route of it.** This file said
+`fnr` is required "so the surface never answers a bulk query". It was required on
+`/attester` and not on `/attester/{attestId}`, and the same copy-paste sat in
+`pasientjournal-mock`. Note which paragraphs here held up: the ones that end with
+"`pnpm test:concurrency` pins it". A claim with no named check is a wish.
+
+**A check that cannot resolve its subject must fail, not skip.** The `security`
+comparison in `sjekk-openapi-dekning.ts` was `if (!rute) continue`, and `rute` was
+never set for eight of the nine services - so it passed for years without ever
+comparing anything. The scanner now reads the token guard out of the code, and a
+route whose guard it cannot recognise is an error rather than an assumed-open
+route: openness has to be declared in `aapneRuter`, the way `ikkeRuter` already
+works.
+
+**Coverage counted across a group hides a hole in one member.** The six
+VANDELSKONTROLL branches were counted across all three ordninger, so barnehage
+covered skole's - and `politiattest-skole` turned out to declare an absolute
+exclusion no test person ever triggered. Count per member unless there is a stated
+reason not to, and then state it.
+
+**A union type over data from a file is documentation, not a check.**
+`absoluttUtelukkelse?: Anmerkningskategori[]` is erased at runtime. Validate the
+kodeverk in `scripts/valider-data.ts` on **every** file the rule reads, not just
+the one that looks like the data - `satser.json` is as much an input as
+`politiattester.json`.
+
+**A kodeverk nobody reads is a claim the code does not honour.** `REAKSJONER`
+exists because only a conviction excludes from a job, and `reaksjon` had one
+occurrence in `apps/`: its own type declaration. `pnpm test:kodeverk` pins that
+every kodeverk in `apps/shared` has a field someone actually reads.
+
+**Dates are arithmetic on the ISO string, never `new Date()` plus the local
+getters.** Every runner and container is UTC, so this class is invisible in CI by
+construction - and it bites the machines that are not: parsing as UTC, computing
+with the local setters and going back out through `toISOString()` made
+`byggAttestbevis` write an expiry one day early in Europe/Oslo, and right in CI.
+Use `alderVed` and `maanederEtter` in `apps/shared/alder.ts`; CI now runs the
+rules once in Norwegian time.
+
+One more, from the same review and not on the list above because it is about
+runtime rather than about a check: **a gate is time-of-read, not time-of-fetch.**
+`DATA_FETCH` results were consent-gated when they were fetched and then re-served
+on every later read of the økt, so a withdrawn consent changed nothing.
 
 ## Language
 
@@ -332,13 +451,12 @@ this file, `CLAUDE.md`, `.github/copilot-instructions.md`, and the comments insi
 `ci.yml`.
 
 **A tool description is English for the same reason.** The `description` and
-`inputSchema` strings in `apps/brreg-mcp`, `apps/folkeregister-mcp` and
-`apps/tools-api` are what an MCP client puts in front of a model when it picks a tool,
-so they are the model's prompt rather than anyone's documentation. Keep them English,
-and keep the domain nouns Norwegian inside them the way point 3 says: «Get one
-organisation by organisasjonsnummer.» The README beside such a server is the opposite
-case - no client loads it, a person setting the server up reads it, so it is Norwegian
-like every other `apps/*/README.md`.
+`inputSchema` strings in `apps/tools-api` are what a client puts in front of a model
+when it picks a tool, so they are the model's prompt rather than anyone's
+documentation. Keep them English, and keep the domain nouns Norwegian inside them the
+way point 3 says: «Get one organisation by organisasjonsnummer.» The README beside such
+a service is the opposite case - no client loads it, a person setting it up reads it, so
+it is Norwegian like every other `apps/*/README.md`.
 
 **Code comments follow the identifier rule instead**: English for the technical,
 Norwegian where the comment reasons in the domain, and one language per block - a block
@@ -361,6 +479,11 @@ is the one place prose transliterates, and the file carries a `rem` saying why s
 - Prefer existing endpoint patterns from current services and examples in `README.md` / `docs/api-oversikt.md`.
 - When API behavior changes, update matching OpenAPI docs in `openapi/*.yaml`.
 - Keep changes scoped to one app unless cross-service change is required.
+- **A new package version must be at least seven days old before it enters the repo.**
+  `minimumReleaseAge` in `pnpm-workspace.yaml` and `cooldown` in `.github/dependabot.yml`
+  enforce it. Dependabot security updates are exempt. Neither lever reaches a floating
+  reference - a `:latest` image tag, an action on `@main`, a `curl | sh` installer - and
+  the repo still has all three.
 
 ## Frontend: the KS Digital design system
 - Components, their API and their accessibility requirements are documented at
@@ -416,9 +539,9 @@ pnpm test:kontrakt   # starts its own backend + fiks on 18080/18081 against a fr
 docker compose restart sandbox-backend demo-gui   # targeted restart if you only changed those two
 ```
   Source files are volume-mounted (`./:/workspace`), so no image rebuild is needed - a restart is enough.
-- All ten Node services (`sandbox-backend`, `demo-gui`, `ai-gateway`, `tools-api`,
+- All eleven Node services (`sandbox-backend`, `demo-gui`, `ai-gateway`, `tools-api`,
   `process-agent`, `fiks-simulator`, `process-builder`, `matrikkel-mock`, `digdir-mock`,
-  `pasientjournal-mock`) are volume-mounted and run via `scripts/dev.sh`, which selects the right watcher automatically:
+  `pasientjournal-mock`, `politiattest-mock`) are volume-mounted and run via `scripts/dev.sh`, which selects the right watcher automatically:
   - **Linux** and **macOS with Docker Desktop 4.15+** (VirtioFS default): `node --watch` - inotify
     events propagate natively; restarts are immediate.
   - **Windows** (Docker Desktop with project on Windows filesystem, `C:\...`): `nodemon --legacy-watch`
@@ -451,29 +574,22 @@ pnpm test:tools-matrikkel
 pnpm test:agent:matrikkel
 ```
 - Optional orchestrated startup script (model selection/reset): `./start.sh --help`.
-- **Touching either MCP server's transport? Verify against a real client, not the
-  test script.** `scripts/test-brreg-mcp.ts` and `test-folkeregister-mcp.ts`
-  implement the client side themselves, so they prove the two halves agree - not
-  that the framing matches the spec. The first version used LSP `Content-Length`
-  framing instead of MCP's newline-delimited JSON: both tests passed while every
-  real client hung on `initialize`. Check with
-  `npx -y @modelcontextprotocol/inspector --cli node apps/brreg-mcp/src/server.ts --method tools/list`.
 - CI (`.github/workflows/ci.yml`) runs `lint`, `test`, `test:sperrer`,
   `test:skjerming`, `test:vilkaar`, `test:foedselsnummer`, `test:handleevne`,
   `test:samtykke`, `test:forsendelse`, `test:upstream`, `test:concurrency`,
-  `test:replay`, `test:imports`,
+  `test:replay`, `test:imports`, `test:kodeverk`, `test:revisjon`,
   `test:openapi`, `test:docs` and
   `test:kontrakt` on every PR
   and on push to main, and uploads the contract dump as an artifact. It deliberately
   does **not** run `test:eval` (needs a live model) or the `test:agent*` scripts
   (need the compose stack up) - run those locally.
-- All ten services have a `healthcheck` in `docker-compose.yml`, and `tools-api`
+- All eleven services have a `healthcheck` in `docker-compose.yml`, and `tools-api`
   and `process-agent` wait on `condition: service_healthy`. `./start.sh` still polls
   `/helse` itself, since the macOS path uses `--no-deps`.
 
 ## Integration edges and env vars
 - In Compose, services call each other by container DNS (`http://sandbox-backend:8080`, etc.).
-- Common env vars: `BACKEND_BASE_URL`, `AI_BASE_URL`, `TOOLS_BASE_URL`, `MATRIKKEL_BASE_URL`, `AI_PROVIDER`, `OLLAMA_BASE_URL`, `OLLAMA_MODEL`, `BEDROCK_AWS_REGION`, `BEDROCK_AWS_ACCESS_KEY_ID`, `BEDROCK_AWS_SECRET_ACCESS_KEY`, `BEDROCK_AWS_SESSION_TOKEN`, `BEDROCK_MODEL_ID`, `STATE_DIR`.
+- Common env vars: `BACKEND_BASE_URL`, `AI_BASE_URL`, `TOOLS_BASE_URL`, `MATRIKKEL_BASE_URL`, `AI_PROVIDER`, `OLLAMA_BASE_URL`, `OLLAMA_MODEL`, `BEDROCK_AWS_REGION`, `BEDROCK_AWS_ACCESS_KEY_ID`, `BEDROCK_AWS_SECRET_ACCESS_KEY`, `BEDROCK_AWS_SESSION_TOKEN`, `BEDROCK_MODEL_ID`, `PASIENTJOURNAL_BASE_URL`, `POLITIATTEST_BASE_URL`, `STATE_DIR`.
 - `tools-api` uses `MATRIKKEL_BASE_URL` (default `http://matrikkel-mock:8085`) to reach the Matrikkel mock.
 - `ai-gateway` falls back to template text when the provider is unavailable, setting an
   `advarsel` field. Check `GET /helse` - it reports `modellNaaBar` plus a `feil` string
@@ -549,5 +665,6 @@ pnpm test:agent:matrikkel
 ## Useful places before editing
 - Architecture/context: `docs/architecture.md`, `docs/prosessmodell.md`, `docs/sikkerhet-og-personvern.md`.
 - Frontend and styling: `docs/designsystem.md`, and `apps/demo-gui/src/ds-eksempel.html` for working markup.
-- Contracts: `openapi/README.md`, `openapi/sandbox-backend.yaml`, `openapi/process-agent.yaml`, `openapi/tools-api.yaml`, `openapi/matrikkel-mock.yaml`, `openapi/pasientjournal-mock.yaml`, `openapi/ai-gateway.yaml`.
+- Contracts: `openapi/README.md`, `openapi/sandbox-backend.yaml`, `openapi/process-agent.yaml`, `openapi/tools-api.yaml`, `openapi/matrikkel-mock.yaml`, `openapi/pasientjournal-mock.yaml`,
+  `openapi/politiattest-mock.yaml`, `openapi/ai-gateway.yaml`.
 - End-to-end behavior examples: `scripts/test-agent-flow.ts`, `scripts/test-agent-natural-language.ts`, `scripts/test-tools-matrikkel.ts`, `scripts/test-process-agent-matrikkel.ts`, `scripts/test-bergen-matrikkel-bulk.ts`.

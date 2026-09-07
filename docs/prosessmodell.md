@@ -1,5 +1,18 @@
 # Prosessmodell
 
+## Innhold
+
+- [MVP-stegtyper](#mvp-stegtyper)
+- [`SJEKK`](#sjekk)
+- [Ressurskatalogen](#ressurskatalogen)
+- [Dynamisk agentassistanse for `QUESTION`](#dynamisk-agentassistanse-for-question)
+- [Slik legger du til en ny case](#slik-legger-du-til-en-ny-case)
+- [Substitusjon i tekst og URL-er](#substitusjon-i-tekst-og-url-er)
+- [Demo-casene](#demo-casene)
+- [Redigering i prosessbygger](#redigering-i-prosessbygger)
+- [Struktur for `QUESTION`](#struktur-for-question)
+- [Neste steg](#neste-steg)
+
 ## MVP-stegtyper
 
 Sju typer, definert i `apps/sandbox-backend/src/types.ts` og håndtert i `prosess.ts`:
@@ -14,6 +27,28 @@ Sju typer, definert i `apps/sandbox-backend/src/types.ts` og håndtert i `proses
 
 Motoren er lineær: `stegIndex` teller oppover, og det finnes ingen forgrening eller
 betinget hopping. `SJEKK` kan avvise en økt, men flyten er ellers rett fram.
+
+Flaggskipcasen `redusert-foreldrebetaling-barnehage` går gjennom sju steg, og bruker
+alle typene over unntatt `QUESTION`. Legg merke til at `DATA_FETCH` går to ganger: én
+gang før samtykket, for det som er åpent, og én gang etter, for det som er beskyttet.
+
+```mermaid
+flowchart LR
+  I["INFO<br/>hva dette er"]
+  D1["DATA_FETCH<br/>åpne opplysninger"]
+  C["CONSENT_REQUEST<br/>innbyggeren samtykker"]
+  D2["DATA_FETCH<br/>inntekt, bak porten"]
+  S["SJEKK<br/>vedtaket, i backend"]
+  U["SUMMARY<br/>modellen formulerer"]
+  B["SUBMIT<br/>søknaden sendes"]
+
+  I --> D1 --> C --> D2 --> S --> U --> B
+```
+
+`QUESTION` er ikke med i denne casen, men brukes der flyten trenger et svar fra
+innbyggeren. Pilene peker bare én vei: `stegIndex` teller oppover, og `SJEKK` kan
+avvise økten, men det finnes ingen vei tilbake eller til side.
+
 
 ## `SJEKK`
 
@@ -40,8 +75,9 @@ Tilgjengelige sjekker:
 | Sti | Vurderer |
 |---|---|
 | `/api/regler/sjekk/foreldrebetaling` | Rett til en moderasjonsordning i `data/satser.json` |
-| `/api/regler/sjekk/ordning` | Rett til en navngitt ordning, eller den ordningen barnets trinn peker på når bare `tjeneste` er oppgitt. Fire av seks demo-case bruker denne |
+| `/api/regler/sjekk/ordning` | Rett til en navngitt ordning, eller den ordningen barnets trinn peker på når bare `tjeneste` er oppgitt. Fire av sju demo-case bruker denne |
 | `/api/matrikkel/sjekk/eierforhold` | Om søker eier eiendom i en gitt gate |
+| `/api/regler/sjekk/vandel` | Vandelskontroll for en rolle. Eneste sjekk med et utfall som verken er ja eller nei: `krever_manuell_vurdering` slipper søknaden gjennom til et menneske |
 
 Nye sjekker legges til i ressurskatalogen i
 `apps/sandbox-backend/src/ressurser.ts`. Stegutførelsen slår opp på sti og
@@ -72,7 +108,7 @@ En sjekk er ikke en egen mekanisme. Det er bare en ressurs hvis svar inneholder
 Når `process-agent` møter et `QUESTION`-steg kaller den `suggest_step_tools`-verktøyet
 i `tools-api`. Dette kallet sender stegdefinisjonens tekst, tittel og feltlabeler
 til `ai-gateway POST /ai/velg-verktoy`, som bruker heuristikk (og LLM-fallback) til å
-avgjøre hvilke MCP-verktøy som er relevante.
+avgjøre hvilke verktøy som er relevante.
 
 Hvert forslag har ett av tre brukstyper:
 
@@ -99,6 +135,11 @@ i funksjonen `heuristicToolChoice` og ikke på toppnivå - og/eller et nytt verk
 `tools-api`.
 
 ## Slik legger du til en ny case
+
+> [!TIP]
+> Oppskriften under er for rørleggingen, ikke for ideen. Er det ikke avgjort *hva*
+> casen skal være, begynn i `.claude/skills/nytt-bruksomraade/SKILL.md` framfor å
+> kopiere formen til en case som alt finnes.
 
 De fleste caser krever ingen kode i det hele tatt.
 
@@ -142,9 +183,10 @@ fylles alltid inn fra økta. `fartsdempende-tiltak` er eksempelet å se på:
 
 ## Demo-casene
 
-Seks publiserte prosesser og én mal ligger i `data/prosessdefinisjoner.json`. Malen
+Sju publiserte prosesser og én mal ligger i `data/prosessdefinisjoner.json`. Malen
 ligger under `maler`, ikke `prosesser`, og vises bare i API-et når du ber om den -
-`examples/demoprosesser/README.md` har curl-kallene for å liste og kjøre dem.
+[`examples/demoprosesser/README.md`](../examples/demoprosesser/README.md) har
+curl-kallene for å liste og kjøre dem.
 
 | Prosess | Steg | Dekker |
 |---|---|---|
@@ -154,6 +196,7 @@ ligger under `maler`, ikke `prosesser`, og vises bare i API-et når du ber om de
 | `fritidskort-stotte` | 7 | Spørsmål, samtykke og inntektshenting. Den `process-agent` bruker i `pnpm test:agent` |
 | `fartsdempende-tiltak` | 8 | Mest komplett: tre `QUESTION`, matrikkeloppslag, `SJEKK` og `{svar.<stegId>}`-substitusjon. Bruk `Storgata` for et godkjent utfall og `Fjøsangerveien` for et avvist |
 | `tt-kort` | 8 | Eneste case som henter særlige kategorier. Uttrykkelig samtykke etter personvernforordningen artikkel 9, legeerklæring fra `pasientjournal-mock`, og en `SJEKK` som aldri ser på inntekt. Bruk `person-284` for innvilget og `person-329` for avslag |
+| `politiattest-oppdrag` | 9 | Eneste case der innbyggeren gir kommunen noe framfor å be om noe, og eneste med et utfall som verken er ja eller nei: `krever_manuell_vurdering` slipper søknaden gjennom til et menneske. Formålet velges først og avgjør hjemmelen og attesttypen. Bruk `person-026` for godkjent, `person-138` for manuell vurdering |
 | `mal-enkel-soknad` | 6 | Kopi-malen fra oppskriften over. `redigering.mal: true` |
 
 ## Redigering i prosessbygger
@@ -215,3 +258,33 @@ Støttede felttyper i første versjon:
 - `tekst`
 - `ja-nei`
 - `valg`
+
+Et alternativ i `valg` kan skrives på to måter. En ren streng er både verdien som
+lagres og teksten innbyggeren leser, slik som `"Telefon"` over. Er verdien et
+kodeverk, skriv `{ "verdi": "...", "label": "..." }` i stedet, så leser
+innbyggeren «Støttekontakt» mens `stottekontakt` er det som lagres:
+
+```json
+"alternativer": [
+  { "verdi": "stottekontakt", "label": "Støttekontakt" },
+  { "verdi": "barnehage", "label": "Barnehage" }
+]
+```
+
+Svaret valideres mot listen. Kommer det inn noe utenfor den, svarer
+`POST /api/prosessoekter/{id}/svar` med 400 og lister de gyldige verdiene.
+Skrivemåten er fri - store bokstaver og æ/ø/å sammenlignes bort - og den
+kanoniske verdien er det som lagres.
+
+---
+
+## Neste steg
+
+**Skal du bygge klienten selv?** [`docs/bygg-selv.md`](bygg-selv.md) viser egen frontend
+på egen port, og hvordan du snakker med API-ene direkte.
+
+**Trenger du testdata som passer casen din?**
+[`docs/syntetiske-data.md`](syntetiske-data.md) forklarer datagrunnlaget, og
+[`docs/testpersoner.md`](testpersoner.md) lister hele befolkningen.
+
+**Tilbake til kartet:** [`docs/README.md`](README.md).

@@ -21,8 +21,8 @@ cd "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # digdir-mock must stay in this list for the same reason as matrikkel-mock: on
 # macOS we start only these by name, and everything that needs a token dials it.
 # Leave it out and every authenticated call fails while the stack looks healthy.
-NODE_SERVICES=(sandbox-backend fiks-simulator ai-gateway tools-api process-agent matrikkel-mock digdir-mock pasientjournal-mock demo-gui process-builder)
-SERVICE_PORTS=(8080 8081 8082 8083 8084 8085 8086 8087 3000 3001)
+NODE_SERVICES=(sandbox-backend fiks-simulator ai-gateway tools-api process-agent matrikkel-mock digdir-mock pasientjournal-mock politiattest-mock demo-gui process-builder)
+SERVICE_PORTS=(8080 8081 8082 8083 8084 8085 8086 8087 8088 3000 3001)
 OLLAMA_PORT=11434
 
 MODEL=""
@@ -213,8 +213,8 @@ port_is_ours() {
 }
 
 preflight() {
-  command -v curl >/dev/null 2>&1 || fail "curl is not installed, and this script needs it. Install it with your package manager."
-  command -v docker >/dev/null 2>&1 || fail "Docker is not installed. See https://docs.docker.com/get-docker/"
+  command -v curl >/dev/null 2>&1 || fail "curl er ikke installert, og skriptet trenger den. Hent den med pakkebehandleren din."
+  command -v docker >/dev/null 2>&1 || fail "Docker er ikke installert. Hent den fra https://docs.docker.com/get-docker/"
 
   if ! docker info >/dev/null 2>&1; then
     # On Linux a missing docker group looks the same as a stopped daemon

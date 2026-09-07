@@ -1,5 +1,5 @@
 import { readFile, readdir } from "node:fs/promises";
-import { alderVed } from "../apps/shared/alder.ts";
+import { alderVed, maanederEtter } from "../apps/shared/alder.ts";
 import { SEED_DATASETS } from "../apps/sandbox-backend/src/state.ts";
 import type { Ordning, Satser, State } from "../apps/sandbox-backend/src/types.ts";
 import type { Husstand, Person, Plass } from "../apps/shared/innbyggerdata.ts";
@@ -10,6 +10,7 @@ import {
   plasserSomKvalifiserer,
   regelBehov,
   evaluateVilkaar,
+  VANDELSUTFALL,
   type Avslagsgrunn
 } from "../apps/sandbox-backend/src/vilkaar.ts";
 import { DATAKILDER, isDatakilde, SAMTYKKESTATUSER } from "../apps/shared/samtykke.ts";
@@ -30,6 +31,16 @@ import {
   isSyntetiskFoedselsnummer,
   stemmerMedFoedselsdato
 } from "../apps/shared/foedselsnummer.ts";
+import { alternativVerdi } from "../apps/sandbox-backend/src/types.ts";
+import {
+  ANMERKNINGSKATEGORIER,
+  ATTESTFORMAAL,
+  ATTESTTYPER,
+  REAKSJONER,
+  byggAttestbevis,
+  velgGjeldendeAttest
+} from "../apps/shared/politiattest.ts";
+import type { Politiattest } from "../apps/shared/politiattest.ts";
 
 // Only seed data. Runtime datasets live in state/, are gitignored, and are
 // created by the services on first write.
@@ -53,6 +64,7 @@ const files = [
   "data/fritidsdeltakelse.json",
   "data/tjenestetilbud.json",
   "data/legeerklaeringer.json",
+  "data/politiattester.json",
   "data/forventet-utfall.json"
 ];
 
@@ -77,6 +89,16 @@ if (personer.length < 20) {
   throw new Error("Det må finnes minst 20 personer.");
 }
 
+if (typeof satser.kilde !== "string" || satser.kilde.trim().length === 0) {
+  throw new Error("Satsene mangler den felles kilden som API-kontrakten beholder.");
+}
+
+for (const ordning of satser.ordninger) {
+  if (typeof ordning.kilde !== "string" || ordning.kilde.trim().length === 0) {
+    throw new Error(`${ordning.id} mangler en kilde som gjelder for ordningen.`);
+  }
+}
+
 // --- Legeerklæringene peker på befolkningen -----------------------------------
 //
 // Datasettet nøkles på fødselsnummer, fordi en journal gjør det. personId står
@@ -84,6 +106,17 @@ if (personer.length < 20) {
 // derfor klager dette.
 const legeerklaeringer = (await read("data/legeerklaeringer.json")).legeerklaeringer as Legeerklaering[];
 const personPerFnr = new Map(personer.map((person) => [person.syntetiskFodselsnummer, person]));
+/*
+ * Verdien mot kodeverket. Ni kopier av den samme kastelinjen sto her, hver med sin
+ * egen `as readonly string[]`; forskjellen mellom dem var bare hvem som spurte.
+ */
+function krevKodeverk(hvem: string, felt: string, verdi: string, kodeverk: readonly string[], hale = "") {
+  if (kodeverk.includes(verdi)) return;
+  throw new Error(
+    `${hvem} oppgir ${felt} "${verdi}", som ikke er i kodeverket. ${hale}Gyldige: ${kodeverk.join(", ")}.`
+  );
+}
+
 const settErklaeringId = new Set<string>();
 const erklaeringerPerPerson = new Map<string, Legeerklaering[]>();
 
@@ -106,12 +139,7 @@ for (const erklaering of legeerklaeringer) {
 
   // Seks måneder fra signeringen, sier rettleiingen. gyldigTil er avledet, og en
   // rad som regner feil ville gitt et avslag ingen kan forklare.
-  const utstedt = new Date(erklaering.utstedt);
-  const forventet = new Date(Date.UTC(
-    utstedt.getUTCFullYear(),
-    utstedt.getUTCMonth() + 6,
-    utstedt.getUTCDate()
-  )).toISOString().slice(0, 10);
+  const forventet = maanederEtter(erklaering.utstedt, 6);
   if (erklaering.gyldigTil !== forventet) {
     throw new Error(
       `${erklaering.erklaeringId} har gyldigTil ${erklaering.gyldigTil}, men utstedt ` +
@@ -153,6 +181,99 @@ for (const erklaering of legeerklaeringer) {
 // to peker på samme person, så oppslaget slipper å gå veien om personen igjen.
 function gjeldendeErklaeringFor(personId: string, paaDato: string) {
   return velgGjeldendeLegeerklaering(erklaeringerPerPerson.get(personId) || [], paaDato);
+}
+
+// --- Politiattestene peker på befolkningen -----------------------------------
+//
+// Samme form som legeerklæringene: nøkkelen er fødselsnummer, personId står ved
+// siden av som lesehjelp, og de to kan gå fra hverandre uten at noe klager.
+type Attestrad = Omit<Politiattest, "bevis">;
+const politiattester = (await read("data/politiattester.json")).attester as Attestrad[];
+const settAttestId = new Set<string>();
+const attesterPerPerson = new Map<string, Politiattest[]>();
+
+for (const attest of politiattester) {
+  const person = personPerFnr.get(attest.fnr);
+  if (!person) {
+    throw new Error(`${attest.attestId} har fødselsnummer ${attest.fnr}, som ingen person har.`);
+  }
+  if (person.personId !== attest.personId) {
+    throw new Error(
+      `${attest.attestId} oppgir ${attest.personId}, men ${attest.fnr} tilhører ${person.personId}.`
+    );
+  }
+  if (settAttestId.has(attest.attestId)) {
+    throw new Error(`Attest-id ${attest.attestId} finnes to ganger.`);
+  }
+  settAttestId.add(attest.attestId);
+
+  // Kodeverkene er unioner i koden, og en skrivefeil i seeden ville gjort et
+  // absolutt yrkesforbud til en skjønnsvurdering i stillhet.
+  if (!(ATTESTFORMAAL as readonly string[]).includes(attest.formaal)) {
+    throw new Error(
+      `${attest.attestId} har formaal "${attest.formaal}". Gyldige: ${ATTESTFORMAAL.join(", ")}.`
+    );
+  }
+  if (!(ATTESTTYPER as readonly string[]).includes(attest.attesttype)) {
+    throw new Error(
+      `${attest.attestId} har attesttype "${attest.attesttype}". Gyldige: ${ATTESTTYPER.join(", ")}.`
+    );
+  }
+  for (const anmerkning of attest.anmerkninger) {
+    if (!(ANMERKNINGSKATEGORIER as readonly string[]).includes(anmerkning.kategori)) {
+      throw new Error(
+        `${attest.attestId} har kategorien "${anmerkning.kategori}". ` +
+        `Gyldige: ${ANMERKNINGSKATEGORIER.join(", ")}.`
+      );
+    }
+    if (!(REAKSJONER as readonly string[]).includes(anmerkning.reaksjon)) {
+      throw new Error(
+        `${attest.attestId} har reaksjonen "${anmerkning.reaksjon}". ` +
+        `Gyldige: ${REAKSJONER.join(", ")}.`
+      );
+    }
+    if (anmerkning.dato > attest.utstedt) {
+      throw new Error(
+        `${attest.attestId} har en anmerkning datert ${anmerkning.dato}, etter at attesten ` +
+        `ble utstedt ${attest.utstedt}.`
+      );
+    }
+  }
+
+  // Hjemmelen følger av formålet, og ordningen i data/satser.json eier den. Målt
+  // mot den framfor mot de andre attestene: en kopi som bare sammenliknes med seg
+  // selv kan drive bort fra den verdien vedtaket faktisk bruker.
+  const ordningForFormaal = satser.ordninger.find(
+    (ordning) => ordning.regel === "VANDELSKONTROLL" && ordning.formaal === attest.formaal
+  );
+  if (!ordningForFormaal) {
+    throw new Error(
+      `${attest.attestId} har formålet ${attest.formaal}, som ingen vandelsordning i ` +
+      `data/satser.json dekker.`
+    );
+  }
+  if (ordningForFormaal.hjemmel !== attest.hjemmel) {
+    throw new Error(
+      `${attest.attestId} oppgir hjemmelen «${attest.hjemmel}», mens ${ordningForFormaal.id} ` +
+      `i data/satser.json - den vedtaket leser - oppgir «${ordningForFormaal.hjemmel}».`
+    );
+  }
+
+  // Beviset bygges av samme funksjon mocken bruker, så det som pinnes her er det
+  // som går på tråden.
+  attesterPerPerson.set(
+    attest.personId,
+    (attesterPerPerson.get(attest.personId) || []).concat({
+      ...attest,
+      bevis: byggAttestbevis(attest)
+    })
+  );
+}
+
+// Samme grunn som over: sløyfen har alt slått fast at fnr og personId peker på
+// samme person, så oppslaget slipper å gå veien om personen igjen.
+function gjeldendeAttestFor(personId: string, formaal: string) {
+  return velgGjeldendeAttest(attesterPerPerson.get(personId) || [], formaal);
 }
 
 // --- Relations must hold together ------------------------------------------
@@ -870,7 +991,10 @@ if (!inntekter.some((r: any) => r.stadie === "UTKAST")) {
 if (!personer.some((p) => p.skjermet)) {
   throw new Error("Mangler minst én person med skjermet identitet.");
 }
-if (husstander.every(husstandsgrunnlag)) {
+// «uten inntektsopplysninger» er null, ikke usant. every() tester sannhetsverdi, så
+// household-011 med grunnlaget 0 oppfylte sjekken alene - og household-016, den
+// eneste som faktisk mangler opplysninger, kunne fjernes uten at noe ble rødt.
+if (!husstander.some((husstand) => husstandsgrunnlag(husstand) === null)) {
   throw new Error("Mangler minst én husstand uten inntektsopplysninger.");
 }
 
@@ -908,6 +1032,7 @@ function vurder(husstand: Husstand, ordning: Ordning) {
     // Plass-reglene rører ikke journalen, og regelBehov over har alt sørget
     // for at bare de kommer hit.
     legeerklaering: null,
+    politiattest: null,
     // felles and forbehold only land in SjekkResultat.grunnlag and in the prose. This
     // gate asserts on godkjent, never on melding - rewording a message must not fail
     // a data check.
@@ -1104,6 +1229,7 @@ for (const ordning of satser.ordninger) {
       satser,
       grunnlag: null,
       legeerklaering: gjeldendeErklaeringFor(person.personId, satser.gjelderFra),
+      politiattest: null,
       felles: {},
       forbehold: ""
     });
@@ -1142,6 +1268,80 @@ for (const ordning of satser.ordninger) {
       throw new Error(
         `${ordning.id}: regelen svarte med grenen "${gren}", som denne sjekken ikke kjenner. ` +
         `Legg den i forventedeGrener, ellers telles den ikke.`
+      );
+    }
+  }
+}
+
+// --- Vandelskontroll, vurdert per person mot politiattesten -----------------
+// Seks utfall, og alle må være nåbare - ellers er grenen som gir dem død kode.
+//
+// Telles på tvers av de tre vandelsordningene og ikke per ordning: absolutt
+// utelukkelse er ikke nåbar for støttekontakt, fordi helse- og
+// omsorgstjenesteloven ikke utelukker noen direkte. Det er hele forskjellen
+// mellom en hjemmel som avgjør og en som overlater til skjønn, så en sjekk som
+// krevde alle seks per ordning ville krevd at dataene løy.
+{
+  const vandelsordninger = satser.ordninger.filter((ordning) => ordning.regel === "VANDELSKONTROLL");
+
+  // Unionene er typer over JSON og sier ingenting ved kjøring. Radene i
+  // politiattester.json var validert; ordningene vedtaket leser var det ikke.
+  for (const ordning of vandelsordninger) {
+    krevKodeverk(ordning.id, "formaal", ordning.formaal || "", ATTESTFORMAAL);
+    if (ordning.attesttype) krevKodeverk(ordning.id, "attesttype", ordning.attesttype, ATTESTTYPER);
+    for (const kategori of ordning.absoluttUtelukkelse ?? []) {
+      krevKodeverk(ordning.id, "absoluttUtelukkelse", kategori, ANMERKNINGSKATEGORIER,
+        "Regelen ville aldri truffet, og utelukkelsen blitt stille borte. ");
+    }
+  }
+
+  const utfall = new Map<string, number>();
+  const utelukketPerOrdning = new Map<string, number>();
+  for (const ordning of vandelsordninger) {
+    const formaal = ordning.formaal || "";
+    for (const person of personer) {
+      const svar = evaluateVilkaar(ordning.regel, {
+        tilstand,
+        personId: person.personId,
+        ordning,
+        satser,
+        grunnlag: null,
+        legeerklaering: null,
+        politiattest: gjeldendeAttestFor(person.personId, formaal),
+        felles: {},
+        forbehold: ""
+      });
+      const gren = String(svar.grunnlag?.vandelsutfall ?? "uten utfall");
+      utfall.set(gren, (utfall.get(gren) || 0) + 1);
+      if (gren === "absolutt_utelukkelse") {
+        utelukketPerOrdning.set(ordning.id, (utelukketPerOrdning.get(ordning.id) || 0) + 1);
+      }
+    }
+  }
+
+  // Den aggregerte tellingen under kan dekkes av én ordning alene, og gjorde det:
+  // en skrivefeil i skolens absoluttUtelukkelse var usynlig så lenge barnehagen
+  // fortsatt utelukket noen. Erklærer en ordning regelen, må den også være brukt.
+  for (const ordning of vandelsordninger) {
+    if ((ordning.absoluttUtelukkelse ?? []).length === 0) continue;
+    if (!utelukketPerOrdning.get(ordning.id)) {
+      throw new Error(
+        `${ordning.id} erklærer absoluttUtelukkelse, men ingen person i datasettet utløser den. ` +
+        "Enten er kategorien feilskrevet, eller så mangler attesten som skulle truffet den."
+      );
+    }
+  }
+  if (utfall.has("uten utfall")) {
+    throw new Error(
+      "En gren i vandelskontrollen svarer uten vandelsutfall i grunnlaget. Hver gren i " +
+      "vilkaar.ts må navngi seg selv, ellers kan ikke dekningen telles."
+    );
+  }
+  for (const gren of VANDELSUTFALL) {
+    if (!utfall.get(gren)) {
+      throw new Error(
+        `Ingen person i datasettet gir vandelsutfallet "${gren}". Alle seks utfallene må ` +
+        "være nåbare, ellers er grenen død kode. Juster data/politiattester.json."
       );
     }
   }
@@ -1233,6 +1433,63 @@ for (const prosess of allProsesser) {
         `Prosessen ${prosess.id}, steg ${steg.id}, sjekker mot ordningen ${ordning}, ` +
         `som ikke finnes i data/satser.json.`
       );
+    }
+  }
+}
+
+// --- {svar.X} i en steg-URL, mot steget det peker på ------------------------
+//
+// Motoren bytter ut {svar.<stegId>} med det innbyggeren svarte. Peker malen på et
+// steg som ikke finnes, eller på ett som kommer senere, står den usubstituert og
+// kallet går til en URL med krøllparentes i. Og lander verdien i et formaal, er
+// alternativsettet et løfte om hvilke ordninger som finnes.
+{
+  // Parameteren avgjør hvilket kodeverk verdien måles mot. En ny gatet parameter
+  // er en rad her, ikke et nytt regex-alternativ.
+  const verdidomener: Record<string, Set<string>> = {
+    formaal: new Set(
+      satser.ordninger
+        .filter((ordning) => ordning.regel === "VANDELSKONTROLL")
+        .map((ordning) => String(ordning.formaal ?? ""))
+    )
+  };
+  verdidomener.rolle = verdidomener.formaal!;
+
+  for (const prosess of allProsesser) {
+    const steg = prosess.steg || [];
+    for (const [indeks, detteSteget] of steg.entries()) {
+      const url = detteSteget.api?.url || "";
+      for (const treff of url.matchAll(/\{svar\.([^}.]+)(?:\.[^}]+)?\}/g)) {
+        const vistTil = treff[1]!;
+        const kildeIndeks = steg.findIndex((kandidat: any) => kandidat.id === vistTil);
+        if (kildeIndeks === -1) {
+          throw new Error(
+            `Prosessen ${prosess.id}, steg ${detteSteget.id}, viser til {svar.${vistTil}}, ` +
+            "men prosessen har ikke noe steg med den id-en."
+          );
+        }
+        if (kildeIndeks >= indeks) {
+          throw new Error(
+            `Prosessen ${prosess.id}, steg ${detteSteget.id}, viser til {svar.${vistTil}}, ` +
+            "som kommer senere i prosessen. Motoren er lineær, så svaret finnes ikke ennå."
+          );
+        }
+        const parameter = Object.keys(verdidomener)
+          .find((navn) => new RegExp(`${navn}=\\{svar\\.${vistTil}`).test(url));
+        if (!parameter) continue;
+        const domene = verdidomener[parameter]!;
+        const verdier = (steg[kildeIndeks]!.felter || [])
+          .flatMap((felt: any) => felt.alternativer || [])
+          .map(alternativVerdi);
+        const ukjent = verdier.find((verdi: string) => !domene.has(verdi));
+        if (ukjent) {
+          throw new Error(
+            `Prosessen ${prosess.id}: alternativet "${ukjent}" på steget ${vistTil} går inn ` +
+            `som ${parameter} i ${detteSteget.id}, men ingen VANDELSKONTROLL-ordning i ` +
+            `data/satser.json har det formålet. Gyldige: ${[...domene].join(", ")}.`
+          );
+        }
+      }
     }
   }
 }
@@ -1546,19 +1803,23 @@ for (const sak of deltakercaser.caser) {
   }
   const forventetJa = sak.forventetUtfall === "innvilget";
   let faktisk;
+  let vandelsutfall: string | null = null;
   if (!regelBehov[ordning.regel].plass) {
     // Assessed per person, so vurder() deliberately returns null for it - the
     // household loop above skips it for the same reason.
-    faktisk = evaluateVilkaar(ordning.regel, {
+    const svar = evaluateVilkaar(ordning.regel, {
       tilstand,
       personId: sak.personId,
       ordning,
       satser,
       grunnlag: null,
       legeerklaering: gjeldendeErklaeringFor(sak.personId, satser.gjelderFra),
+      politiattest: gjeldendeAttestFor(sak.personId, ordning.formaal || ""),
       felles: {},
       forbehold: ""
-    }).godkjent;
+    });
+    vandelsutfall = (svar.grunnlag as any)?.vandelsutfall ?? null;
+    faktisk = svar.godkjent;
   } else {
     faktisk = vurder(krevHusstand(person.husstandId), ordning);
     if (faktisk === null) {
@@ -1573,6 +1834,13 @@ for (const sak of deltakercaser.caser) {
       `data/deltakercaser.json sier ${sak.prosessId} med ${sak.personId} gir ` +
       `${sak.forventetUtfall}, men reglene gir ${faktisk ? "innvilget" : "avslag"}. ` +
       `Det er nøyaktig feilen som lå i SFO-caset: en anbefalt bruker som får avslag.`
+    );
+  }
+  // «innvilget» dekker to av vandelsgrenene, så grenen pinnes for seg.
+  if (sak.forventetVandelsutfall && vandelsutfall !== sak.forventetVandelsutfall) {
+    throw new Error(
+      `data/deltakercaser.json venter vandelsutfallet ${sak.forventetVandelsutfall} for ` +
+      `${sak.personId} i ${sak.prosessId}, men regelen svarer ${vandelsutfall}.`
     );
   }
 }
@@ -1614,6 +1882,7 @@ for (const eksempel of stottekontaktMoteksempler) {
     satser,
     grunnlag: null,
     legeerklaering: null,
+    politiattest: null,
     felles: {},
     forbehold: ""
   });

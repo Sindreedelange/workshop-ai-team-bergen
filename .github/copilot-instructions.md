@@ -32,8 +32,8 @@ stack up; `pnpm test:eval` needs a live model.
 ## Components and ports
 
 See the service map in `AGENTS.md` - it is the maintained one, and it covers
-`matrikkel-mock`, the two real MCP servers, and which services are core versus
-ignorable. Do not duplicate it here; a second copy is how it went stale before.
+`matrikkel-mock` and which services are core versus ignorable. Do not duplicate it
+here; a second copy is how it went stale before.
 
 ## How it works (end-to-end)
 1. User starts in `demo-gui` and selects a test person and process.
@@ -54,6 +54,9 @@ ignorable. Do not duplicate it here; a second copy is how it went stale before.
 - `scripts/`: validation and flow test utilities.
 
 ## Development guidance for Copilot
+- **A new use-case does not start by copying an existing one.** See
+  `## New use-cases: diverge before you build` in `AGENTS.md`. Explore the idea with
+  the participant before writing code, rather than reproducing the shape of a demo case.
 - Keep changes minimal and scoped to one app unless cross-service changes are requested.
 - Preserve the process-driven model; avoid hardcoding flow logic in UI when a process definition should drive behavior.
 - Prefer existing endpoint and payload patterns from current service code.
