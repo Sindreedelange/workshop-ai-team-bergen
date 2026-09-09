@@ -124,7 +124,17 @@ const openRouterApiKey = process.env.OPENROUTER_API_KEY || "";
 const openRouterModel = process.env.OPENROUTER_MODEL || "mistralai/mistral-7b-instruct:free";
 const aiFactoryBaseUrl = (process.env.TELENOR_AI_FACTORY_BASE_URL || "https://litellm.apps.s99ct03.aifactory.telenor.com").replace(/\/+$/, "");
 const aiFactoryApiKey = process.env.TELENOR_AI_FACTORY_API_KEY || "";
-const aiFactoryModel = process.env.TELENOR_AI_FACTORY_MODEL || "NVIDIA-Nemotron-3-Super-120B-A12B-FP8";
+// Curated shortlist for the /admin dropdown, mirroring BEDROCK_MODELS below - not
+// fetched from AI Factory, since the point is a handful of known-good names to pick
+// from. First entry is the fallback when TELENOR_AI_FACTORY_MODEL is unset entirely
+// (not just commented out in .env) - keep it the same model .env.example and
+// docker-compose.yml document as the default, so the three do not silently disagree.
+const AI_FACTORY_MODELS = [
+  { id: "GLM-5.2-FP8", label: "GLM-5.2-FP8" },
+  { id: "NVIDIA-Nemotron-3-Super-120B-A12B-FP8", label: "NVIDIA-Nemotron-3-Super-120B-A12B-FP8" },
+  { id: "Qwen3-Coder-Next-FP8", label: "Qwen3-Coder-Next-FP8" }
+];
+let aiFactoryModel = process.env.TELENOR_AI_FACTORY_MODEL || AI_FACTORY_MODELS[0].id;
 // AI Factory recommends a cache salt on every request to isolate the shared KV
 // cache. A process-local value is safer than omitting it when no stable salt is set.
 const aiFactoryCacheSalt = process.env.TELENOR_AI_FACTORY_CACHE_SALT || randomUUID();
@@ -507,6 +517,11 @@ function adminHtml(): string {
       <div class="card">
         <h2>Velg leverandør</h2>
         <div id="providerValg" class="providerValg"></div>
+        <div id="aiFactoryDetaljer" hidden>
+          <label for="aiFactoryModellValg">Telenor AI Factory-modell</label>
+          <select id="aiFactoryModellValg"></select>
+          <p class="muted small" id="aiFactoryCreds"></p>
+        </div>
         <div id="bedrockDetaljer" hidden>
           <label for="bedrockModellValg">Bedrock-modell</label>
           <select id="bedrockModellValg"></select>
@@ -548,6 +563,10 @@ function adminHtml(): string {
         document.getElementById("bedrockDetaljer").hidden = valgtProvider !== "bedrock";
       }
 
+      function updateAiFactoryVisibility(valgtProvider) {
+        document.getElementById("aiFactoryDetaljer").hidden = valgtProvider !== "telenor-ai-factory";
+      }
+
       function renderChoices(data, valgtProvider) {
         var container = document.getElementById("providerValg");
         container.innerHTML = data.providers.map(function (p) {
@@ -567,8 +586,21 @@ function adminHtml(): string {
               labels[j].classList.toggle("valgt", labels[j].querySelector("input").checked);
             }
             updateBedrockVisibility(event.target.value);
+            updateAiFactoryVisibility(event.target.value);
           };
         }
+
+        var aiFactorySelect = document.getElementById("aiFactoryModellValg");
+        aiFactorySelect.innerHTML = data["telenor-ai-factory"].models.map(function (m) {
+          return (
+            '<option value="' + escapeHtml(m.id) + '" ' + (m.id === data["telenor-ai-factory"].currentModel ? "selected" : "") + ">" +
+            escapeHtml(m.label) +
+            "</option>"
+          );
+        }).join("");
+        document.getElementById("aiFactoryCreds").textContent = data["telenor-ai-factory"].keyConfigured
+          ? "Base-URL: " + data["telenor-ai-factory"].baseUrl
+          : "TELENOR_AI_FACTORY_API_KEY er ikke satt i miljøet.";
 
         var bedrockSelect = document.getElementById("bedrockModellValg");
         bedrockSelect.innerHTML = data.bedrock.models.map(function (m) {
@@ -585,6 +617,7 @@ function adminHtml(): string {
             : "BEDROCK_AWS_ACCESS_KEY_ID/BEDROCK_AWS_SECRET_ACCESS_KEY er ikke satt i miljøet.";
 
         updateBedrockVisibility(valgtProvider);
+        updateAiFactoryVisibility(valgtProvider);
       }
 
       function valgtProviderVerdi() {
@@ -599,6 +632,9 @@ function adminHtml(): string {
         var payload = { provider: provider };
         if (provider === "bedrock") {
           payload.bedrockModel = document.getElementById("bedrockModellValg").value;
+        }
+        if (provider === "telenor-ai-factory") {
+          payload.aiFactoryModel = document.getElementById("aiFactoryModellValg").value;
         }
         switchStatus.textContent = "Bytter...";
         fetch("/admin/provider", {
@@ -1601,6 +1637,9 @@ async function loadProviderOverride(): Promise<void> {
     if (BEDROCK_MODELS.some((m) => m.id === data?.bedrockModel)) {
       bedrockModel = data.bedrockModel;
     }
+    if (AI_FACTORY_MODELS.some((m) => m.id === data?.aiFactoryModel)) {
+      aiFactoryModel = data.aiFactoryModel;
+    }
   } catch (feil) {
     if (feilkode(feil) !== "ENOENT") {
       console.warn(`Kunne ikke lese lagret provider-valg: ${feilmelding(feil)}`);
@@ -1610,7 +1649,7 @@ async function loadProviderOverride(): Promise<void> {
 
 async function saveProviderOverride(): Promise<void> {
   await mkdir(stateDir, { recursive: true });
-  await writeFile(providerStateFile, JSON.stringify({ provider: aiProvider, bedrockModel }, null, 2), "utf8");
+  await writeFile(providerStateFile, JSON.stringify({ provider: aiProvider, bedrockModel, aiFactoryModel }, null, 2), "utf8");
 }
 
 async function buildProviderStatus() {
@@ -1636,7 +1675,8 @@ async function buildProviderStatus() {
     ollama: { model: ollamaModel, baseUrl: ollamaBaseUrl },
     openrouter: { model: openRouterModel, keyConfigured: Boolean(openRouterApiKey) },
     "telenor-ai-factory": {
-      model: aiFactoryModel,
+      models: AI_FACTORY_MODELS,
+      currentModel: aiFactoryModel,
       baseUrl: aiFactoryBaseUrl,
       keyConfigured: Boolean(aiFactoryApiKey)
     }
@@ -2182,6 +2222,13 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
           return;
         }
         bedrockModel = String(body.bedrockModel);
+      }
+      if (nyProvider === "telenor-ai-factory" && body?.aiFactoryModel) {
+        if (!AI_FACTORY_MODELS.some((m) => m.id === body.aiFactoryModel)) {
+          jsonResponse(response, 400, { feil: `Ukjent Telenor AI Factory-modell: ${body.aiFactoryModel}` });
+          return;
+        }
+        aiFactoryModel = String(body.aiFactoryModel);
       }
       aiProvider = nyProvider;
       await saveProviderOverride();

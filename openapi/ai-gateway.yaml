@@ -162,7 +162,8 @@ paths:
       summary: Provider-bytte, som en side
       description: |
         HTML-side som viser aktiv provider og lar deg bytte mellom
-        mock/ollama/openrouter/telenor-ai-factory/bedrock (og Bedrock-modell) uten restart.
+        mock/ollama/openrouter/telenor-ai-factory/bedrock (og modell for AI Factory
+        eller Bedrock) uten restart.
         Henter status fra /admin/providers.json og bytter via POST /admin/provider.
       responses:
         "200":
@@ -182,10 +183,10 @@ paths:
                 $ref: "#/components/schemas/AdminStatus"
   /admin/provider:
     post:
-      summary: Bytt aktiv provider (og for Bedrock, modell) uten restart
+      summary: Bytt aktiv provider (og for AI Factory eller Bedrock, modell) uten restart
       description: |
         Lagres til state/ai-provider-override.json, som overstyrer AI_PROVIDER/
-        BEDROCK_MODEL_ID fra miljøet ved neste oppstart.
+        BEDROCK_MODEL_ID/TELENOR_AI_FACTORY_MODEL fra miljøet ved neste oppstart.
 
         Tar bare kall fra tjenestens egen /admin-side, eller fra en klient uten
         Origin-header, altså curl og skript.
@@ -201,6 +202,11 @@ paths:
                 bedrockModel:
                   type: string
                   description: Må finnes i AdminStatus.bedrock.models. Brukes bare når provider=bedrock.
+                aiFactoryModel:
+                  type: string
+                  description: >-
+                    Må finnes i AdminStatus.telenor-ai-factory.models. Brukes bare når
+                    provider=telenor-ai-factory.
       responses:
         "200":
           description: Byttet. Ny status returnert.
@@ -427,7 +433,14 @@ components:
         telenor-ai-factory:
           type: object
           properties:
-            model: { type: string, example: NVIDIA-Nemotron-3-Super-120B-A12B-FP8 }
+            models:
+              type: array
+              items:
+                type: object
+                properties:
+                  id: { type: string, example: "GLM-5.2-FP8" }
+                  label: { type: string, example: "GLM-5.2-FP8" }
+            currentModel: { type: string, example: "GLM-5.2-FP8" }
             baseUrl:
               type: string
               example: https://litellm.apps.s99ct03.aifactory.telenor.com

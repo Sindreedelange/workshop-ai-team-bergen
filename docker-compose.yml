@@ -262,7 +262,7 @@ services:
       - OPENROUTER_MODEL=${OPENROUTER_MODEL:-mistralai/mistral-7b-instruct:free}
       - TELENOR_AI_FACTORY_BASE_URL=${TELENOR_AI_FACTORY_BASE_URL:-https://litellm.apps.s99ct03.aifactory.telenor.com}
       - TELENOR_AI_FACTORY_API_KEY=${TELENOR_AI_FACTORY_API_KEY:-}
-      - TELENOR_AI_FACTORY_MODEL=${TELENOR_AI_FACTORY_MODEL:-NVIDIA-Nemotron-3-Super-120B-A12B-FP8}
+      - TELENOR_AI_FACTORY_MODEL=${TELENOR_AI_FACTORY_MODEL:-GLM-5.2-FP8}
       - TELENOR_AI_FACTORY_CACHE_SALT=${TELENOR_AI_FACTORY_CACHE_SALT:-}
       # Both timeouts are read by the gateway but were not passed through here,
       # so setting AI_TIMEOUT_MS in .env - which .env.example documents - did
