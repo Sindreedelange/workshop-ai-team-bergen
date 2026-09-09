@@ -1,7 +1,9 @@
 # Only the checks that need neither a running stack nor a language model.
 #
 # Deliberately excluded: pnpm test:eval (needs a live model - see evals/README.md)
-# and the test:agent* / test:*-matrikkel scripts (need the compose stack up).
+# Standalone test:agent / test:agent:nl need a stack. The matrikkel test prerequisites
+# differ by script; see AGENTS.md rather than assuming they all need a running stack.
+# test:agent:dialog starts isolated services with the mock and runs both agent scripts.
 name: CI
 
 on:
@@ -136,6 +138,9 @@ jobs:
       # Pins retries after lost responses and read-only questions after rejection.
       - name: Chatfeil, nye forsøk og avslag
         run: pnpm test:chat
+
+      - name: Agentdialog og innsending
+        run: pnpm test:agent:dialog
 
       # Kravet om fnr og formaal manglet en gang på id-ruten i begge mockene, og
       # rettelsen pinnet ingenting. Ruter, parametere og eksempelverdier leses av

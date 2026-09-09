@@ -631,6 +631,9 @@ pnpm test:parametere      # required query parameters per route, read off the sp
 pnpm test:upstream        # what a non-ok answer from another service means, pure functions
 pnpm test:forsendelse     # SvarUt channel decision and time-derived status, pure functions
 pnpm test:kontrakt   # starts its own backend + fiks on 18080/18081 against a fresh STATE_DIR
+pnpm test:agent:dialog     # starts isolated services with the AI mock, through actual submission
+pnpm test:tools-matrikkel  # starts tools-api, matrikkel-mock and a fake Geonorge service
+pnpm test:agent:matrikkel  # starts process-agent and a fake tools-api
 ```
 - After editing source files in `apps/`, restart the affected containers so Node picks up the changes:
 ```bash
@@ -669,8 +672,6 @@ pnpm test:agent
 pnpm test:agent:nl
 pnpm test:matrikkel-mock
 pnpm test:bergen-matrikkel
-pnpm test:tools-matrikkel
-pnpm test:agent:matrikkel
 ```
 - Optional orchestrated startup script (model selection/reset): `./start.sh --help`.
 - CI (`.github/workflows/ci.yml`) runs `lint`, `test:chat-intent`, `test`, `test:sperrer`,
@@ -678,10 +679,13 @@ pnpm test:agent:matrikkel
   `test:skjerming`, `test:vilkaar`, `test:foedselsnummer`, `test:handleevne`,
   `test:samtykke`, `test:forsendelse`, `test:upstream`, `test:concurrency`,
   `test:replay`, `test:chat`, `test:parametere`, `test:imports`, `test:kodeverk`,
-  `test:revisjon`, `test:openapi`, `test:docs` and `test:kontrakt` on every PR
+  `test:revisjon`, `test:openapi`, `test:docs`, `test:agent:dialog` and `test:kontrakt` on every PR
   and on push to main, and uploads the contract dump as an artifact. It deliberately
-  does **not** run `test:eval` (needs a live model) or the `test:agent*` scripts
-  (need the compose stack up) - run those locally.
+  does **not** run `test:eval` (needs a live model). `test:agent:dialog` starts its own
+  isolated services with the AI mock and runs `test:agent` and `test:agent:nl` through
+  actual submission. Running `test:agent` or `test:agent:nl` on its own needs the
+  stack. `test:tools-matrikkel` and `test:agent:matrikkel` also start their own
+  services; they need neither a running stack nor a model.
 - All eleven services have a `healthcheck` in `docker-compose.yml`, and `tools-api`
   and `process-agent` wait on `condition: service_healthy`. `./start.sh` still polls
   `/helse` itself, since the macOS path uses `--no-deps`.

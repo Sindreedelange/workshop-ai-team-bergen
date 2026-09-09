@@ -1016,7 +1016,8 @@ function heuristicProcessChoice(body: AiKropp) {
     };
   }
 
-  const nummer = Number.parseInt(tekst, 10);
+  const rawText = String(body?.tekst || "").trim();
+  const nummer = /^\d+$/.test(rawText) ? Number(rawText) : NaN;
   if (Number.isInteger(nummer) && nummer >= 1 && nummer <= prosesser.length) {
     const valgt = prosesser[nummer - 1];
     return {
