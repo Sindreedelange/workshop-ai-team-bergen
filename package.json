@@ -37,6 +37,7 @@
     "test:revisjon": "node scripts/test-revisjonsspor.ts",
     "test:concurrency": "node scripts/test-concurrency.ts",
     "test:imports": "node scripts/test-imports.ts",
+    "test:startup": "node scripts/test-startup.ts",
     "test:kodeverk": "node scripts/test-kodeverk.ts",
     "test:replay": "node scripts/test-prosessoekt-lukket.ts",
     "test:chat": "node --experimental-vm-modules scripts/test-chat-recovery.ts",

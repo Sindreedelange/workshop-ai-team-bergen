@@ -142,6 +142,16 @@ jobs:
       - name: Agentdialog og innsending
         run: pnpm test:agent:dialog
 
+      # These fixtures start their own services and never need a live register.
+      - name: Eksakte adresser i alle Matrikkel-moduser
+        run: pnpm test:tools-matrikkel
+
+      - name: Agentens gatevalg og utkast
+        run: pnpm test:agent:matrikkel
+
+      - name: Matrikkel-mock over REST og SOAP
+        run: pnpm test:matrikkel-mock
+
       # Kravet om fnr og formaal manglet en gang på id-ruten i begge mockene, og
       # rettelsen pinnet ingenting. Ruter, parametere og eksempelverdier leses av
       # spesifikasjonene. Tre tjenester på egne porter; ingen modell, ingen stack.
@@ -155,6 +165,11 @@ jobs:
       # in the sum. Pure text analysis, no import, no port.
       - name: Importgrafen
         run: pnpm test:imports
+
+      # Fake Docker/curl executables exercise reset ordering and recreation
+      # without touching the runner's containers or requiring a model.
+      - name: Oppstart, omlasting og trygg nullstilling
+        run: pnpm test:startup
 
       # A kodeverk nobody reads is a claim the code does not honour. REAKSJONER -
       # the four words politiregisterloven § 39 uses - decided whether a person is

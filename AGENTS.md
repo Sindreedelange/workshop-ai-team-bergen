@@ -627,6 +627,7 @@ pnpm test:vilkaar    # the vedtak in vilkaar.ts, as pure functions against fixtu
 pnpm test:foedselsnummer  # modulus 11 and the +80 synthetic marker, pure functions
 pnpm test:handleevne      # who may act and on whose behalf, pure functions
 pnpm test:imports         # the import graph between apps is a DAG, pure text analysis
+pnpm test:startup         # launcher lifecycle with fake Docker/curl, no running stack
 pnpm test:parametere      # required query parameters per route, read off the specs
 pnpm test:upstream        # what a non-ok answer from another service means, pure functions
 pnpm test:forsendelse     # SvarUt channel decision and time-derived status, pure functions
@@ -634,6 +635,7 @@ pnpm test:kontrakt   # starts its own backend + fiks on 18080/18081 against a fr
 pnpm test:agent:dialog     # starts isolated services with the AI mock, through actual submission
 pnpm test:tools-matrikkel  # starts tools-api, matrikkel-mock and a fake Geonorge service
 pnpm test:agent:matrikkel  # starts process-agent and a fake tools-api
+pnpm test:matrikkel-mock   # starts its own matrikkel-mock
 ```
 - After editing source files in `apps/`, restart the affected containers so Node picks up the changes:
 ```bash
@@ -670,21 +672,20 @@ diff state/foer.json state/etter.json
 ```bash
 pnpm test:agent
 pnpm test:agent:nl
-pnpm test:matrikkel-mock
 pnpm test:bergen-matrikkel
 ```
 - Optional orchestrated startup script (model selection/reset): `./start.sh --help`.
 - CI (`.github/workflows/ci.yml`) runs `lint`, `test:chat-intent`, `test`, `test:sperrer`,
-  `test:oppsummering`,
-  `test:skjerming`, `test:vilkaar`, `test:foedselsnummer`, `test:handleevne`,
+  `test:oppsummering`, `test:skjerming`, `test:vilkaar`, `test:foedselsnummer`, `test:handleevne`,
   `test:samtykke`, `test:forsendelse`, `test:upstream`, `test:concurrency`,
-  `test:replay`, `test:chat`, `test:parametere`, `test:imports`, `test:kodeverk`,
-  `test:revisjon`, `test:openapi`, `test:docs`, `test:agent:dialog` and `test:kontrakt` on every PR
+  `test:replay`, `test:chat`, `test:parametere`, `test:imports`, `test:startup`, `test:kodeverk`,
+  `test:revisjon`, `test:openapi`, `test:docs`, `test:agent:dialog`, `test:tools-matrikkel`,
+  `test:agent:matrikkel`, `test:matrikkel-mock` and `test:kontrakt` on every PR
   and on push to main, and uploads the contract dump as an artifact. It deliberately
   does **not** run `test:eval` (needs a live model). `test:agent:dialog` starts its own
   isolated services with the AI mock and runs `test:agent` and `test:agent:nl` through
   actual submission. Running `test:agent` or `test:agent:nl` on its own needs the
-  stack. `test:tools-matrikkel` and `test:agent:matrikkel` also start their own
+  stack. `test:tools-matrikkel`, `test:agent:matrikkel` and `test:matrikkel-mock` start their own
   services; they need neither a running stack nor a model.
 - All eleven services have a `healthcheck` in `docker-compose.yml`, and `tools-api`
   and `process-agent` wait on `condition: service_healthy`. `./start.sh` still polls
