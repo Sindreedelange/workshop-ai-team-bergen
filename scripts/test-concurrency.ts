@@ -59,6 +59,28 @@ function check(name: string, condition: unknown, detail = "") {
   failures.push(`${name}${detail ? ` - ${detail}` : ""}`);
 }
 
+function oektMedKilder(
+  resultatKilder: Record<string, string[]> | null,
+  frosset = true,
+  verdi = 1
+) {
+  return {
+    oektsId: "oekt-fletting",
+    prosessId: PROSESS,
+    personId: "person-001",
+    sporingsId: "flyt-fletting",
+    status: "AKTIV",
+    stegIndex: 1,
+    svar: {},
+    resultaterRaa: { resultat: { verdi } },
+    resultatKilder,
+    resultatKilderFrosset: frosset,
+    aktivtSamtykkeId: "samtykke-fletting",
+    opprettet: "2026-09-01T00:00:00.000Z",
+    oppdatert: "2026-09-01T00:00:00.000Z"
+  } as any;
+}
+
 function start(name: string, relativePath: string, env: any) {
   const child = spawn(process.execPath, [path.join(repoRoot, relativePath)], {
     cwd: repoRoot,
@@ -180,6 +202,73 @@ const services = [
 ];
 
 try {
+  // state.ts imports jsonstore, so it must load after STATE_DIR names this test's
+  // temporary directory rather than the workshop's runtime state.
+  const { mergeFrossetProsessoekt, mergeProsessoektForLagring } =
+    await import("../apps/sandbox-backend/src/state.ts");
+  const strengFletting = mergeProsessoektForLagring(
+    oektMedKilder({ resultat: ["inntekt"] }),
+    oektMedKilder({ resultat: [] })
+  );
+  check(
+    "en gammel forespørsel kan ikke svekke en frosset kilde",
+    JSON.stringify(strengFletting.resultatKilder.resultat) === JSON.stringify(["inntekt"]),
+    JSON.stringify(strengFletting.resultatKilder)
+  );
+
+  const kildeunion = mergeProsessoektForLagring(
+    oektMedKilder({ resultat: ["inntekt"] }),
+    oektMedKilder({ resultat: ["politiattest"] })
+  );
+  check(
+    "samtidige kjente kilder flettes til den strengeste unionen",
+    JSON.stringify(kildeunion.resultatKilder.resultat?.sort())
+      === JSON.stringify(["inntekt", "politiattest"]),
+    JSON.stringify(kildeunion.resultatKilder)
+  );
+
+  const ukjentVinner = mergeProsessoektForLagring(
+    oektMedKilder({}),
+    oektMedKilder({ resultat: [] })
+  );
+  check(
+    "ukjent frosset kilde kan ikke omklassifiseres som ubeskyttet",
+    !Object.hasOwn(ukjentVinner.resultatKilder, "resultat")
+      && ukjentVinner.resultatKilderFrosset,
+    JSON.stringify(ukjentVinner.resultatKilder)
+  );
+
+  const samtidigFrosset = mergeFrossetProsessoekt(
+    oektMedKilder({ resultat: ["inntekt"] }),
+    oektMedKilder({ resultat: [] })
+  );
+  check(
+    "en foreldet prosessfrysing kan ikke svekke metadata som alt er frosset",
+    JSON.stringify(samtidigFrosset.resultatKilder.resultat) === JSON.stringify(["inntekt"]),
+    JSON.stringify(samtidigFrosset.resultatKilder)
+  );
+
+  const nullMetadataFrosset = mergeFrossetProsessoekt(
+    oektMedKilder(null, false),
+    oektMedKilder(null, true)
+  );
+  check(
+    "eksplisitt null fryses som ukjent metadata i lagringen",
+    !Object.hasOwn(nullMetadataFrosset.resultatKilder, "resultat")
+      && nullMetadataFrosset.resultatKilderFrosset,
+    JSON.stringify(nullMetadataFrosset)
+  );
+
+  const nyttLegacyResultat = mergeProsessoektForLagring(
+    oektMedKilder({}, false, 1),
+    oektMedKilder({ resultat: ["inntekt"] }, true, 2)
+  );
+  check(
+    "ny kjøring av et legacy-steg beholder den nye kilden",
+    JSON.stringify(nyttLegacyResultat.resultatKilder.resultat) === JSON.stringify(["inntekt"]),
+    JSON.stringify(nyttLegacyResultat.resultatKilder)
+  );
+
   await Promise.all([waitForHealth(digdirUrl), waitForHealth(backendUrl)]);
 
   /*
