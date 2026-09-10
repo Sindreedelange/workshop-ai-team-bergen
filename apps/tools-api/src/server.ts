@@ -498,24 +498,25 @@ const toolDefs: Verktoy[] = [
   },
   {
     name: "pdf_get_context",
-    description: "Get compact, source-grounded PDF content for an agent's context window. Omits layout and confidence details; use pdf_get_extraction when auditing evidence.",
+    description: "Get the complete compact, source-grounded content of one extracted PDF. Use this when the whole document fits the agent context.",
     inputSchema: {
       type: "object",
       required: ["documentId"],
       properties: {
         documentId: { type: "string" },
-        maxChars: { type: "integer", minimum: 1000, maximum: 2000000, description: "Optional context size cap. Use pdf_search for targeted retrieval." }
+        maxChars: { type: "integer", minimum: 1000, maximum: 2000000, description: "Optional context size cap. Use pdf_search when the document is too large." }
       }
     }
   },
   {
     name: "pdf_search",
-    description: "Search RAG-ready, source-grounded chunks across extracted PDFs, including optional legal or arealplan profile filters.",
+    description: "Semantically retrieve the most relevant source-grounded chunks from the PDF extractor's embedded vector database.",
     inputSchema: {
       type: "object",
+      required: ["query"],
       properties: {
-        query: { type: "string" }, profile: { type: "string", enum: ["generic", "legal", "arealplan"] },
-        planId: { type: "string" }, topic: { type: "string" }, zoneCode: { type: "string" },
+        query: { type: "string" }, documentId: { type: "string", description: "Optional: search only this document." },
+        profile: { type: "string", enum: ["generic", "legal", "arealplan"] },
         limit: { type: "integer", minimum: 1, maximum: 100 }
       }
     }

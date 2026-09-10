@@ -9,6 +9,7 @@ from .extractor import build_review, extract_pdf, file_sha256, utc_now
 from .knowledge import build_knowledge_chunks, build_knowledge_markdown, chunks_jsonl
 from .models import SourceMetadata
 from .storage import atomic_write, document_dir, publish, read_json, write_json
+from .vector_store import index_document
 
 
 def main() -> None:
@@ -48,6 +49,7 @@ def main() -> None:
     chunks = build_knowledge_chunks(result)
     atomic_write(directory / "knowledge.md", build_knowledge_markdown(result, chunks))
     atomic_write(directory / "chunks.jsonl", chunks_jsonl(chunks))
+    index_document(result, chunks)
     atomic_write(directory / "review.html", build_review(result))
     print(document_id)
 

@@ -15,8 +15,8 @@ from pydantic import BaseModel, Field
 from .extractor import build_review, extract_pdf, file_sha256, utc_now
 from .knowledge import build_knowledge_chunks, build_knowledge_markdown, chunks_jsonl
 from .models import ExtractionDocument, Profile, SourceKind, SourceMetadata
-from .retrieval import rank_chunks
 from .storage import STATE_ROOT, atomic_write, document_dir, find_result, list_documents, publish, read_json, write_json
+from .vector_store import MODEL_NAME, index_document, is_current, search_vectors
 
 
 AI_BASE_URL = os.getenv("AI_BASE_URL", "http://ai-gateway:8082")
@@ -27,12 +27,10 @@ queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
 
 
 class SearchRequest(BaseModel):
-    query: str | None = None
-    planId: str | None = None
-    topic: str | None = None
-    zoneCode: str | None = None
+    query: str = Field(min_length=2, max_length=2000)
+    documentId: str | None = None
     profile: Profile | None = None
-    limit: int = Field(default=20, ge=1, le=100)
+    limit: int = Field(default=10, ge=1, le=100)
 
 
 class ApprovalRequest(BaseModel):
@@ -94,7 +92,12 @@ async def run_job(job_id: str, document_id: str) -> None:
         source = SourceMetadata.model_validate(metadata["source"])
         result = await extract_pdf(directory / "source.pdf", directory, document_id, source, AI_BASE_URL, metadata.get("profile", "generic"))
         write_json(directory / "document.json", result.model_dump(mode="json"))
-        write_knowledge_artifacts(directory, result)
+        _, chunks = write_knowledge_artifacts(directory, result)
+        try:
+            await asyncio.to_thread(index_document, result, chunks)
+        except Exception as error:
+            result.quality.setdefault("warnings", []).append(f"Vektorindeksering feilet: {error}")
+            write_json(directory / "document.json", result.model_dump(mode="json"))
         atomic_write(directory / "review.html", build_review(result))
         job.update(status="completed", completedAt=utc_now(), warnings=result.quality.get("warnings", []))
     except Exception as error:
@@ -138,7 +141,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET", "P
 
 @app.get("/helse")
 async def health():
-    return {"status": "ok", "tjeneste": "pdf-extractor", "tidspunkt": utc_now(), "koelengde": queue.qsize(), "profiler": ["generic", "legal", "arealplan"], "visionModel": os.getenv("OLLAMA_VISION_MODEL"), "visionEnabled": os.getenv("PDF_EXTRACTOR_VISION_ENABLED", "true").lower() == "true"}
+    return {"status": "ok", "tjeneste": "pdf-extractor", "tidspunkt": utc_now(), "koelengde": queue.qsize(), "profiler": ["generic", "legal", "arealplan"], "embeddingModel": MODEL_NAME, "visionModel": os.getenv("OLLAMA_VISION_MODEL"), "visionEnabled": os.getenv("PDF_EXTRACTOR_VISION_ENABLED", "true").lower() == "true"}
 
 
 @app.get("/openapi.yaml")
@@ -377,19 +380,22 @@ async def get_page(document_id: str, page_number: int):
 
 @app.post("/sok")
 async def search(request: SearchRequest):
-    candidates: list[dict[str, Any]] = []
     for item in list_documents():
+        if request.documentId and item["documentId"] != request.documentId:
+            continue
         path = find_result(item["documentId"])
         if not path:
             continue
         result = ExtractionDocument.model_validate(read_json(path))
         if request.profile and result.profile != request.profile:
             continue
-        plan_data = result.profileData.get("arealplan", {})
-        if request.planId and str(plan_data.get("planId")) != request.planId:
-            continue
-        candidates.extend({"documentId": item["documentId"], "profile": result.profile, "planId": plan_data.get("planId"), **candidate} for candidate in build_knowledge_chunks(result))
-    hits = rank_chunks(candidates, query=request.query, topic=request.topic, zone_code=request.zoneCode, limit=request.limit)
+        chunks = build_knowledge_chunks(result)
+        if not is_current(result, len(chunks)):
+            try:
+                await asyncio.to_thread(index_document, result, chunks)
+            except Exception as error:
+                raise HTTPException(503, f"Vektorindeksen er ikke tilgjengelig: {error}") from error
+    hits = await asyncio.to_thread(search_vectors, request.query, request.limit, request.documentId, request.profile)
     return {"count": len(hits), "treff": hits}
 
 

@@ -13,9 +13,9 @@ import fitz
 from pdf_extractor.extractor import _rules_from_text, extract_pdf, file_sha256, utc_now
 from pdf_extractor.knowledge import build_knowledge_chunks, build_knowledge_markdown
 from pdf_extractor.models import SourceMetadata
-from pdf_extractor.retrieval import rank_chunks
 from pdf_extractor.service import ApprovalRequest, approve_document, review_status
 from pdf_extractor.storage import atomic_write, write_json
+from pdf_extractor import vector_store
 
 
 class ExtractionProfilesTest(unittest.TestCase):
@@ -159,17 +159,22 @@ class ExtractionProfilesTest(unittest.TestCase):
         self.assertEqual([rule.ruleId for rule in rules], ["17.3"])
         self.assertIn("Kravet gjelder", rules[0].text)
 
-    def test_deterministic_retrieval_ranks_rules_above_contents(self):
-        candidates = [
-            {"chunkId": "toc", "documentId": "pdf-a", "page": 1, "pageType": "table-of-contents", "chunkType": "section", "authority": "informative", "text": "§ 17 Parkering", "heading": None, "topics": [], "zoneCodes": []},
-            {"chunkId": "rule", "documentId": "pdf-a", "page": 13, "pageType": "content", "chunkType": "rule", "authority": "binding", "text": "17.3 Krav til parkering ved nye tiltak.", "heading": "§ 17.3 Parkering", "topics": ["parkering"], "zoneCodes": ["BY1"]},
-            {"chunkId": "other-zone", "documentId": "pdf-a", "page": 14, "pageType": "content", "chunkType": "rule", "authority": "binding", "text": "Parkering i en annen sone.", "heading": "§ 18", "topics": ["parkering"], "zoneCodes": ["Y2"]},
+    def test_embedded_vector_store_persists_and_filters_chunks(self):
+        result = self.extract("legal")
+        chunks = [
+            {"chunkId": f"{result.documentId}:parking", "documentId": result.documentId, "profile": "legal", "page": 2, "text": "Krav til parkering for bolig", "authority": "binding"},
+            {"chunkId": f"{result.documentId}:noise", "documentId": result.documentId, "profile": "legal", "page": 3, "text": "Grenseverdier for støy", "authority": "binding"},
         ]
-        hits = rank_chunks(candidates, query="Hva er reglene for parkering?", limit=10)
-        self.assertEqual(hits[0]["chunkId"], "rule")
-        self.assertLess([hit["chunkId"] for hit in hits].index("rule"), [hit["chunkId"] for hit in hits].index("toc"))
-        zone_hits = rank_chunks(candidates, topic="parkering", zone_code="by 1", limit=10)
-        self.assertEqual([hit["chunkId"] for hit in zone_hits], ["rule"])
+
+        def fake_embed(texts):
+            return [[1.0, 0.0] if "parkering" in text.casefold() else [0.0, 1.0] for text in texts]
+
+        with patch.object(vector_store, "INDEX_PATH", self.root / "vectors.sqlite3"), patch.object(vector_store, "_embed", side_effect=fake_embed):
+            vector_store.index_document(result, chunks)
+            hits = vector_store.search_vectors("parkering", document_id=result.documentId, profile="legal")
+            self.assertTrue(vector_store.is_current(result, len(chunks)))
+        self.assertEqual(hits[0]["chunkId"], f"{result.documentId}:parking")
+        self.assertEqual(hits[0]["page"], 2)
 
     def test_scanned_legal_page_runs_ocr_text_through_rule_parser(self):
         scanned = self.root / "scanned.pdf"

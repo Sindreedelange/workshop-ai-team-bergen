@@ -13,7 +13,6 @@ AUTHORITY_LABELS = {
     "informative": "Informasjon",
     "unknown": "Dokumentinnhold"
 }
-ZONE = re.compile(r"\b(?:S|BY|Y|H\d{3}|#)\s*\d+(?:[_-]\d+)?\b", re.I)
 
 
 def knowledge_status(result: ExtractionDocument) -> str:
@@ -68,10 +67,6 @@ def _split_text(text: str, limit: int = 3500, preserve_lines: bool = False) -> l
     return chunks
 
 
-def _zone_codes(text: str) -> list[str]:
-    return sorted({match.group(0).replace(" ", "").upper() for match in ZONE.finditer(text)})
-
-
 def _base_chunk(result: ExtractionDocument, page: int, page_type: str, authority: str, text: str) -> dict[str, Any]:
     return {
         "documentId": result.documentId,
@@ -83,7 +78,6 @@ def _base_chunk(result: ExtractionDocument, page: int, page_type: str, authority
         "pageType": page_type,
         "authority": authority,
         "text": text,
-        "zoneCodes": _zone_codes(text),
     }
 
 
@@ -114,8 +108,6 @@ def build_knowledge_chunks(result: ExtractionDocument) -> list[dict[str, Any]]:
                 "chunkType": "rule",
                 "heading": f"§ {rule.ruleId}" + (f" {rule.title}" if rule.title else ""),
                 "ruleIds": [rule.ruleId],
-                "topics": sorted(set(rule.topics)),
-                "references": sorted(set(rule.references)),
             })
 
     # Preserve informative pages and any content that did not yield clauses.
@@ -142,8 +134,6 @@ def build_knowledge_chunks(result: ExtractionDocument) -> list[dict[str, Any]]:
                     "chunkType": "section",
                     "heading": None,
                     "ruleIds": [],
-                    "topics": [],
-                    "references": [],
                 })
     return chunks
 

@@ -30,8 +30,11 @@ ekstraksjon skriver aldri i `data/`.
 `document.json` er kontrollgrunnlaget: rå blokker, koordinater, skrifter,
 konfidens, metode og modellspor. Det er med vilje detaljert. Agenter bør normalt
 bruke `GET /dokumenter/{id}/kunnskap` for hel kontekst eller `POST /sok` for
-målrettet gjenfinning. Begge svarene beholder dokument-ID, side og innholdstype,
-slik at et svar kan føres tilbake til kontrollgrunnlaget.
+målrettet semantisk gjenfinning. `POST /sok` bruker en vedvarende SQLite-basert
+vektordatabase under `state/pdf-extractor/`; den flerspråklige embeddingmodellen
+ligger ferdig i Docker-imaget. Det finnes ingen plan- eller PDF-spesifikk
+søkerangering. Begge svarene beholder dokument-ID, side og innholdstype, slik at
+et svar kan føres tilbake til kontrollgrunnlaget.
 
 ## Kontroll og godkjenning
 

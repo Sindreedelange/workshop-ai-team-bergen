@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" role="img" aria-labelledby="title desc">
   <title id="title">Arkitektur for PDF-extractor</title>
-  <desc id="desc">Flyt fra opplasting via deterministisk uttrekk og valgfrie modeller til kontrollgrunnlag, kompakt kunnskap, RAG-biter og godkjenning.</desc>
+  <desc id="desc">Flyt fra opplasting via kildekritisk uttrekk til kontrollgrunnlag, hel dokumentkontekst, innebygd vektordatabase og agentverktøy.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f3f7fb"/><stop offset="1" stop-color="#e9f1f8"/></linearGradient>
     <filter id="shadow" x="-15%" y="-15%" width="130%" height="140%"><feDropShadow dx="0" dy="7" stdDeviation="8" flood-color="#17324d" flood-opacity=".14"/></filter>
@@ -44,12 +44,12 @@
   <path class="line" d="M1117 294H965V468H860"/>
   <rect class="box knowledge" x="565" y="430" width="295" height="180"/>
   <text class="small" x="590" y="459">AGENTVENNLIG LAG</text><text class="h" x="590" y="495">Kompakt kunnskap</text>
-  <text class="t" x="590" y="526">knowledge.md: hel kontekst</text><text class="t" x="590" y="552">chunks.jsonl: RAG-klare biter</text><text class="t" x="590" y="578">Side, autoritet og kilde beholdes</text>
+  <text class="t" x="590" y="526">knowledge.md: hel kontekst</text><text class="t" x="590" y="552">SQLite: semantiske vektorbiter</text><text class="t" x="590" y="578">Side, autoritet og kilde beholdes</text>
 
   <path class="line" d="M565 490H450"/>
   <rect class="box primary" x="70" y="414" width="380" height="202"/>
   <text class="small" x="95" y="443">BRUK</text><text class="h" x="95" y="479">Agenter og applikasjoner</text>
-  <text class="t" x="95" y="511">pdf_get_context - hele dokumentet</text><text class="t" x="95" y="539">pdf_search - relevante dokumentbiter</text><text class="t" x="95" y="567">pdf_get_extraction - bevis og revisjon</text><text class="t" x="95" y="594">Alle treff peker tilbake til side og dokument</text>
+  <text class="t" x="95" y="511">pdf_get_context - hele dokumentet</text><text class="t" x="95" y="539">pdf_search - semantiske vektortreff</text><text class="t" x="95" y="567">pdf_get_extraction - bevis og revisjon</text><text class="t" x="95" y="594">Alle treff peker tilbake til side og dokument</text>
 
   <path class="line" d="M1210 610V706H923"/>
   <rect class="box approved" x="565" y="690" width="358" height="143"/>

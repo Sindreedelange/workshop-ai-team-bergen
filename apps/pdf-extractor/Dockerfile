@@ -12,6 +12,10 @@ WORKDIR /workspace/apps/pdf-extractor
 COPY apps/pdf-extractor/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
+ENV PDF_EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 \
+    PDF_EMBEDDING_CACHE_DIR=/opt/pdf-embedding-model
+RUN python -c "from fastembed import TextEmbedding; list(TextEmbedding(model_name='sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2', cache_dir='/opt/pdf-embedding-model').embed(['PDF knowledge']))"
+
 COPY apps/pdf-extractor ./
 COPY openapi/pdf-extractor.yaml /workspace/openapi/pdf-extractor.yaml
 ENV PYTHONPATH=/workspace/apps/pdf-extractor

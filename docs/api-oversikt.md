@@ -116,7 +116,7 @@ den som leser uten å kjøre stacken.
 | `pdf_start_extraction` | Start uttrekk for en opplastet PDF |
 | `pdf_get_extraction` | Hent jobbstatus eller strukturert PDF-uttrekk |
 | `pdf_get_context` | Hent kompakt dokumentinnhold for modellkontekst |
-| `pdf_search` | Søk i RAG-klare, kildeforankrede dokumentbiter |
+| `pdf_search` | Semantisk søk i kildeforankrede dokumentbiter fra den innebygde vektordatabasen |
 
 </details>
 
