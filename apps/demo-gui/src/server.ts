@@ -3,12 +3,13 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { KLIENTSKRIPT, send, sendFil } from "../../shared/assets.ts";
+import { buildClientKonfigurasjon } from "../../shared/client-konfigurasjon.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const sharedDir = path.join(__dirname, "..", "..", "shared");
 const deltKlientDir = path.join(sharedDir, "client");
 const klientDir = path.join(__dirname, "client");
-const port = 3001;
+const port = Number(process.env.PORT) || 3001;
 
 // Whitelisted, because the filename comes from the URL. Never join user input
 // onto a directory path without one.
@@ -40,6 +41,9 @@ const KLIENTFILER: Record<string, string> = {
   "agent.ts": KLIENTSKRIPT,
   "utforsker.ts": KLIENTSKRIPT,
   "ds-eksempel.ts": KLIENTSKRIPT,
+  "garasje.ts": KLIENTSKRIPT,
+  "garasje-kart.ts": KLIENTSKRIPT,
+  "garasje-prosess.ts": KLIENTSKRIPT,
   "callback.ts": KLIENTSKRIPT
 };
 
@@ -57,6 +61,7 @@ const sider: Record<string, string> = {
   "/utforsker": "utforsker.html",
   // Template for teams building their own frontend. See docs/designsystem.md.
   "/ds-eksempel": "ds-eksempel.html",
+  "/garasje": "garasje.html",
   // The redirect_uri registered with ID-porten. Same path for every page: the page
   // to return to travels in `state`, not in the callback URL.
   "/callback": "callback.html"
@@ -67,6 +72,16 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
 
   if (sti === "/helse") {
     send(response, 200, JSON.stringify({ status: "ok", tjeneste: "demo-gui" }), "application/json; charset=utf-8");
+    return;
+  }
+
+  if (sti === "/garasje-config.json" || sti === "/klient-config.json") {
+    send(response, 200, JSON.stringify(buildClientKonfigurasjon()), "application/json; charset=utf-8");
+    return;
+  }
+
+  if (sti === "/klient-konfigurasjon") {
+    send(response, 200, `globalThis.sandkasseKonfigurasjon = ${JSON.stringify(buildClientKonfigurasjon())};`, KLIENTSKRIPT);
     return;
   }
 

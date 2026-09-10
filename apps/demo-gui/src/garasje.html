@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="nb" data-color-scheme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Garasjesjekken</title>
+    <link rel="stylesheet" href="https://static.fiks.ks.no/googlefonts/googleapis/css2?family=Inter:wght@400;500;600;700&display=swap" />
+    <link rel="stylesheet" href="/assets/ds-base.css" />
+    <link rel="stylesheet" href="/assets/ds-ksdigital.css" />
+    <style>
+      @layer side;
+      @layer side {
+        body { margin: 0; background: var(--ds-color-background-default); color: var(--ds-color-text-default); }
+        [hidden] { display: none !important; }
+        .page { max-width: 76rem; margin: auto; padding: var(--ds-size-6); overflow-wrap: anywhere; }
+        .embedded .bar, .embedded .hero, .embedded footer, .embedded #login-panel { display: none; }
+        .embedded .page { padding: var(--ds-size-3); }
+        .embedded #search-form, .embedded [aria-label="Demonstrasjonsadresser"] { display: none; }
+        .bar, .actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--ds-size-4); }
+        .bar { justify-content: space-between; padding-bottom: var(--ds-size-8); }
+        .hero { max-width: 52rem; display: grid; gap: var(--ds-size-4); margin-block: var(--ds-size-8); }
+        .eyebrow { color: var(--ds-color-text-subtle); }
+        .stack { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: var(--ds-size-6); }
+        .page .ds-button { white-space: normal; min-width: 0; max-width: 100%; }
+        .columns > *, .field-grid > * { min-width: 0; }
+        .columns { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: var(--ds-size-6); align-items: start; }
+        .panel { padding: var(--ds-size-6); border: var(--ds-border-width-default) solid var(--ds-color-border-subtle); border-radius: var(--ds-border-radius-lg); background: var(--ds-color-surface-default); }
+        .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--ds-size-5); }
+        .muted { color: var(--ds-color-text-subtle); }
+        .search { display: flex; align-items: end; gap: var(--ds-size-3); }
+        .search .ds-field { flex: 1; }
+        .choices { display: grid; gap: var(--ds-size-2); }
+        .choices .ds-button { justify-content: start; text-align: start; }
+        .facts { margin: 0; display: grid; gap: var(--ds-size-2); }
+        .facts dt { font-weight: var(--ds-font-weight-semibold); }
+        .facts dd { margin: 0 0 var(--ds-size-3); }
+        .map { width: 100%; aspect-ratio: 4 / 3; display: block; border: var(--ds-border-width-default) solid var(--ds-color-border-default); background: var(--ds-color-neutral-surface-tinted); border-radius: var(--ds-border-radius-md); cursor: crosshair; touch-action: none; }
+        .map:focus-visible { outline: var(--ds-border-width-focus) solid var(--ds-color-focus-outer); outline-offset: var(--ds-size-1); }
+        .parcel { fill: none; stroke: var(--ds-color-danger-border-strong); stroke-width: 3; }
+        .building { fill: var(--ds-color-neutral-surface-active); stroke: var(--ds-color-neutral-border-strong); stroke-width: 1; }
+        .marker { fill: var(--ds-color-base-default); stroke: var(--ds-color-base-contrast-default); stroke-width: 3; }
+        .map-label { fill: var(--ds-color-text-default); font-size: var(--ds-font-size-3); }
+        .check-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--ds-size-4); }
+        .check-list li { padding-bottom: var(--ds-size-4); border-bottom: var(--ds-border-width-default) solid var(--ds-color-border-subtle); }
+        .check-list h3 { margin-bottom: var(--ds-size-2); }
+        .source-list { padding-left: var(--ds-size-5); display: grid; gap: var(--ds-size-3); }
+        footer { margin-block: var(--ds-size-10); }
+        @media (max-width: 52rem) { .columns { grid-template-columns: 1fr; } }
+        @media (max-width: 32rem) { .field-grid { grid-template-columns: 1fr; } .search { flex-direction: column; align-items: stretch; } .page { padding: var(--ds-size-3); } }
+        @media print { .bar, #login-panel, #property-controls, #garage-form, .actions, #map-controls { display: none; } .columns { display: block; } .panel { break-inside: avoid; margin-bottom: var(--ds-size-6); } }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <nav class="bar" aria-label="Hovedmeny">
+        <a class="ds-link" href="/">Til sandkassen</a>
+        <div class="actions">
+          <span id="logged-in" class="ds-paragraph" data-size="sm"></span>
+          <button id="logout" class="ds-button" data-variant="tertiary" data-size="sm" hidden>Logg ut</button>
+          <div class="ds-field">
+            <label for="theme" class="ds-label" data-size="sm">Utseende</label>
+            <select id="theme" class="ds-input" data-size="sm"><option value="light">Lyst</option><option value="dark">Mørkt</option></select>
+          </div>
+        </div>
+      </nav>
+      <main class="stack">
+        <header class="hero">
+          <p class="ds-paragraph eyebrow">GARASJESJEKKEN · DIN EIENDOM</p>
+          <h1 class="ds-heading" data-size="2xl">Trenger garasjen en søknad?</h1>
+          <p class="ds-paragraph" data-size="lg">Vi henter adresse, eiendom og arealplaner. Du forteller bare om garasjen du vil bygge.</p>
+        </header>
+        <div class="ds-alert" data-color="info">
+          <p class="ds-paragraph"><strong>Testpersoner og eierskap er syntetiske. Adresser, kart og planforhold er ekte.</strong> Offentlige oppslag får ikke personidentitet eller eierdata. Dette er veiledning, ikke et kommunalt vedtak. Manglende eller uavklarte opplysninger gir aldri et automatisk ja.</p>
+        </div>
+        <div id="error" class="ds-alert" data-color="danger" role="alert" hidden></div>
+        <p id="progress" class="ds-paragraph" role="status" aria-live="polite"></p>
+        <section id="login-panel" class="panel stack" aria-labelledby="login-heading">
+          <h2 id="login-heading" class="ds-heading" data-size="md">Start med adressene dine</h2>
+          <p class="ds-paragraph">Logg inn med sandkassens ID-porten. Vi foreslår bostedsadressen din og viser eiendommer du er registrert som eier av. Dette er testinnlogging, ikke ekte BankID.</p>
+          <div><button id="login" class="ds-button">Logg inn med ID-porten (test)</button></div>
+        </section>
+        <div id="workspace" class="stack" hidden>
+          <section class="panel stack" aria-labelledby="property-heading">
+            <h2 id="property-heading" class="ds-heading" data-size="lg">1. Hvilken eiendom?</h2>
+            <div id="property-controls" class="stack">
+              <div class="ds-field">
+                <label for="my-address" class="ds-label">Eiendommer du er registrert som eier av</label>
+                <select id="my-address" class="ds-input" aria-describedby="address-note"><option value="">Velg adresse</option></select>
+                <p id="address-note" class="ds-paragraph" data-size="sm"></p>
+              </div>
+              <form id="search-form" class="search">
+                <div class="ds-field">
+                  <label for="address-search" class="ds-label">Eller søk etter en adresse</label>
+                  <input id="address-search" class="ds-input" type="search" required minlength="3" maxlength="120" autocomplete="street-address" placeholder="For eksempel Litle Milde 65" />
+                </div>
+                <button class="ds-button" data-variant="secondary" type="submit">Finn eiendom</button>
+              </form>
+              <div class="actions" aria-label="Demonstrasjonsadresser">
+                <span class="ds-paragraph" data-size="sm">Prøv en case:</span>
+                <button class="ds-button" data-variant="tertiary" data-size="sm" id="case-milde">Litle Milde 65</button>
+                <button class="ds-button" data-variant="tertiary" data-size="sm" id="case-krakenes">Kråkenestoppen 60</button>
+              </div>
+              <div id="address-results" class="choices" aria-live="polite"></div>
+            </div>
+            <div id="property-facts" hidden></div>
+            <p id="confirm-note" class="ds-paragraph" aria-live="polite"></p>
+            <div><button id="confirm-property" class="ds-button" type="button" hidden>Bekreft eiendom</button></div>
+          </section>
+          <div id="property-workspace" class="columns" hidden>
+            <div class="stack">
+              <section class="panel stack" aria-labelledby="map-heading">
+                <h2 id="map-heading" class="ds-heading" data-size="md">2. Hvor vil du bygge?</h2>
+                <p id="map-help" class="ds-paragraph" data-size="sm">Rød strek viser eiendomsgrensen. Kartet har omtrent ti meter eller mer rundt tomten. Klikk eller dra markøren for å plassere garasjen, eller bruk retningsknappene under.</p>
+                <svg id="placement-map" class="map" viewBox="0 0 640 480" role="img" aria-label="Kart over valgt eiendom med foreslått plassering">
+                  <image id="map-image" width="640" height="480" />
+                  <g id="map-parcels"></g>
+                  <g id="map-buildings"></g>
+                  <circle id="map-marker" class="marker" cx="320" cy="240" r="9" />
+                  <text x="12" y="24" class="map-label">N ↑</text>
+                </svg>
+                <div id="map-controls" class="actions" role="group" aria-label="Flytt foreslått plassering omtrent to meter">
+                  <button type="button" class="ds-button" data-variant="secondary" data-size="sm" id="move-north">Nord ↑</button>
+                  <button type="button" class="ds-button" data-variant="secondary" data-size="sm" id="move-south">Sør ↓</button>
+                  <button type="button" class="ds-button" data-variant="secondary" data-size="sm" id="move-west">Vest ←</button>
+                  <button type="button" class="ds-button" data-variant="secondary" data-size="sm" id="move-east">Øst →</button>
+                  <button type="button" class="ds-button" data-variant="tertiary" data-size="sm" id="reset-placement">Til adressepunktet</button>
+                </div>
+                <p id="placement-note" class="ds-paragraph" data-size="sm" aria-live="polite"></p>
+                <button id="refresh-placement" class="ds-button" data-variant="secondary">Hent planer for plasseringen</button>
+                <p class="ds-paragraph muted" data-size="sm">© Bergen kommune. Skissen er ikke en situasjonsplan. Markøren angir ett punkt, ikke hele garasjen. Avstander og høyder må måles for det faktiske bygget.</p>
+              </section>
+              <section class="panel stack" aria-labelledby="sources-heading">
+                <h2 id="sources-heading" class="ds-heading" data-size="md">Dette har vi hentet</h2>
+                <div id="plan-facts" class="stack"></div>
+                <details class="ds-details">
+                  <summary>Datakilder og dekning</summary>
+                  <div id="sources"></div>
+                </details>
+              </section>
+            </div>
+            <section class="panel stack" aria-labelledby="garage-heading">
+              <h2 id="garage-heading" class="ds-heading" data-size="md">3. Fortell om garasjen</h2>
+              <p class="ds-paragraph" data-size="sm">Dette beskriver et nytt bygg og finnes derfor ikke i registrene. La usikre svar stå som «Vet ikke».</p>
+              <p id="confirm-reminder" class="ds-paragraph">Kontroller adressen og den røde tomtegrensen. Trykk «Bekreft eiendom» før du beskriver garasjen.</p>
+              <form id="garage-form" class="stack" hidden>
+                <div id="garage-fields" class="field-grid"></div>
+                <button id="assess" class="ds-button" type="submit">Sjekk søknadsplikten</button>
+                <p class="ds-paragraph muted" data-size="sm">Sjekken kjøres av faste regler i backend, ikke av en språkmodell. Ingen søknad blir sendt.</p>
+              </form>
+              <section class="stack" aria-labelledby="help-heading">
+                <h3 id="help-heading" class="ds-heading" data-size="sm">Spør med dine egne ord</h3>
+                <p class="ds-paragraph" data-size="sm">Usikker på et fagord? KI forklarer, men avgjør ikke om du får bygge. Spørsmålene endrer ikke svarene eller plasseringen din.</p>
+                <div class="actions">
+                  <button class="ds-button" data-variant="tertiary" type="button" data-help-field="gesimshoyde" data-help="Hva er gesimshøyde, og hvor måler jeg den?">Hva er gesimshøyde?</button>
+                  <button class="ds-button" data-variant="tertiary" type="button" data-help-field="monehoyde" data-help="Forklar mønehøyde med vanlige ord.">Hva er mønehøyde?</button>
+                </div>
+                <form id="help-form" class="stack">
+                  <div class="ds-field">
+                    <label for="help-question" class="ds-label">Hva lurer du på?</label>
+                    <textarea id="help-question" class="ds-input" rows="2" required maxlength="1000" placeholder="For eksempel: Hvor på taket skal jeg måle?"></textarea>
+                  </div>
+                  <button id="help-send" type="submit" class="ds-button" data-variant="secondary">Spør KI</button>
+                </form>
+                <div id="help-answer" class="ds-paragraph" aria-live="polite"></div>
+              </section>
+            </section>
+          </div>
+          <section id="assessment" class="panel stack" aria-labelledby="result-heading" tabindex="-1" hidden>
+            <h2 id="result-heading" class="ds-heading" data-size="lg">Din vurdering</h2>
+            <div id="result-summary" class="ds-alert"></div>
+            <p id="result-basis" class="ds-paragraph"></p>
+            <ul id="checks" class="check-list"></ul>
+            <div class="actions">
+              <button id="download" class="ds-button" data-variant="secondary">Last ned vurdering og kilder</button>
+              <button id="print" class="ds-button" data-variant="tertiary">Skriv ut</button>
+              <a class="ds-link" href="https://www.dibk.no/verktoy-og-veivisere/bygg-uten-a-soke-garasje" target="_blank" rel="noopener noreferrer">DiBKs veiviser</a>
+            </div>
+          </section>
+        </div>
+      </main>
+      <footer class="ds-paragraph muted" data-size="sm">Garasjesjekken · Bergen er første kommune med tilkoblet plangrunnlag. Manglende opplysninger er aldri et automatisk ja.</footer>
+    </div>
+    <script src="/klient-konfigurasjon"></script>
+    <script src="/delt/felles.ts"></script>
+    <script type="module" src="/client/garasje.ts"></script>
+  </body>
+</html>

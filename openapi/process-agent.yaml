@@ -151,6 +151,24 @@ paths:
   /agent/sessions/{sessionId}/messages:
     post:
       summary: Send message to agent
+      description: >
+        Tekst velger prosess eller besvarer steget. Et strukturert svar fra
+        garasjeskjemaet går direkte til prosessmotorens aktive QUESTION med
+        visning garasje og samme stegId. Det lagres før agenten går videre.
+        Samtidige meldinger til samme agentøkt avvises med 409.
+        Spørsmål om garasjebegreper og måling besvares via spørsmålstjenesten
+        uten å flytte steget. Det gjeldende feltet og svarene beholdes også når
+        forklaringstjenesten feiler.
+        Tall i garasjedialogen tolkes per felt: «49 m2» og «49,5 m²» blir areal,
+        «3 meter» blir en lengde og «1 etasje» blir et heltall. Uklart tallformat,
+        feil enhet og negative mål gir et nytt spørsmål om samme felt med en gang,
+        ikke et lagret svar. «Vet ikke» tillates for avstander. Valg og bekreftelser
+        utledes ikke fra fritekstspørsmål.
+        Når brukeren uttrykkelig velger en entydig adresse fra «mine eiendommer»,
+        brukes gnr, bnr og eventuelt kommunenummer fra det allerede utførte oppslaget.
+        Like adresser må avklares med kommune. Bekreftelse av eiendommen og valg av
+        garasjens skissepunkt må fortsatt gis uttrykkelig; adressepunktet brukes ikke
+        som garasjeplassering. Uten registerfeltene beholdes vanlig feltinnsamling.
       parameters:
         - name: sessionId
           in: path
@@ -170,8 +188,20 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SendMessageResponse"
+        "400":
+          description: Ugyldig JSON, svarform eller feltverdi fra prosessmotoren
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentError"
         "404":
           description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentError"
+        "409":
+          description: Agentøkten er opptatt, prosessøkten er avsluttet, eller svaret gjelder feil steg
           content:
             application/json:
               schema:
@@ -277,10 +307,26 @@ components:
     SendMessageRequest:
       type: object
       additionalProperties: true
+      dependentRequired:
+        svar: [stegId]
+        stegId: [svar]
       properties:
         message:
           type: string
           description: User message for the current session state.
+        stegId:
+          type: string
+          minLength: 1
+          description: Må være id for det aktive QUESTION-steget med visning garasje.
+          example: garasje-prosjekt
+        svar:
+          type: object
+          additionalProperties: true
+          description: >
+            Hele svarobjektet fra garasjeskjemaet, med feltene som prosessdefinisjonen
+            ber om. Prosessmotoren validerer verdiene. Tall og boolske verdier sendes
+            som JSON-verdier; ukjente verdier følger feltets kontrakt. Når både svar
+            og message er oppgitt, brukes svar som stegsvaret. message tolkes ikke.
     SendMessageResponse:
       type: object
       required: [sessionId, replies, awaiting]
@@ -302,7 +348,8 @@ components:
           description: >
             Ventetilstand etter meldingen. process_end stopper ved siste steg uten
             innsending. Verktøyforslag uten støtte varsles i replies, ikke som
-            vellykket validering.
+            vellykket validering. Fullført veiledning har null og betyr ikke at en
+            søknad er sendt inn; dette krever et lagret SUBMIT-resultat.
           oneOf:
             - type: string
             - type: "null"

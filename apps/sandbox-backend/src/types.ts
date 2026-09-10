@@ -67,7 +67,7 @@ type StegFelles = {
 
 export type ProsessSteg = StegFelles & (
   | { type: "INFO" }
-  | { type: "QUESTION"; felter?: SpoersmaalsFelt[] }
+  | { type: "QUESTION"; felter?: SpoersmaalsFelt[]; visning?: "garasje" }
   | { type: "CONSENT_REQUEST"; formaal?: string; dataKilder?: string[] }
   | { type: "DATA_FETCH"; api: ApiKall; kreverSamtykke?: string }
   | { type: "SJEKK"; api: ApiKall; feilmelding?: string }
@@ -99,6 +99,8 @@ export type ProsessDefinisjon = {
   navn: string;
   beskrivelse?: string;
   versjon?: string;
+  /** Opt-in guidance completion after the final DATA_FETCH, without a søknad. */
+  avslutning?: "veiledning";
   steg: ProsessSteg[];
   redigering: Redigering;
   syntetisk?: boolean;

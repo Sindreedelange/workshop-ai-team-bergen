@@ -778,6 +778,40 @@
     "syntetisk": true
   },
   {
+    "personId": "person-395",
+    "identifikator": "14838600256",
+    "inntektsaar": 2025,
+    "stadie": "OPPGJOER",
+    "skatteoppgjoersdato": "2026-06-15",
+    "poster": [
+      {
+        "tekniskNavn": "loennsinntekt",
+        "visningstekst": "Lønnsinntekt",
+        "beloep": 620000,
+        "kilde": "SKATTEETATEN",
+        "medregnes": true
+      }
+    ],
+    "syntetisk": true
+  },
+  {
+    "personId": "person-396",
+    "identifikator": "22878900190",
+    "inntektsaar": 2025,
+    "stadie": "OPPGJOER",
+    "skatteoppgjoersdato": "2026-06-15",
+    "poster": [
+      {
+        "tekniskNavn": "loennsinntekt",
+        "visningstekst": "Lønnsinntekt",
+        "beloep": 680000,
+        "kilde": "SKATTEETATEN",
+        "medregnes": true
+      }
+    ],
+    "syntetisk": true
+  },
+  {
     "identifikator": "01811448849",
     "inntektsaar": 2025,
     "stadie": "OPPGJOER",

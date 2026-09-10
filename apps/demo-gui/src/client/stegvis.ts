@@ -2,11 +2,12 @@
 // eget scope - to sider kan bruke samme navn på hver sin `backendBase` uten å
 // kollidere. felles.ts lastes som klassisk script foran denne, så funksjonene og
 // typene derfra er globale og trenger ingen import.
-export {};
+import { mountGarasjeProsess } from "./garasje-prosess.ts";
 
 renderTopNav("/stegvis");
 
-const aiBase = "http://localhost:8082";
+const aiBase = sandkasseKonfigurasjon.aiBaseUrl;
+const backendBase = sandkasseKonfigurasjon.backendBaseUrl;
 const personvelger = krevEl<HTMLSelectElement>("personvelger");
 const prosessvelger = krevEl<HTMLSelectElement>("prosessvelger");
 const statusEl = krevEl("status");
@@ -78,10 +79,11 @@ async function postJson<T>(url: string, payload: unknown = {}): Promise<T> {
 // is filled with the single person you logged in as, so valgtPersonId() and
 // everything downstream keeps working unchanged.
 let meg: Person | null = null;
+let clearGarasjeView = () => {};
 
 async function loadGrunnlag(): Promise<void> {
-  personer = await getJson<Person[]>("http://localhost:8080/api/personer");
-  prosesser = await getJson<Prosess[]>("http://localhost:8080/api/prosesser");
+  personer = await getJson<Person[]>(`${backendBase}/api/personer`);
+  prosesser = await getJson<Prosess[]>(`${backendBase}/api/prosesser`);
 
   meg = showLoggedInPerson(personvelger, personer);
   showLoginBanner(hendelser, meg);
@@ -89,6 +91,8 @@ async function loadGrunnlag(): Promise<void> {
   prosessvelger.innerHTML = prosesser
     .map((prosess) => `<option value="${htmlEscape(prosess.id)}">${htmlEscape(prosess.navn)}</option>`)
     .join("");
+  const selected = new URLSearchParams(location.search).get("prosess");
+  if (selected && prosesser.some(p => p.id === selected)) prosessvelger.value = selected;
 
   renderProsessOversikt();
 }
@@ -176,6 +180,8 @@ function updateSessionView(oekt: Prosessoekt): void {
 }
 
 function renderAktivtSteg(): void {
+  clearGarasjeView();
+  clearGarasjeView = () => {};
   const steg = aktivProsessoekt?.aktivtSteg;
   if (!steg) {
     aktivtStegEl.innerHTML = `<div class="muted">Ingen aktivt steg.</div>`;
@@ -184,6 +190,29 @@ function renderAktivtSteg(): void {
   }
 
   renderProsessOversikt();
+  if (aktivProsessoekt && (steg.visning === "garasje" || (aktivProsessoekt.prosessId === "garasjesjekk" && aktivProsessoekt.status === "FULLFORT"))) {
+    aktivtStegEl.replaceChildren();
+    const id = aktivProsessoekt.oektsId;
+    clearGarasjeView = mountGarasjeProsess({
+      oekt: aktivProsessoekt, container: aktivtStegEl,
+      save: async (svar, stegId) => {
+        if (aktivProsessoekt?.oektsId !== id || aktivProsessoekt.aktivtSteg?.id !== stegId) throw new Error("Steget er ikke aktivt lenger.");
+        krevEl<HTMLButtonElement>("start").disabled = true;
+        forrigeKnapp.disabled = true;
+        nesteKnapp.disabled = true;
+        try {
+          const saved = await postJson<Prosessoekt>(`${backendBase}/api/prosessoekter/${id}/svar`, { stegId, svar });
+          if (aktivProsessoekt?.oektsId !== id) throw new Error("Prosessøkten er byttet. Svaret gjelder den opprinnelige økten.");
+          updateSessionView(saved);
+          setStatus("Garasjeopplysninger lagret. Gå videre for å kjøre vurderingen.");
+        } finally {
+          krevEl<HTMLButtonElement>("start").disabled = false;
+          updateNavigation();
+        }
+      }
+    });
+    return;
+  }
 
   let innhold = `
     <div class="step-type">${htmlEscape(steg.type)}</div>
@@ -306,7 +335,7 @@ function wireStegHandlinger(steg: ProsessSteg): void {
         }
         // wireStegHandlinger kalles bare fra renderAktivtSteg, som returnerer
         // tidlig uten aktivProsessoekt?.aktivtSteg. Da finnes økten.
-        const oekt = await postJson<Prosessoekt>(`http://localhost:8080/api/prosessoekter/${aktivProsessoekt!.oektsId}/svar`, {
+        const oekt = await postJson<Prosessoekt>(`${backendBase}/api/prosessoekter/${aktivProsessoekt!.oektsId}/svar`, {
           stegId: steg.id,
           svar
         });
@@ -349,7 +378,7 @@ function wireStegHandlinger(steg: ProsessSteg): void {
 async function runStegHandling(payload: Record<string, unknown>, statusmelding: string): Promise<void> {
   try {
     const data = await postJson<{ oekt: Prosessoekt; resultat?: { melding?: string } }>(
-      `http://localhost:8080/api/prosessoekter/${aktivProsessoekt!.oektsId}/handling`,
+      `${backendBase}/api/prosessoekter/${aktivProsessoekt!.oektsId}/handling`,
       payload
     );
     updateSessionView(data.oekt);
@@ -369,7 +398,7 @@ async function runStegHandling(payload: Record<string, unknown>, statusmelding: 
     const handlingsfeil = feilmelding(error);
     try {
       const oppdatert = await getJson<Prosessoekt>(
-        `http://localhost:8080/api/prosessoekter/${aktivProsessoekt!.oektsId}`
+        `${backendBase}/api/prosessoekter/${aktivProsessoekt!.oektsId}`
       );
       updateSessionView(oppdatert);
       renderAktivtSteg();
@@ -387,7 +416,7 @@ async function runStegHandling(payload: Record<string, unknown>, statusmelding: 
 
 async function startProsess(): Promise<void> {
   try {
-    const oekt = await postJson<Prosessoekt>("http://localhost:8080/api/prosessoekter", {
+    const oekt = await postJson<Prosessoekt>(`${backendBase}/api/prosessoekter`, {
       personId: valgtPersonId(),
       prosessId: valgtProsessId(),
       sporingsId: `flyt-${Date.now()}`
@@ -413,7 +442,7 @@ async function moveSteg(retning: number): Promise<void> {
   }
   try {
     const endepunkt = retning < 0 ? "forrige" : "neste";
-    const oekt = await postJson<Prosessoekt>(`http://localhost:8080/api/prosessoekter/${aktivProsessoekt.oektsId}/${endepunkt}`);
+    const oekt = await postJson<Prosessoekt>(`${backendBase}/api/prosessoekter/${aktivProsessoekt.oektsId}/${endepunkt}`);
     updateSessionView(oekt);
     visning.textContent = JSON.stringify(oekt, null, 2);
     setStatus(`Viser steg ${oekt.stegIndex + 1} av ${oekt.totaltAntallSteg}.`);
@@ -428,7 +457,7 @@ forrigeKnapp.onclick = () => moveSteg(-1);
 nesteKnapp.onclick = () => moveSteg(1);
 krevEl("hentLogg").onclick = async () => {
   try {
-    const data = await getJson<unknown>(`http://localhost:8080/api/revisjonslogg/${sporingsId}`);
+    const data = await getJson<unknown>(`${backendBase}/api/revisjonslogg/${sporingsId}`);
     visning.textContent = JSON.stringify(data, null, 2);
     setStatus("Revisjonslogg hentet.");
     log("Revisjonslogg hentet.");

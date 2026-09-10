@@ -1,5 +1,5 @@
 {
-  "beskrivelse": "Handskrevne terskelfixturer. Kilden til person-001..051 og household-001..018. Bare forfattede felter star her: relasjoner er oppgitt i EN retning (barn og ektefelle), og rolle, skjermet, husstandstype, adresse, kommune, medlemmer, relasjonenes motretning og inntektenes identifikator utledes av scripts/importer-tenor.ts. Det valgfrie krr-feltet (reservert, spraak) overstyrer derivasjonen i data/krr.json. Id-ene er frosne; ingen omnummerering.",
+  "beskrivelse": "Handskrevne terskelfixturer og workshopcaser. Kilden til person-001..051, person-395..396, household-001..018 og household-201..202. Bare forfattede felter står her: relasjoner er oppgitt i én retning (barn og ektefelle), og rolle, skjermet, husstandstype, adresse, kommune, medlemmer, relasjonenes motretning og inntektenes identifikator utledes av scripts/importer-tenor.ts. Det valgfrie krr-feltet (reservert, spraak) overstyrer derivasjonen i data/krr.json. Garasjecasene på Litle Milde 65 og Kråkenestoppen 60 bruker oppdiktede personer og deterministisk utledet eierskap, ikke faktiske beboere eller eiere. Id-ene er frosne; ingen omnummerering.",
   "syntetisk": true,
   "personer": [
     {
@@ -1426,6 +1426,68 @@
       "barn": [],
       "ektefelle": null,
       "kontakt": {}
+    },
+    {
+      "personId": "person-395",
+      "syntetiskFodselsnummer": "14838600256",
+      "navn": {
+        "fornavn": "Milda",
+        "mellomnavn": null,
+        "etternavn": "Garasjetest"
+      },
+      "foedselsdato": "1986-03-14",
+      "kjoenn": "KVINNE",
+      "bostedsadresse": {
+        "adressenavn": "Litle Milde",
+        "husnummer": 65,
+        "postnummer": "5259",
+        "poststed": "HJELLESTAD",
+        "kommunenummer": "4601",
+        "kommune": "Bergen"
+      },
+      "sivilstand": "UGIFT",
+      "husstandId": "household-201",
+      "adressebeskyttelse": "UGRADERT",
+      "barn": [],
+      "ektefelle": null,
+      "kontakt": {
+        "epost": "milda.garasjetest@example.test"
+      },
+      "krr": {
+        "reservert": false,
+        "spraak": "nb"
+      }
+    },
+    {
+      "personId": "person-396",
+      "syntetiskFodselsnummer": "22878900190",
+      "navn": {
+        "fornavn": "Kåre",
+        "mellomnavn": null,
+        "etternavn": "Garasjetest"
+      },
+      "foedselsdato": "1989-07-22",
+      "kjoenn": "MANN",
+      "bostedsadresse": {
+        "adressenavn": "Kråkenestoppen",
+        "husnummer": 60,
+        "postnummer": "5153",
+        "poststed": "BØNES",
+        "kommunenummer": "4601",
+        "kommune": "Bergen"
+      },
+      "sivilstand": "UGIFT",
+      "husstandId": "household-202",
+      "adressebeskyttelse": "UGRADERT",
+      "barn": [],
+      "ektefelle": null,
+      "kontakt": {
+        "epost": "kaare.garasjetest@example.test"
+      },
+      "krr": {
+        "reservert": false,
+        "spraak": "nb"
+      }
     }
   ],
   "husstander": [
@@ -1500,6 +1562,14 @@
     {
       "husstandId": "household-018",
       "scenario": "Edge case: husstand uten barn."
+    },
+    {
+      "husstandId": "household-201",
+      "scenario": "Workshopcase for garasjesjekk på Litle Milde 65. Én oppdiktet voksen med syntetisk eierskap til boligen, ikke en faktisk beboer eller eier."
+    },
+    {
+      "husstandId": "household-202",
+      "scenario": "Workshopcase for garasjesjekk på Kråkenestoppen 60. Én oppdiktet voksen med syntetisk eierskap til boligen, ikke en faktisk beboer eller eier."
     }
   ],
   "inntekter": [
@@ -2226,6 +2296,36 @@
           "tekniskNavn": "renteinntekt",
           "visningstekst": "Renteinntekter",
           "beloep": 14000,
+          "kilde": "SKATTEETATEN",
+          "medregnes": true
+        }
+      ]
+    },
+    {
+      "personId": "person-395",
+      "inntektsaar": 2025,
+      "stadie": "OPPGJOER",
+      "skatteoppgjoersdato": "2026-06-15",
+      "poster": [
+        {
+          "tekniskNavn": "loennsinntekt",
+          "visningstekst": "Lønnsinntekt",
+          "beloep": 620000,
+          "kilde": "SKATTEETATEN",
+          "medregnes": true
+        }
+      ]
+    },
+    {
+      "personId": "person-396",
+      "inntektsaar": 2025,
+      "stadie": "OPPGJOER",
+      "skatteoppgjoersdato": "2026-06-15",
+      "poster": [
+        {
+          "tekniskNavn": "loennsinntekt",
+          "visningstekst": "Lønnsinntekt",
+          "beloep": 680000,
           "kilde": "SKATTEETATEN",
           "medregnes": true
         }

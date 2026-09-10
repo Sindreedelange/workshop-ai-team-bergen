@@ -2,7 +2,7 @@
   "kilde": "syntetisk",
   "versjon": "1.7.0",
   "beskrivelse": "Syntetiske testpersoner fra workshop-ai personas kombinert med Folkeregisteret-format",
-  "antall": 394,
+  "antall": 396,
   "personer": [
     {
       "foedselsEllerDNummer": "12818800078",
@@ -25466,6 +25466,86 @@
         "visningsnavn": "Underlig Nisse"
       },
       "kilde": "tenor",
+      "syntetisk": true
+    },
+    {
+      "foedselsEllerDNummer": "14838600256",
+      "personnavn": {
+        "fornavn": "Milda",
+        "mellomnavn": null,
+        "etternavn": "Garasjetest"
+      },
+      "foedselsdato": "1986-03-14",
+      "kjoenn": "KVINNE",
+      "personstatus": "BOSATT",
+      "doedsfall": null,
+      "sivilstand": "UGIFT",
+      "bostedsadresse": {
+        "adressenavn": "Litle Milde",
+        "husnummer": 65,
+        "postnummer": "5259",
+        "poststed": "HJELLESTAD",
+        "kommunenummer": "4601",
+        "kommune": "Bergen",
+        "adresseIdentifikatorFraMatrikkelen": "matr-geo-4601-33832-65"
+      },
+      "kontaktadresse": null,
+      "forelderbarnrelasjon": [],
+      "familierelasjon": [],
+      "foreldreansvar": null,
+      "sivilstandDetalj": null,
+      "skjermet": false,
+      "adressebeskyttelse": "UGRADERT",
+      "adresseIdentifikatorFraMatrikkelen": "matr-geo-4601-33832-65",
+      "kontakt": {
+        "epost": "milda.garasjetest@example.test"
+      },
+      "_sandbox": {
+        "personId": "person-395",
+        "husstandId": "household-201",
+        "rolle": "foresatt",
+        "visningsnavn": "Milda Garasjetest"
+      },
+      "syntetisk": true
+    },
+    {
+      "foedselsEllerDNummer": "22878900190",
+      "personnavn": {
+        "fornavn": "Kåre",
+        "mellomnavn": null,
+        "etternavn": "Garasjetest"
+      },
+      "foedselsdato": "1989-07-22",
+      "kjoenn": "MANN",
+      "personstatus": "BOSATT",
+      "doedsfall": null,
+      "sivilstand": "UGIFT",
+      "bostedsadresse": {
+        "adressenavn": "Kråkenestoppen",
+        "husnummer": 60,
+        "postnummer": "5153",
+        "poststed": "BØNES",
+        "kommunenummer": "4601",
+        "kommune": "Bergen",
+        "adresseIdentifikatorFraMatrikkelen": "matr-geo-4601-33957-60"
+      },
+      "kontaktadresse": null,
+      "forelderbarnrelasjon": [],
+      "familierelasjon": [],
+      "foreldreansvar": null,
+      "sivilstandDetalj": null,
+      "skjermet": false,
+      "adressebeskyttelse": "UGRADERT",
+      "adresseIdentifikatorFraMatrikkelen": "matr-geo-4601-33957-60",
+      "kontakt": {
+        "epost": "kaare.garasjetest@example.test"
+      },
+      "_sandbox": {
+        "personId": "person-396",
+        "husstandId": "household-202",
+        "rolle": "foresatt",
+        "visningsnavn": "Kåre Garasjetest"
+      },
       "syntetisk": true
     }
   ]
