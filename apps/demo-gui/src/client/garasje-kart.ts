@@ -51,3 +51,40 @@ export function unprojectGarasjePunkt(x: number, y: number, bounds: Kartutsnitt)
     lat: bounds.north - Math.max(0, Math.min(1, y)) * (bounds.north - bounds.south)
   };
 }
+
+export type KartLabel = { x: number; y: number; width: number };
+
+/** Labels need a visible interior position, not a bounding-box centre that can sit on another parcel. */
+export function findNabotomtLabel(
+  polygon: GarasjePolygon, selected: GarasjePolygon[], bounds: Kartutsnitt, width: number, occupied: KartLabel[]
+): KartLabel | null {
+  const rings = polygon.ringer.map(ring => ring.map(([lon, lat]) => projectGarasjePunkt({ lon, lat }, bounds)));
+  const excluded = selected.map(shape => shape.ringer.map(ring => ring.map(([lon, lat]) => projectGarasjePunkt({ lon, lat }, bounds))));
+  const inside = (x: number, y: number, rings: [number, number][][]): boolean => {
+    let contained = false;
+    for (const ring of rings) for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const a = ring[i], b = ring[j];
+      if ((a[1] > y) !== (b[1] > y) && x < (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1]) + a[0]) contained = !contained;
+    }
+    return contained;
+  };
+  let xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity;
+  for (const ring of rings) for (const [x, y] of ring) {
+    xmin = Math.min(xmin, x); xmax = Math.max(xmax, x);
+    ymin = Math.min(ymin, y); ymax = Math.max(ymax, y);
+  }
+  const left = Math.max(width / 2 + 6, xmin), right = Math.min(634 - width / 2, xmax);
+  const top = Math.max(18, ymin), bottom = Math.min(462, ymax);
+  const candidates: KartLabel[] = [];
+  for (let y = top; y <= bottom; y += 16) for (let x = left; x <= right; x += 16) candidates.push({ x, y, width });
+  candidates.sort((a, b) =>
+    Math.hypot(a.x - (left + right) / 2, a.y - (top + bottom) / 2)
+    - Math.hypot(b.x - (left + right) / 2, b.y - (top + bottom) / 2));
+  for (const candidate of candidates) {
+    const { x, y } = candidate;
+    if (occupied.some(other => Math.abs(x - other.x) < (width + other.width) / 2 + 6 && Math.abs(y - other.y) < 26)) continue;
+    const samples = [[x, y], [x - width / 2, y - 10], [x + width / 2, y - 10], [x - width / 2, y + 8], [x + width / 2, y + 8]];
+    if (samples.every(([sx, sy]) => inside(sx, sy, rings) && !excluded.some(shape => inside(sx, sy, shape)))) return candidate;
+  }
+  return null;
+}

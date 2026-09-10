@@ -23,11 +23,16 @@ videre. Med `--mock` får du faste, kildebaserte forklaringer. Med en konfigurer
 språkmodell kan KI formulere forklaringene. Selve vurderingen bruker alltid faste
 regler, ikke modellen.
 
+Garasjesjekken starter i mørkt tema. Valget av lyst eller mørkt tema lagres lokalt
+i nettleseren og gjenbrukes ved omlasting og i den innebygde garasjevisningen.
+Bare temavalget lagres der, ikke opplysninger om eiendommen eller garasjen.
+
 Innloggingen og eieropplysningene er syntetiske. Testpersonen eier **ikke**
 dermed en virkelig eiendom. Adresse- og kartoppslag bruker offentlige tjenester,
 og bare søketekst og geografiske opplysninger sendes dit, ikke personidentitet,
 token eller eierlister. En syntetisk bostedsadresse finnes ikke nødvendigvis i det
-virkelige adresseregisteret. Da kan innbyggeren søke selv eller velge en av casene.
+virkelige adresseregisteret. Da kan innbyggeren søke selv i den frittstående
+Garasjesjekken.
 Adresse- og eiendomsoppslag er nasjonale. Bare Bergen har et kommunalt plan- og
 bygningsoppsett i workshopen. Andre kommuner får derfor uavklarte kommunale
 forhold, aldri Bergen-data som reserve.
@@ -49,7 +54,8 @@ Testpersonene ligger i det felles personregisteret og kan også brukes i TT-kort
 politiattest og andre prosesser. Det betyr ikke at de har legeerklæring,
 politiattest eller oppfyller vilkårene for disse tjenestene.
 
-Adressene er snarveier til vanlige oppslag, ikke nøkler til forhåndsbestemte svar.
+Adressene bruker vanlige oppslag, ikke forhåndsbestemte svar eller egne
+«Prøv en case»-knapper.
 Oppslaget ved adressepunktet for Litle Milde viste LNF i KPA2018. Ved
 Kråkenestoppen viste det «Øvrig byggesone» og bebyggelsesplan 6170063, Bønes øst,
 felt 19A. Disse karttreffene alene dokumenterer ikke hva en bestemt garasje kan
@@ -61,13 +67,43 @@ kan endre vurderingen.
 1. Velg en eid eiendom eller et konkret adressetreff. Bosted foreslås først når
    adressen også finnes blant de eide eiendommene. Kommunenummer og gnr./bnr.
    følger med fra kilden.
-2. Kontroller adressen og den røde tomtegrensen, og trykk «Bekreft eiendom».
+2. Kontroller adressen og gnr./bnr., og trykk «Bekreft eiendom». Før dette vises
+   bare eiendomsvalget. Kart, nabotomter, bebyggelse og planopplysninger hentes
+   først etter bekreftelsen, slik at feil adresser ikke utløser tunge kartoppslag.
    Kartet tilpasses eiendomsgeometrien med omtrent ti meter eller mer rundt.
 3. Plasser garasjen ved å klikke eller dra markøren, eller bruk retningsknappene.
    Adressepunktet regnes ikke automatisk som en valgt garasjeplassering.
-   Oppgi areal, høyder og bruk. Plangrunnlaget hentes for det valgte punktet.
-4. Les den regelbaserte vurderingen, begrunnelsene og kildenes dekningsstatus.
-5. Last ned vurderingen med grunnlaget, eller skriv den ut.
+   Trykk «Bekreft plassering og fortsett». Vi henter planer for punktet før
+   spørsmålene om garasjen vises. Kartet og spørsmålene vises ikke samtidig.
+   Du kan gå tilbake med «Endre eiendom» eller «Endre plassering» uten å miste
+   svarutkastet, men den nye plasseringen må bekreftes før du kan fortsette.
+4. Velg «Chat med AI-agent» eller «Stegvis utfylling». Agenten ber om
+   ett svar om gangen, forklarer spørsmål underveis og foreslår en tolket verdi
+   som du bekrefter med «Bruk svaret». Stegvis vises ett felt om gangen.
+   Begge bruker samme svarutkast, så du kan bytte uten å miste svar.
+5. Les den regelbaserte vurderingen, begrunnelsene og kildenes dekningsstatus.
+6. Last ned vurderingen med grunnlaget, eller skriv den ut.
+
+Du får en oppsummering før sjekken kjøres. Fagspørsmål flytter ikke utfyllingen
+videre, og et agentsvar blir ikke en lagret verdi uten bekreftelse. Den
+felles agenten bruker den samme valideringen av mål og valg som den øvrige
+garasjedialogen. Ved modellfeil kan du fortsette stegvis uten å miste utkastet.
+«Endre svaret» viser hvilket felt du retter, legger teksten tilbake i tekstboksen
+og flytter fokus dit. Forslaget lagres ikke før du bekrefter det. Ved «Endre»
+i oppsummeringen vises det nåværende svaret og feltet du redigerer.
+
+Svar og fagspørsmål skrives i den samme tekstboksen. Den er også tilgjengelig
+under stegvis utfylling og når du ser over svarene, uten et separat hjelpeskjema.
+
+Nabotomter i kartutsnittet vises med stiplede grenser, mens valgt eiendom har
+heltrukken rød grense. Eiendomsnumre vises på kartet der det er plass.
+Kilden er tilgjengelig under «Datakilde for nabogrenser», uten en detaljliste
+over nabotomtenes areal og kvalitet. Eieropplysninger hentes ikke. Dette er
+tomter i utsnittet, ikke en fullstendig eller juridisk bekreftet naboliste.
+Naboflatene inngår ikke i arealberegningen eller reglene for valgt eiendom.
+
+Endrer du adressen, skjules kartet og det gamle grunnlaget til den nye
+eiendommen er bekreftet. Feiler hentingen, vises en knapp for å prøve igjen.
 
 Nasjonale vilkår vurderes separat fra planforhold og andre begrensninger.
 En garasje som oppfyller størrelsesgrensene er ikke automatisk lovlig plassert.
@@ -90,6 +126,7 @@ samme; en slik avklaring må gjøres mot det konkrete plangrunnlaget.
 | [`arealsoner.ts`](../apps/shared/arealsoner.ts) | Kontrollerte sonetyper, nøklet på kommune, plan, versjon, arealformål og arealstatus. Ukjente kombinasjoner forblir ukjente. |
 | [`garasje-regelgrunnlag.ts`](../apps/shared/garasje-regelgrunnlag.ts) | Nasjonale tallkrav, enheter og kilder. Den samme definisjonen brukes av reglene og KI-grunnlaget. |
 | [`garasje-begreper.ts`](../apps/shared/garasje-begreper.ts) | Kildebaserte forklaringer av fagord. |
+| [`garasje-dialog.ts`](../apps/shared/garasje-dialog.ts) | Felles utfyllingsfelter, enheter og validering for samtale og stegvis utfylling. |
 | [`garasje-kunnskap.ts`](../apps/shared/garasje-kunnskap.ts) | Et begrenset, strukturert grunnlag for språkmodellen, uten persondata eller rå kartgeometri. |
 
 En ny kommune legges til med egne kilder og kontrollerte sone-/planopplysninger,
@@ -101,6 +138,12 @@ kontrollert bestemmelse med kilde.
 De felles KI-verktøyene er fortsatt tjenestenøytrale. Garasjegrunnlaget legges
 bare til for en garasjekontekst; de øvrige casene bruker sine eksisterende data
 og regler.
+
+`POST /agent/garasje/dialog` gir et svarforslag eller en forklaring for det
+aktive utfyllingsfeltet. Det oppretter ingen prosessøkt, lagrer ingen skjemasvar
+og sender ingen søknad. KI-kall spores som ellers i sandkassen. Svarene sendes
+til den vanlige prosessflyten først når alle svarene er
+gjennomgått og innbyggeren bekrefter at de skal brukes.
 
 ### Eksisterende bebyggelse og areal
 
@@ -121,6 +164,10 @@ planbestemmelsene.
 
 ### Offentlige kilder
 
+- [`matrikkel_bk_25.json`](../data/matrikkel_bk_25.json): lokalt Bergen-uttrekk,
+  merket 2025, med teigpolygoner og oppgitt areal. Matrikkelmocken er eneste
+  tjeneste som leser filen. Garasjesjekken slår opp på kommunenummer, gnr./bnr.
+  og festenummer gjennom API-et.
 - [Kartverkets adresse-API](https://ws.geonorge.no/adresser/v1/): adresse,
   eiendomsidentifikator og adressepunkt. Et adressepunkt er ikke tomten.
 - [Geonorge: Matrikkelen - Eiendomskart Teig](https://kartkatalog.geonorge.no/metadata/uuid/74340c24-1c8a-4454-b813-bfe498e80f16):
@@ -142,6 +189,23 @@ planbestemmelsene.
 - [DiBKs veiviser](https://www.dibk.no/verktoy-og-veivisere/bygg-uten-a-soke-garasje)
   og [SAK10 § 4-1](https://www.dibk.no/regelverk/sak/2/4/4-1): nasjonale
   forutsetninger for unntak fra søknad.
+
+**Tomtegrunnlaget bruker lokal fil først.** Når eiendommen mangler, eller kommunen
+ikke er dekket av et lokalt uttrekk, brukes Kartverkets eiendoms-API. Grensesnittet
+viser «Data hentet fra lokal fil» eller «Data hentet fra API». Filnavn,
+uttrekksår, kilde og tidspunkt for oppslaget følger den lagrede vurderingen og
+nedlastingen. En ødelagt eller utilgjengelig lokal fil gir en synlig kildefeil,
+ikke et stille bytte til andre data.
+
+Uttrekket har ikke opplysninger om bygninger eller planbestemmelser. Disse
+oppslagene beholder sine kommunale API-er. Filen oppgir heller ikke grensekvalitet,
+tvist eller oppdateringsdato. Det blir stående som ukjent. `OBJECTID` identifiserer
+en rad i filen og behandles ikke som en Matrikkel-teig-ID.
+
+Lokal GeoJSON uten CRS følger standarden WGS84 (EPSG:4326); det nasjonale
+eiendomsoppslaget ber om EPSG:4258. Koordinatene beholdes som geografisk
+kartgrunnlag med kildeangivelse. Arealer er fortsatt kartanslag, ikke
+oppmålingsbevis eller juridisk utnyttelsesgrad.
 
 Kartet er en plasseringsskisse, ikke en situasjonsplan. Ett punkt kan ikke kontrollere
 hele garasjens omriss. Avstander, terrenginngrep, ferdig planert terreng og høyder

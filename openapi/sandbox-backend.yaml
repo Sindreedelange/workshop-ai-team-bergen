@@ -1396,6 +1396,10 @@ paths:
         Punktet representerer ikke hele garasjens omriss. Manglende eller
         mislykkede kartoppslag fremgår av kildestatusen og er ikke bevis på at
         området er fritt for begrensninger.
+        Tomtegrenser hentes først fra matrikkelmockens lokale teiguttrekk.
+        Kartverkets eiendoms-API brukes når kommunen ikke dekkes eller
+        eiendommen mangler. Feil i den lokale kilden gir kildefeil uten et
+        stille kildebytte. Kilder viser filnavn og uttrekksår for lokale treff.
       parameters:
         - $ref: "#/components/parameters/GarasjeAdresse"
         - $ref: "#/components/parameters/GarasjeKommune"
@@ -1639,6 +1643,7 @@ components:
       required: [adressetekst, kommunenummer, gardsnummer, bruksnummer, festenummer, undernummer, punkt]
       properties:
         adressetekst: { type: string }
+        kommunenavn: { type: string, description: Kommunenavn fra adresseregisteret, når tilgjengelig. }
         kommunenummer:
           type: string
           pattern: '^(?!0000)\d{4}$'
@@ -1658,6 +1663,9 @@ components:
         hentet: { type: string, format: date-time }
         status: { type: string, enum: [ok, ingen_treff, feil, ikke_sjekket] }
         merknad: { type: string }
+        fil: { type: string, description: Filnavn når grunnlaget er hentet fra et lokalt uttrekk gjennom matrikkelmocken. }
+        uttrekksaar: { type: integer, description: Årstallet uttrekket er merket med, ikke tidspunktet da eiendommen ble oppdatert. }
+        koordinatsystem: { type: string, enum: ["EPSG:4326", "EPSG:4258"] }
     GarasjePolygon:
       type: object
       required: [id, ringer]
@@ -1665,6 +1673,8 @@ components:
         id: { type: string }
         teigId: { type: integer }
         matrikkelnummer: { type: string }
+        kildeObjektId: { type: integer, description: OBJECTID i lokalt uttrekk, aldri en Matrikkel-teig-ID. }
+        registrertArealM2: { type: number, description: Teigareal oppgitt i uttrekket, atskilt fra beregnet geometriareal. }
         kvalitetsklasse: { type: string, enum: [Grønt, Gult, Rødt] }
         oppdatert: { type: string, description: Oppdateringsdato slik den er oppgitt av Kartverket. }
         teig:
@@ -1680,7 +1690,10 @@ components:
             tvist: { type: string }
         ringer:
           type: array
-          description: Lukkede ringer, inkludert eventuelle hull. Hvert punkt er [lon, lat] i EPSG:4258.
+          description: >
+            Lukkede geografiske ringer, inkludert eventuelle hull. Hvert punkt er
+            [lon, lat]. Eiendomskildens koordinatsystem står i kilder og
+            eiendomsgeojson. Lokal GeoJSON er EPSG:4326, API-oppslag er EPSG:4258.
           items:
             type: array
             minItems: 4
@@ -1692,7 +1705,7 @@ components:
     GarasjeRing:
       type: array
       minItems: 4
-      description: Lukket ring av [lengdegrad, breddegrad] i EPSG:4258.
+      description: Lukket geografisk ring av [lengdegrad, breddegrad]. Koordinatsystemet følger eiendomskilden.
       items:
         type: array
         minItems: 2
@@ -1702,12 +1715,19 @@ components:
       type: object
       required: [type, features]
       description: >
-        Validert GeoJSON fra Kartverkets eiendoms-API, funnet via Geonorge.
+        Validert og normalisert GeoJSON fra lokalt teiguttrekk eller
+        Kartverkets eiendoms-API. Kilden identifiseres i kilder.
         Polygon og MultiPolygon beholder ringer og hull. Identiteten kontrolleres
         mot valgt kommunenummer, gnr./bnr. og festenummer. Bare dokumenterte
         eiendomsopplysninger beholdes, ingen eierdata.
+        Lokale OBJECTID-er blir kildeObjektId, ikke lokalid. Lokal kilde
+        mangler grensekvalitet og oppdateringsdato; disse blir ikke oppdiktet.
       properties:
         type: { type: string, enum: [FeatureCollection] }
+        koordinatsystem:
+          type: string
+          enum: ["EPSG:4326", "EPSG:4258"]
+          description: Lokal GeoJSON oppgir EPSG:4326. Ved eldre API-svar uten feltet er kilden EPSG:4258.
         features:
           type: array
           items:
@@ -1737,7 +1757,10 @@ components:
                             $ref: "#/components/schemas/GarasjeRing"
               properties:
                 type: object
-                required: [kommunenummer, gardsnummer, bruksnummer, festenummer, seksjonsnummer, lokalid, objekttype, matrikkelnummertekst]
+                required: [kommunenummer, gardsnummer, bruksnummer, festenummer, seksjonsnummer, objekttype, matrikkelnummertekst]
+                oneOf:
+                  - required: [lokalid]
+                  - required: [kildeObjektId, kildefil]
                 properties:
                   kommunenummer:
                     type: string
@@ -1747,6 +1770,12 @@ components:
                   festenummer: { type: integer }
                   seksjonsnummer: { type: integer }
                   lokalid: { type: integer }
+                  kildeObjektId: { type: integer }
+                  kildefil: { type: string }
+                  registrertArealM2: { type: number }
+                  arealmerknad: { type: [string, "null"] }
+                  tinglyst: { type: string }
+                  antallMatrikkelenheter: { type: integer, minimum: 0, description: Null som tall betyr ukjent antall i uttrekket, ikke én matrikkelenhet. }
                   objekttype: { type: string, enum: [Teig] }
                   matrikkelnummertekst: { type: string }
                   nøyaktighetsklasseteig: { type: string, enum: [Grønt, Gult, Rødt] }
@@ -1806,6 +1835,29 @@ components:
         forbehold:
           type: array
           items: { type: string }
+    GarasjeNabotomter:
+      type: object
+      required: [tomter, kilde]
+      description: >
+        Tomter i kartutsnittet rundt valgt eiendom, med 15 meter margin og høyst
+        500 meter langs hver side. Dette er kartkontekst, ikke en bekreftet
+        naboliste eller en vurdering av naboenes eiendommer. Alle teiger på
+        valgt kommunenummer/gnr/bnr/fnr utelates uansett seksjonsnummer.
+        Lokale indekstreff foretrekkes. Ved gyldig tomt utvalg eller udekket
+        kommune brukes Kartverkets dokumenterte /eiendom/v1/punkt/omrader,
+        med avgrenset radius og maksTreff=201. Over 200 treff gir eksplisitt
+        kildefeil uten delvis liste. Lokal kildefeil utløser ikke reserveoppslag.
+        Nabokilden holdes utenfor kilder og uavklarteForhold; feil vises gjennom
+        kilde.status og kilde.merknad, uten å endre vilkår, areal eller bebyggelse.
+        Eierdata, planvilkår og byggetillatelser for naboeiendommer hentes ikke.
+      properties:
+        tomter:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/GarasjePolygon"
+        kilde:
+          $ref: "#/components/schemas/GarasjeKilde"
     GarasjeGrunnlag:
       type: object
       required: [adresse, punkt, arealformaal, reguleringsplaner, eiendomsgrenser, bygninger, bebyggelse, arealberegning, kilder, uavklarteForhold]
@@ -1846,6 +1898,8 @@ components:
             $ref: "#/components/schemas/GarasjePolygon"
         eiendomsgeojson:
           $ref: "#/components/schemas/GarasjeEiendomsGeoJson"
+        nabotomter:
+          $ref: "#/components/schemas/GarasjeNabotomter"
         bygninger:
           type: array
           items:

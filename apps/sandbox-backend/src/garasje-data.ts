@@ -1,15 +1,20 @@
 import type {
   GarasjeAdresse, GarasjeArealberegning, GarasjeArealformaal, GarasjeBebyggelse, GarasjeEiendomsGeoJson, GarasjeEksisterendeBygning,
-  GarasjeGrunnlag, GarasjeKilde, GarasjePlan, GarasjePolygon, GarasjePunkt,
+  GarasjeGrunnlag, GarasjeKilde, GarasjePlan, GarasjePolygon, GarasjePunkt, GarasjeNabotomter,
 } from "../../shared/garasje.ts";
+import { getTeigBounds, intersectsKartutsnitt, isBoundedKartutsnitt, NABOTEIG_MAX_TREFF } from "../../shared/matrikkelteig.ts";
 import { classifyArealsone } from "../../shared/arealsoner.ts";
 import { findGarasjeKommunekilder, getGarasjeKartlagUrl, type GarasjeKommunekilder } from "../../shared/garasje-kommuner.ts";
 import { HttpError } from "./errors.ts";
 import { containsPunkt, validateGarasjePunkt } from "./garasje.ts";
 import { callUpstream } from "./upstream.ts";
+import { matrikkelBaseUrl } from "./config.ts";
 
 const ADRESSE_URL = "https://ws.geonorge.no/adresser/v1/sok";
 const EIENDOM_URL = "https://api.kartverket.no/eiendom/v1/geokoding";
+// /punkt returns points, not polygons. /punkt/omrader and maksTreff are documented
+// at https://api.kartverket.no/eiendom/v1/openapi.json (verified 2026-09-10).
+const NABOTOMTER_URL = "https://api.kartverket.no/eiendom/v1/punkt/omrader";
 const layers = {
   kpa: {
     fields: ["KPAREALFORMAL", "BESKRIVELSE", "PLANID"],
@@ -131,6 +136,7 @@ export async function searchGarasjeAdresser(sok: string, kommunenummer?: string)
     if (p.epsg !== "EPSG:4258") fail("Adressetjenesten svarte i et ukjent koordinatsystem.");
     return {
       adressetekst: text(a.adressetekst), kommunenummer: a.kommunenummer,
+      ...(a.kommunenavn === undefined || a.kommunenavn === null ? {} : { kommunenavn: text(a.kommunenavn, 100) }),
       gardsnummer: integer(a.gardsnummer, 1), bruksnummer: integer(a.bruksnummer),
       festenummer: integer(a.festenummer),
       // Geonorge returns null for undernummer on ordinary vegadresser.
@@ -284,6 +290,84 @@ function eiendomQuery(adresse: GarasjeAdresse): URL {
   return url;
 }
 
+function lokalTeigQuery(adresse: GarasjeAdresse): URL {
+  const url = new URL("/mock/matrikkel/teiger", matrikkelBaseUrl);
+  url.search = new URLSearchParams({
+    kommunenummer: adresse.kommunenummer,
+    gnr: String(adresse.gardsnummer), bnr: String(adresse.bruksnummer), fnr: String(adresse.festenummer)
+  }).toString();
+  return url;
+}
+
+function parseLokaleTeiger(input: unknown, adresse: GarasjeAdresse, nabotomter = false): {
+  geojson: GarasjeEiendomsGeoJson;
+  kilde: { navn: string; fil?: string; uttrekksaar?: number };
+  dekket: boolean;
+} {
+  const data = record(input);
+  const source = record(data.kilde);
+  if (data.kommunenummer !== adresse.kommunenummer
+    || !["tilgjengelig", "ikke_dekket"].includes(String(data.kildestatus))
+    || data.type !== "FeatureCollection" || !Array.isArray(data.features) || data.features.length > 500
+    || source.syntetisk !== false || source.koordinatsystem !== "EPSG:4326") {
+    fail("Matrikkelmocken svarte med feil kommune, koordinatsystem eller teigformat.");
+  }
+  if (data.kildestatus === "ikke_dekket" && data.features.length) fail("Teiger ble returnert fra et område kilden ikke dekker.");
+  if (data.kildestatus === "tilgjengelig" && adresse.kommunenummer !== "4601") {
+    fail("Det lokale Bergen-uttrekket kan ikke brukes for en annen kommune.");
+  }
+  const navn = text(source.navn);
+  const fil = source.fil === null ? undefined : text(source.fil, 160);
+  if (fil && (!/^[a-zA-Z0-9_.-]+$/.test(fil) || fil === "." || fil === "..")) fail("Teigkilden mangler et gyldig filnavn.");
+  const uttrekksaar = source.uttrekksaar === null ? undefined : integer(source.uttrekksaar, 1900);
+  if (data.kildestatus === "tilgjengelig" && !fil) fail("Lokale teiger mangler kildefil.");
+  const ids = new Set<number>();
+  let pointCount = 0;
+  const features: GarasjeEiendomsGeoJson["features"] = data.features.map(input => {
+    const feature = record(input), geometry = record(feature.geometry), attrs = record(feature.properties);
+    const gnr = integer(attrs.GNR, nabotomter ? 0 : 1), bnr = integer(attrs.BNR), fnr = integer(attrs.FNR);
+    if (feature.type !== "Feature" || attrs.OBJTYPE !== "Teig"
+      || (!nabotomter && (gnr !== adresse.gardsnummer || bnr !== adresse.bruksnummer || fnr !== adresse.festenummer))) {
+      fail("Det lokale teiguttrekket tilhører en annen matrikkelenhet.");
+    }
+    const objectId = integer(attrs.OBJECTID, 1);
+    if (feature.id !== objectId || ids.has(objectId)) fail("Det lokale teiguttrekket har dupliserte eller ugyldige objekt-ID-er.");
+    ids.add(objectId);
+    let polygons: Pair[][][];
+    const readRings = (value: unknown) => nabotomter
+      ? polygon({ attributes: { OBJECTID: 1 }, geometry: { rings: value } }).ringer : validateParcelRings(value);
+    if (geometry.type === "Polygon") polygons = [readRings(geometry.coordinates)];
+    else if (geometry.type === "MultiPolygon" && Array.isArray(geometry.coordinates)
+      && geometry.coordinates.length > 0 && geometry.coordinates.length <= 100) {
+      polygons = geometry.coordinates.map(readRings);
+    } else fail("Det lokale teiguttrekket mangler Polygon eller MultiPolygon.");
+    pointCount += polygons.flat().reduce((n, ring) => n + ring.length, 0);
+    if (pointCount > (nabotomter ? 50_000 : 10_000)) fail("Det lokale teiguttrekket er for stort for denne kontrollen.");
+    if (attrs.AREAL !== null && (typeof attrs.AREAL !== "number" || !Number.isFinite(attrs.AREAL) || attrs.AREAL < 0)) {
+      fail("Det lokale teiguttrekket har ugyldig registrert areal.");
+    }
+    const antall = integer(attrs.ANTALL_GID);
+    return {
+      type: "Feature",
+      geometry: geometry.type === "Polygon" ? { type: "Polygon", coordinates: polygons[0]! }
+        : { type: "MultiPolygon", coordinates: polygons },
+      properties: {
+        kommunenummer: adresse.kommunenummer, gardsnummer: gnr, bruksnummer: bnr,
+        festenummer: fnr, seksjonsnummer: integer(attrs.SNR),
+        objekttype: "Teig", matrikkelnummertekst: `${gnr}/${bnr}${fnr ? `/${fnr}` : ""}`,
+        kildeObjektId: objectId, kildefil: fil,
+        ...(typeof attrs.AREAL === "number" ? { registrertArealM2: attrs.AREAL } : {}),
+        arealmerknad: attrs.AREALMERKNAD === null ? null : text(attrs.AREALMERKNAD),
+        tinglyst: text(attrs.TINGLYST), antallMatrikkelenheter: antall,
+        teigmedflerematrikkelenheter: antall > 1
+      }
+    };
+  });
+  return { geojson: { type: "FeatureCollection", koordinatsystem: "EPSG:4326", features },
+    kilde: { navn, ...(fil ? { fil } : {}), ...(uttrekksaar ? { uttrekksaar } : {}) },
+    dekket: data.kildestatus === "tilgjengelig" };
+}
+
 type Pair = [number, number];
 function segmentsIntersect(a: Pair, b: Pair, c: Pair, d: Pair, strict = false): boolean {
   const cross = (p: Pair, q: Pair, r: Pair) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
@@ -367,9 +451,9 @@ function buildBebyggelse(
   if (!parcels.length || kilder.find(k => k.id === "eiendomsgrenser")?.status !== "ok"
     || !["ok", "ingen_treff"].includes(kilder.find(k => k.id === "bygninger")?.status ?? "")) return result;
   result.bygninger = buildings.filter(b => parcels.some(parcel => polygonsIntersect(b.polygon, parcel))).map(b => b.attributes);
-  const sharedParcel = geojson?.features.some(f => f.properties.teigmedflerematrikkelenheter || f.properties.uregistrertjordsameie);
+  const sharedParcel = hasUavklartTeigomfang(geojson);
   if (sharedParcel) {
-    result.forklaring = "Bygningsflater er sammenholdt med teigen, men teigen omfatter flere matrikkelenheter eller jordsameie. Bebyggelse på den valgte eiendommen er derfor uavklart.";
+    result.forklaring = "Bygningsflater er sammenholdt med teigen, men teigen har ukjent tilknytning, omfatter flere matrikkelenheter eller jordsameie. Bebyggelse på den valgte eiendommen er derfor uavklart.";
   } else if (result.bygninger.some(b => b.objekttype === "Bygning" && b.bygningsnummer
     && ["TB", "FA", "MB"].includes(b.bygningsstatus ?? ""))) {
     result.status = "bekreftet";
@@ -381,6 +465,11 @@ function buildBebyggelse(
       : "Ingen bygningsflater treffer den valgte eiendomsteigen i dette kartoppslaget. Kartet er ikke et fullstendig bevis på at eiendommen er ubebygd.";
   }
   return result;
+}
+
+function hasUavklartTeigomfang(geojson: GarasjeEiendomsGeoJson | undefined): boolean {
+  return geojson?.features.some(f => f.properties.teigmedflerematrikkelenheter
+    || f.properties.uregistrertjordsameie || f.properties.antallMatrikkelenheter === 0) ?? false;
 }
 
 type Segment = [Pair, Pair];
@@ -419,7 +508,7 @@ function intersectionLength(a: Interval[], b: Interval[]): number {
   return length;
 }
 
-/** Operates on validated EPSG:4258 polygons. This is a map estimate, not statutory BYA. */
+/** Map estimate from validated geographic polygons; the caller reports input CRS and approximation. */
 export function calculateGarasjeAreal(parcels: GarasjePolygon[], buildings: GarasjePolygon[], origin: GarasjePunkt) {
   const latitude = origin.lat * Math.PI / 180;
   // GRS80 is the ellipsoid of ETRS89 (EPSG:4258). Linearise its meridional and
@@ -477,22 +566,27 @@ function buildArealberegning(
   geojson: GarasjeEiendomsGeoJson | undefined, kilder: GarasjeKilde[],
   kommune: GarasjeKommunekilder | undefined,
 ): GarasjeArealberegning {
+  const teigkilde = kilder.find(kilde => kilde.id === "eiendomsgrenser");
+  const koordinatsystem = teigkilde?.koordinatsystem ?? "ukjent koordinatsystem";
   const result: GarasjeArealberegning = {
     tomtearealM2: null, kartlagtBebygdArealM2: null, kartlagtAndelProsent: null,
-    kilde: [eiendomQuery(adresse).href, officialLayerUrl("bygninger", kommune)].filter(Boolean).join(" og "),
-    metode: "Anslag fra EPSG:4258 i et lokalt meterplan på GRS80 ved adressepunktet. Arealet av sammenslåtte teiger og bygningsflater beregnes med hull, uten dobbelttelling av overlapp. Bygningsflatene klippes til teigene.",
+    kilde: [teigkilde?.fil ? `${teigkilde.fil} via ${teigkilde.url}` : teigkilde?.url, officialLayerUrl("bygninger", kommune)].filter(Boolean).join(" og "),
+    metode: `Anslag fra teiger i ${koordinatsystem} og bygningsflater i EPSG:4258, beregnet i et lokalt meterplan på GRS80 ved adressepunktet. Arealet av sammenslåtte teiger og bygningsflater beregnes med hull, uten dobbelttelling av overlapp. Bygningsflatene klippes til teigene.`,
     forbehold: [
       "Dette er kartlagt flatedekning, ikke juridisk BYA, %BYA, BRA eller %BRA. Parkering, overbygg og andre arealer som skal med etter planen, kan mangle.",
       "Tillatt utnyttelse er ikke fastsatt. Gjeldende planbestemmelser, beregningsmåte og lovlig etablert bebyggelse må kontrolleres.",
       "Lokal projeksjon, kartkvalitet og kartets oppdatering gir usikkerhet. Tallene er anslag, ikke oppmålte eller godkjente arealer.",
+      ...(koordinatsystem === "EPSG:4326" ? [
+        "Uttrekkets WGS84-koordinater brukes sammen med ETRS89-bygningskart som et geografisk anslag uten presis datumtransformasjon. Datoforskjeller og koordinatsystemer kan gi små avvik."
+      ] : []),
     ],
   };
   if (kilder.find(k => k.id === "eiendomsgrenser")?.status !== "ok" || !parcels.length) {
     result.forbehold.push("Tomtearealet er ukjent fordi eiendomsflaten mangler eller ikke kunne hentes.");
     return result;
   }
-  if (geojson?.features.some(f => f.properties.teigmedflerematrikkelenheter || f.properties.uregistrertjordsameie)) {
-    result.forbehold.push("Teigen omfatter flere matrikkelenheter eller jordsameie. Arealet som tilhører den valgte eiendommen er ukjent.");
+  if (hasUavklartTeigomfang(geojson)) {
+    result.forbehold.push("Teigen har ukjent tilknytning, omfatter flere matrikkelenheter eller jordsameie. Arealet som tilhører den valgte eiendommen er ukjent.");
     return result;
   }
   if (parcels.some(p => p.kvalitetsklasse !== "Grønt")) result.forbehold.push("En eller flere teiger har usikker eller ukjent grensekvalitet. Det påvirker arealanslaget.");
@@ -539,7 +633,7 @@ function validateParcelRings(input: unknown): Pair[][] {
   return rings;
 }
 
-function parseEiendomsGeoJson(input: unknown, adresse: GarasjeAdresse): GarasjeEiendomsGeoJson {
+function parseEiendomsGeoJson(input: unknown, adresse: GarasjeAdresse, nabotomter = false): GarasjeEiendomsGeoJson {
   const data = record(input);
   if (data.type !== "FeatureCollection" || !Array.isArray(data.features) || data.features.length > 500
     || Object.keys(data).some(key => !["type", "features", "crs"].includes(key))) {
@@ -555,23 +649,26 @@ function parseEiendomsGeoJson(input: unknown, adresse: GarasjeAdresse): GarasjeE
   let points = 0;
   const features: GarasjeEiendomsGeoJson["features"] = data.features.map(input => {
     const feature = record(input), geometry = record(feature.geometry), p = record(feature.properties);
+    const gnr = integer(p.gardsnummer, nabotomter ? 0 : 1), bnr = integer(p.bruksnummer), fnr = integer(p.festenummer);
     if (feature.type !== "Feature" || p.objekttype !== "Teig" || p.kommunenummer !== adresse.kommunenummer
-      || integer(p.gardsnummer, 1) !== adresse.gardsnummer || integer(p.bruksnummer) !== adresse.bruksnummer
-      || integer(p.festenummer) !== adresse.festenummer) fail("Eiendomskilden svarte med en annen matrikkelenhet enn den valgte.");
+      || (!nabotomter && (gnr !== adresse.gardsnummer || bnr !== adresse.bruksnummer
+        || fnr !== adresse.festenummer))) fail("Eiendomskilden svarte med en annen matrikkelenhet enn den valgte.");
     const lokalid = integer(p.lokalid, 1);
     if (ids.has(lokalid)) fail("Eiendomskilden svarte med dupliserte teiger.");
     ids.add(lokalid);
     let polygons: Pair[][][];
-    if (geometry.type === "Polygon") polygons = [validateParcelRings(geometry.coordinates)];
+    const readRings = (value: unknown) => nabotomter
+      ? polygon({ attributes: { OBJECTID: 1 }, geometry: { rings: value } }).ringer : validateParcelRings(value);
+    if (geometry.type === "Polygon") polygons = [readRings(geometry.coordinates)];
     else if (geometry.type === "MultiPolygon" && Array.isArray(geometry.coordinates)
       && geometry.coordinates.length > 0 && geometry.coordinates.length <= 100) {
-      polygons = geometry.coordinates.map(validateParcelRings);
+      polygons = geometry.coordinates.map(readRings);
     } else fail("Eiendomskilden svarte uten Polygon eller MultiPolygon.");
     points += polygons.flat().reduce((n, ring) => n + ring.length, 0);
-    if (points > 10_000) fail("Eiendomskildens geometri er for stor for denne kontrollen.");
+    if (points > (nabotomter ? 50_000 : 10_000)) fail("Eiendomskildens geometri er for stor for denne kontrollen.");
     const properties: GarasjeEiendomsGeoJson["features"][number]["properties"] = {
-      kommunenummer: adresse.kommunenummer, gardsnummer: adresse.gardsnummer, bruksnummer: adresse.bruksnummer,
-      festenummer: adresse.festenummer, seksjonsnummer: integer(p.seksjonsnummer), lokalid,
+      kommunenummer: adresse.kommunenummer, gardsnummer: gnr, bruksnummer: bnr,
+      festenummer: fnr, seksjonsnummer: integer(p.seksjonsnummer), lokalid,
       objekttype: "Teig", matrikkelnummertekst: text(p.matrikkelnummertekst),
     };
     if (p["nøyaktighetsklasseteig"] !== undefined && p["nøyaktighetsklasseteig"] !== null) {
@@ -604,15 +701,103 @@ function parseEiendomsGeoJson(input: unknown, adresse: GarasjeAdresse): GarasjeE
 function parcelPolygons(geojson: GarasjeEiendomsGeoJson): GarasjePolygon[] {
   return geojson.features.flatMap(feature => {
     const p = feature.properties;
+    const id = p.lokalid === undefined ? `${p.kildefil}:${p.kildeObjektId}` : String(p.lokalid);
     const polygons = feature.geometry.type === "Polygon" ? [feature.geometry.coordinates] : feature.geometry.coordinates;
     return polygons.map((ringer, index) => ({
-      id: polygons.length === 1 ? String(p.lokalid) : `${p.lokalid}-${index + 1}`,
+      id: polygons.length === 1 ? id : `${id}-${index + 1}`,
       ringer, teigId: p.lokalid, matrikkelnummer: p.matrikkelnummertekst,
       teig: { gnr: p.gardsnummer, bnr: p.bruksnummer, fnr: p.festenummer, teigId: p.lokalid },
+      ...(p.kildeObjektId === undefined ? {} : { kildeObjektId: p.kildeObjektId }),
+      ...(p.registrertArealM2 === undefined ? {} : { registrertArealM2: p.registrertArealM2 }),
       ...(p["nøyaktighetsklasseteig"] ? { kvalitetsklasse: p["nøyaktighetsklasseteig"] } : {}),
       ...(p.oppdateringsdato ? { oppdatert: p.oppdateringsdato } : {}),
     }));
   });
+}
+
+async function getNabotomter(adresse: GarasjeAdresse, parcels: GarasjePolygon[]): Promise<GarasjeNabotomter> {
+  const localUrl = new URL("/mock/matrikkel/naboteiger", matrikkelBaseUrl);
+  const kilde: GarasjeKilde = {
+    id: "nabotomter", navn: "Matrikkelmockens lokale teiguttrekk", url: localUrl.href,
+    status: "ikke_sjekket", hentet: new Date().toISOString(),
+  };
+  const result: GarasjeNabotomter = { tomter: [], kilde };
+  if (!parcels.length) {
+    kilde.merknad = "Tomter i nærheten er ikke hentet fordi grensene til den valgte eiendommen mangler.";
+    return result;
+  }
+  const envelope = getTeigBounds({ type: "MultiPolygon", coordinates: parcels.map(p => p.ringer) });
+  const lat = (envelope.sor + envelope.nord) / 2, lon = (envelope.vest + envelope.ost) / 2;
+  const latitudeMargin = 15 / 111320, longitudeMargin = latitudeMargin / Math.cos(lat * Math.PI / 180);
+  const bounds = { vest: envelope.vest - longitudeMargin, sor: envelope.sor - latitudeMargin,
+    ost: envelope.ost + longitudeMargin, nord: envelope.nord + latitudeMargin };
+  if (!isBoundedKartutsnitt(bounds)) {
+    kilde.merknad = "Eiendommens teiger dekker et større kartutsnitt enn 500 meter. Nabokartet er ikke hentet.";
+    return result;
+  }
+  localUrl.search = new URLSearchParams({ kommunenummer: adresse.kommunenummer,
+    ...Object.fromEntries(Object.entries(bounds).map(([key, value]) => [key, String(value)])) }).toString();
+  kilde.url = localUrl.href;
+  // Nabokartet er bare kontekst. Kilden holdes utenfor vilkårsgrunnlagets kildeliste.
+  const select = (geojson: GarasjeEiendomsGeoJson): GarasjePolygon[] => {
+    const features = geojson.features.filter(({ properties: p, geometry }) =>
+      !(p.gardsnummer === adresse.gardsnummer && p.bruksnummer === adresse.bruksnummer && p.festenummer === adresse.festenummer)
+      && intersectsKartutsnitt(getTeigBounds(geometry), bounds));
+    const tomter = parcelPolygons({ ...geojson, features });
+    if (tomter.length > NABOTEIG_MAX_TREFF) fail("Nabokartet har over 200 polygoner. Ingen avkortet liste vises.");
+    return tomter;
+  };
+  try {
+    const raw = record(await readJson(localUrl, "Matrikkelmockens naboteig-API"));
+    if (raw.avkortet !== false || !Array.isArray(raw.features) || raw.features.length > NABOTEIG_MAX_TREFF) {
+      fail("Nabokartet mangler bekreftelse på at utvalget ikke er avkortet.");
+    }
+    const local = parseLokaleTeiger(raw, adresse, true);
+    const localTomter = select(local.geojson);
+    if (localTomter.length) {
+      result.tomter = localTomter;
+      Object.assign(kilde, local.kilde, { koordinatsystem: "EPSG:4326" });
+      kilde.merknad = `Tomter i kartutsnittet fra ${local.kilde.fil}, med 15 meter margin rundt valgt eiendom. ` +
+        "Uttrekket er ikke en komplett oversikt over grensenaboer. Grensekvalitet, tvist og oppdateringstidspunkt er ikke oppgitt. " +
+        "Registrert teigareal gjelder kildeobjektet, ikke nødvendigvis hele matrikkelenheten. Ingen eieropplysninger eller byggetillatelser er hentet.";
+    } else {
+      const url = new URL(testUrl("GARASJE_NABOTOMTER_URL", NABOTOMTER_URL));
+      const width = (bounds.ost - bounds.vest) * 111700 * Math.cos(lat * Math.PI / 180);
+      const height = (bounds.nord - bounds.sor) * 111700;
+      const radius = Math.ceil(Math.hypot(width, height) / 2) + 1;
+      url.search = new URLSearchParams({ ost: String(lon), nord: String(lat), koordsys: "4258", utkoordsys: "4258",
+        radius: String(radius), maksTreff: String(NABOTEIG_MAX_TREFF + 1) }).toString();
+      kilde.navn = "Kartverkets åpne eiendoms-API, områder nær punkt";
+      kilde.url = url.href;
+      kilde.koordinatsystem = "EPSG:4258";
+      const data = record(await readJson(url, "Kartverkets eiendoms-API"));
+      if (!Array.isArray(data.features) || data.features.length > NABOTEIG_MAX_TREFF
+        || Object.keys(data).some(key => !["type", "features", "crs"].includes(key))) {
+        fail("Nabokartet er for stort eller kan være avkortet. Ingen delvis liste vises.");
+      }
+      // Områdesøket kan krysse kommunegrensen og inneholde anleggsprojeksjonsflater.
+      const features = data.features.filter(input => {
+        const feature = record(input), p = record(feature.properties);
+        if (!isKommunenummer(p.kommunenummer)) fail("Nabokartet mangler kommuneidentitet.");
+        if (!["Teig", "Anleggsprojeksjonsflate"].includes(String(p.objekttype))) fail("Nabokartet har en ukjent objekttype.");
+        return p.kommunenummer === adresse.kommunenummer && p.objekttype === "Teig";
+      });
+      result.tomter = select(parseEiendomsGeoJson({ ...data, features }, adresse, true));
+      kilde.merknad = `${local.dekket ? `Ingen andre tomter i utsnittet ble funnet i ${local.kilde.fil}.` : "Kommunen har ikke et lokalt teiguttrekk."} ` +
+        `Kartverket er derfor spurt innen ${radius} meter rundt utsnittets midtpunkt. Bare teiger i samme kommune som berører utsnittet vises. ` +
+        "Dette er ikke en komplett oversikt over grensenaboer. Teigens kvalitetsklasse er ikke kvalitetsdata for hver grense. " +
+        "Manglende kvalitet er ukjent. Eieropplysninger, planer og byggetillatelser er ikke hentet for nabotomtene.";
+    }
+    kilde.status = result.tomter.length ? "ok" : "ingen_treff";
+  } catch (error) {
+    if (!(error instanceof HttpError)) throw error;
+    result.tomter = [];
+    kilde.status = "feil";
+    kilde.merknad = `${error.message} Nabokartet er uavklart og påvirker ikke søknadssjekken.`;
+  } finally {
+    kilde.hentet = new Date().toISOString();
+  }
+  return result;
 }
 
 export async function getGarasjeGrunnlag(adresse: GarasjeAdresse, plassering?: GarasjePunkt): Promise<GarasjeGrunnlag> {
@@ -634,9 +819,9 @@ export async function getGarasjeGrunnlag(adresse: GarasjeAdresse, plassering?: G
   }];
   async function load<T>(id: SourceId, read: () => Promise<T[]>): Promise<T[]> {
     const kilde: GarasjeKilde = {
-      id, navn: id === "eiendomsgrenser" ? "Kartverket / Geonorge eiendomskart" : kommune?.[id].navn
+      id, navn: id === "eiendomsgrenser" ? "Matrikkelmockens lokale teiguttrekk" : kommune?.[id].navn
         ?? `${({ kpa: "Kommuneplan", reguleringsplan: "Reguleringsplaner", bygninger: "Bygningskart" })[id]} for kommunenummer ${adresse.kommunenummer}`,
-      url: id === "eiendomsgrenser" ? eiendomQuery(adresse).href : officialLayerUrl(id, kommune),
+      url: id === "eiendomsgrenser" ? lokalTeigQuery(adresse).href : officialLayerUrl(id, kommune),
       hentet: new Date().toISOString(), status: "ikke_sjekket",
     };
     kilder.push(kilde);
@@ -647,7 +832,7 @@ export async function getGarasjeGrunnlag(adresse: GarasjeAdresse, plassering?: G
     try {
       const rows = await read();
       kilde.status = rows.length ? "ok" : "ingen_treff";
-      kilde.merknad = rows.length ? "Offentlig kartoppslag, ikke en full kontroll av vilkårene for å bygge."
+      kilde.merknad ??= rows.length ? "Offentlig kartoppslag, ikke en full kontroll av vilkårene for å bygge."
         : "Datakilden svarte gyldig, men fant ingen objekter i det undersøkte området.";
       return rows;
     } catch (error) {
@@ -662,10 +847,26 @@ export async function getGarasjeGrunnlag(adresse: GarasjeAdresse, plassering?: G
   let eiendomsgeojson: GarasjeEiendomsGeoJson | undefined;
   let buildingRows: { polygon: GarasjePolygon; attributes: GarasjeEksisterendeBygning }[] = [];
   const eiendomPromise = load<GarasjePolygon>("eiendomsgrenser", async () => {
-    eiendomsgeojson = parseEiendomsGeoJson(await readJson(eiendomQuery(adresse), "Kartverkets eiendoms-API"), adresse);
+    const kilde = kilder.find(k => k.id === "eiendomsgrenser")!;
+    const local = parseLokaleTeiger(await readJson(lokalTeigQuery(adresse), "Matrikkelmockens teig-API"), adresse);
+    if (local.geojson.features.length) {
+      eiendomsgeojson = local.geojson;
+      Object.assign(kilde, local.kilde, { koordinatsystem: "EPSG:4326" });
+      kilde.merknad = `Lokalt uttrekk${local.kilde.uttrekksaar ? ` merket ${local.kilde.uttrekksaar}` : ""} fra ${local.kilde.fil}. ` +
+        "Offentlige teigdata, ikke syntetisk geometri. Uttrekket oppgir ikke grensekvalitet, tvist eller oppdateringstidspunkt. " +
+        "OBJECTID er en ID i uttrekket, ikke en Matrikkel-teig-ID. GeoJSON-koordinater (WGS84) brukes som geografisk kartgrunnlag; presis grenseplassering er uavklart.";
+    } else {
+      kilde.navn = "Kartverket / Geonorge eiendomskart";
+      kilde.url = eiendomQuery(adresse).href;
+      kilde.koordinatsystem = "EPSG:4258";
+      kilde.merknad = local.dekket
+        ? `Eiendommen finnes ikke i ${local.kilde.fil}. Grunnlaget hentes derfor fra Kartverkets eiendoms-API.`
+        : "Ingen lokalt teiguttrekk dekker kommunen. Grunnlaget hentes derfor fra Kartverkets eiendoms-API.";
+      eiendomsgeojson = parseEiendomsGeoJson(await readJson(eiendomQuery(adresse), "Kartverkets eiendoms-API"), adresse);
+    }
     return parcelPolygons(eiendomsgeojson);
   });
-  const [arealformaal, reguleringsplaner, eiendomsgrenser, bygninger] = await Promise.all([
+  const [arealformaal, reguleringsplaner, eiendomsgrenser, bygninger, nabotomter] = await Promise.all([
     load<GarasjeArealformaal>("kpa", async () => (await queryLayer("kpa", kommune, p, false)).map(feature => {
       const attrs = record(feature.attributes);
       const formaal: GarasjeArealformaal = {
@@ -704,11 +905,12 @@ export async function getGarasjeGrunnlag(adresse: GarasjeAdresse, plassering?: G
       buildingRows = rows;
       return rows.map(row => row.polygon);
     }),
+    eiendomPromise.then(parcels => getNabotomter(adresse, parcels)),
   ]);
   const bebyggelse = buildBebyggelse(eiendomsgrenser, eiendomsgeojson, buildingRows, kilder, kommune);
   const arealberegning = buildArealberegning(adresse, eiendomsgrenser, bygninger, eiendomsgeojson, kilder, kommune);
   return {
-    adresse, punkt: p, arealformaal, reguleringsplaner, eiendomsgrenser, bygninger, bebyggelse, arealberegning, kilder,
+    adresse, punkt: p, arealformaal, reguleringsplaner, eiendomsgrenser, bygninger, bebyggelse, arealberegning, kilder, nabotomter,
     ...(eiendomsgeojson ? { eiendomsgeojson } : {}),
     uavklarteForhold: [
       ...(kommune ? [
@@ -724,9 +926,9 @@ export async function getGarasjeGrunnlag(adresse: GarasjeAdresse, plassering?: G
       ...arealberegning.forbehold,
       ...arealformaal.filter(f => f.sonetype === "ukjent").map(() => "Sonetypen er ikke støttet eller bekreftet for denne planen. Tegnforklaringen må kunne leses og stemme med soneregisteret. Arealformålskoden alene er ikke nok til å velge sone; kildens råverdier og beskrivelse er bevart."),
       ...eiendomsgrenser.filter(teig => teig.kvalitetsklasse !== "Grønt").map(teig =>
-        `Teig ${teig.teigId}: Kartverkets kvalitetsklasse er ${teig.kvalitetsklasse ?? "ikke oppgitt"}. Grensen må avklares før den brukes til plassering.`),
+        `Teig ${teig.teigId ?? teig.id}: Kildens kvalitetsklasse er ${teig.kvalitetsklasse ?? "ikke oppgitt"}. Grensen må avklares før den brukes til plassering.`),
       ...(eiendomsgeojson?.features.filter(f => f.properties.teigmedflerematrikkelenheter || f.properties.uregistrertjordsameie)
-        .map(f => `Teig ${f.properties.lokalid} er knyttet til flere matrikkelenheter eller et uregistrert jordsameie. Innvendige grenser er ikke avklart.`) ?? []),
+        .map(f => `Teig ${f.properties.lokalid ?? `${f.properties.kildefil}:${f.properties.kildeObjektId}`} er knyttet til flere matrikkelenheter eller et uregistrert jordsameie. Innvendige grenser er ikke avklart.`) ?? []),
       ...kilder.filter(k => k.status === "feil" || k.status === "ikke_sjekket"
         || (k.status === "ingen_treff" && k.id !== "reguleringsplan"))
         .map(k => `${k.navn}: ${k.merknad ?? "Datagrunnlaget mangler."}`),

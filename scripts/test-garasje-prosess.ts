@@ -46,6 +46,13 @@ globalThis.fetch = async (input, options) => {
     return Response.json({ keys: [jwk] });
   }
   if (url.hostname === "garasje-prosess-matrikkel.test") {
+    if (url.pathname === "/mock/matrikkel/teiger" || url.pathname === "/mock/matrikkel/naboteiger") {
+      return Response.json({
+        kommunenummer: url.searchParams.get("kommunenummer"), kildestatus: "ikke_dekket",
+        kilde: { navn: "Lokalt teiguttrekk", fil: null, uttrekksaar: null, koordinatsystem: "EPSG:4326", syntetisk: false },
+        type: "FeatureCollection", features: [], ...(url.pathname === "/mock/matrikkel/naboteiger" ? { avkortet: false } : {})
+      });
+    }
     assert.equal(url.pathname, "/mock/matrikkel/eiendommer");
     ownershipReads++;
     if (failOwnership) return Response.json({ feil: "Utilgjengelig" }, { status: 503 });
@@ -75,6 +82,7 @@ globalThis.fetch = async (input, options) => {
   }
   const second = url.hostname === "api.kartverket.no"
     ? url.searchParams.get("matrikkelnummer")?.includes("20/1413") || url.searchParams.get("bruksnummer") === "1413"
+      || Number(url.searchParams.get("nord")) > 60.3
     : Number(url.searchParams.get("geometry")?.split(",")[1]) > 60.3;
   const a = addresses[second ? 1 : 0];
   const { lat: y, lon: x } = a.punkt;
@@ -84,7 +92,8 @@ globalThis.fetch = async (input, options) => {
       type: "FeatureCollection", features: [{
         type: "Feature", geometry: { type: "Polygon", coordinates: [ring] },
         properties: {
-          kommunenummer: "4601", gardsnummer: a.gardsnummer, bruksnummer: a.bruksnummer,
+          kommunenummer: "4601", gardsnummer: a.gardsnummer,
+          bruksnummer: a.bruksnummer + (url.pathname === "/eiendom/v1/punkt/omrader" ? 1 : 0),
           festenummer: 0, seksjonsnummer: 0, lokalid: second ? 258839374 : 259953783,
           objekttype: "Teig", matrikkelnummertekst: `${a.gardsnummer}/${a.bruksnummer}`,
           "nøyaktighetsklasseteig": "Grønt"
@@ -237,6 +246,8 @@ try {
     assert.equal(result.resultat.vurdering.nasjonaltUnntak, "oppfylt", JSON.stringify(result.resultat.grunnlag.bebyggelse));
     assert.equal(result.resultat.vurdering.utfall, "maa_avklares");
     assert.equal(result.resultat.grunnlag.adresse.bruksnummer, addresses[index].bruksnummer);
+    assert.equal(result.resultat.grunnlag.nabotomter?.tomter[0].teig?.bnr, addresses[index].bruksnummer + 1);
+    assert.equal(result.resultat.grunnlag.nabotomter?.kilde.status, "ok");
     assert.equal(result.resultat.grunnlag.punkt.lat, Number(answer(index).lat));
     const areal = result.resultat.grunnlag.arealberegning;
     assert(areal.tomtearealM2 !== null && areal.tomtearealM2 > 0);

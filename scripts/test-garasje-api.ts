@@ -27,6 +27,8 @@ const people: { personId: string; syntetiskFodselsnummer: string; bostedsadresse
 const realFetch = globalThis.fetch;
 const publicRequests: string[] = [];
 let failPlans = false;
+let localTeig = false;
+let failNeighbours = false;
 let backendUrl = "";
 
 globalThis.fetch = async (input, options) => {
@@ -37,6 +39,30 @@ globalThis.fetch = async (input, options) => {
     return Response.json({ keys: [jwk] });
   }
   if (url.hostname === "garasje-matrikkel.test") {
+    const neighbours = url.pathname === "/mock/matrikkel/naboteiger";
+    if (neighbours && failNeighbours) return Response.json({ feil: "Nabokilden kan ikke leses" }, { status: 502 });
+    if (url.pathname === "/mock/matrikkel/teiger" || neighbours) {
+      if (localTeig) {
+        const second = neighbours ? Number(url.searchParams.get("sor")) > 60.3 : url.searchParams.get("gnr") === "20";
+        const a = addresses[second ? 1 : 0], id = second ? 32713 : 8464;
+        const { lon: x, lat: y } = a.punkt;
+        return Response.json({
+          kommunenummer: "4601", kildestatus: "tilgjengelig",
+          kilde: { navn: "Bergen kommunes teiguttrekk", fil: "matrikkel_bk_25.json", uttrekksaar: 2025, koordinatsystem: "EPSG:4326", syntetisk: false },
+          type: "FeatureCollection", ...(neighbours ? { avkortet: false } : {}), features: [{
+            type: "Feature", id,
+            geometry: { type: "Polygon", coordinates: [[[x - .001, y - .001], [x + .001, y - .001], [x + .001, y + .001], [x - .001, y + .001], [x - .001, y - .001]]] },
+            properties: { OBJECTID: id, OBJTYPE: "Teig", GNR: a.gardsnummer, BNR: a.bruksnummer + (neighbours ? 1 : 0), FNR: 0, SNR: 0,
+              AREAL: 960, AREALMERKNAD: null, TINGLYST: "Ja", ANTALL_GID: 1, Shape_Area: 960, Shape_Length: 124 }
+          }]
+        });
+      }
+      return Response.json({
+        kommunenummer: url.searchParams.get("kommunenummer"), kildestatus: "ikke_dekket",
+        kilde: { navn: "Lokalt teiguttrekk", fil: null, uttrekksaar: null, koordinatsystem: "EPSG:4326", syntetisk: false },
+        type: "FeatureCollection", features: [], ...(neighbours ? { avkortet: false } : {})
+      });
+    }
     assert.equal(url.pathname, "/mock/matrikkel/eiendommer");
     const index = url.searchParams.get("personId") === "person-396" ? 1 : 0;
     const adresse = addresses[index];
@@ -53,11 +79,14 @@ globalThis.fetch = async (input, options) => {
   for (const person of people) assert(!url.href.includes(person.syntetiskFodselsnummer), "Fødselsnummer må aldri sendes ut");
   publicRequests.push(url.href);
   if (url.hostname === "api.kartverket.no") {
-    assert.equal(url.pathname, "/eiendom/v1/geokoding");
-    assert.equal(url.searchParams.get("omrade"), "true");
+    const neighbours = url.pathname === "/eiendom/v1/punkt/omrader";
+    if (!neighbours) {
+      assert.equal(url.pathname, "/eiendom/v1/geokoding");
+      assert.equal(url.searchParams.get("omrade"), "true");
+    }
     assert.equal(url.searchParams.get("utkoordsys"), "4258");
     const second = url.searchParams.get("matrikkelnummer")?.includes("20/1413")
-      || url.searchParams.get("bruksnummer") === "1413";
+      || url.searchParams.get("bruksnummer") === "1413" || Number(url.searchParams.get("nord")) > 60.3;
     const a = addresses[second ? 1 : 0];
     const { lon: x, lat: y } = a.punkt;
     return Response.json({
@@ -66,7 +95,7 @@ globalThis.fetch = async (input, options) => {
         type: "Feature",
         geometry: { type: "Polygon", coordinates: [[[x - .001, y - .001], [x + .001, y - .001], [x + .001, y + .001], [x - .001, y + .001], [x - .001, y - .001]]] },
         properties: {
-          kommunenummer: "4601", gardsnummer: a.gardsnummer, bruksnummer: a.bruksnummer,
+          kommunenummer: "4601", gardsnummer: a.gardsnummer, bruksnummer: a.bruksnummer + (neighbours ? 1 : 0),
           festenummer: 0, seksjonsnummer: 0, lokalid: second ? 258839374 : 259953783,
           objekttype: "Teig", "hovedområde": true, "nøyaktighetsklasseteig": second ? "Gult" : "Grønt",
           oppdateringsdato: "2025-06-18T16:10:10", teigmedflerematrikkelenheter: false,
@@ -173,6 +202,9 @@ try {
     assert(result.arealformaal.length, JSON.stringify(result.kilder));
     assert.equal(result.arealformaal[0].kode, index ? 1001 : 5100);
     assert(result.eiendomsgrenser.length > 0);
+    assert.equal(result.nabotomter?.kilde.status, "ok");
+    assert.equal(result.nabotomter?.tomter[0].teig?.bnr, addresses[index].bruksnummer + 1);
+    assert.equal(result.nabotomter?.kilde.koordinatsystem, "EPSG:4258");
     const document = result.kilder.find(k => k.id === "kpa-bestemmelser");
     assert.equal(document?.status, "ikke_sjekket", "En registrert PDF-lenke er ikke en kontrollert bestemmelse");
     assert.equal(document?.url, "https://api.arealplaner.no/api/kunder/bergen4601/dokumenter/1487/download/b65270000.pdf");
@@ -195,14 +227,49 @@ try {
   assert.equal(result.vurdering.nasjonaltUnntak, "oppfylt");
   assert.equal(result.vurdering.utfall, "maa_avklares", "LNF er verken automatisk avslag eller et ukritisk ja");
   assert.equal(result.grunnlag.arealformaal[0].beskrivelse, "LNF");
+  const apiTeigkilde = result.grunnlag.kilder.find(k => k.id === "eiendomsgrenser")!;
+  assert.equal(apiTeigkilde.koordinatsystem, "EPSG:4258");
+  assert(result.grunnlag.arealberegning.kilde.includes(apiTeigkilde.url));
+  assert.match(result.grunnlag.arealberegning.metode, /teiger i EPSG:4258/);
   q.set("tiltak", JSON.stringify({ ...tiltak, bra: 50.01 }));
   assert.equal((await asJson<Result>(await request(`/api/garasje/sjekk?${q}`))).vurdering.utfall, "soknadspliktig");
+  localTeig = true;
+  publicRequests.length = 0;
+  q.set("tiltak", JSON.stringify(tiltak));
+  q.set("sporingsId", "garasje-lokal-integrasjon");
+  const localResult = await asJson<Result>(await request(`/api/garasje/sjekk?${q}`));
+  assert.equal(localResult.grunnlag.kilder.find(k => k.id === "eiendomsgrenser")?.fil, "matrikkel_bk_25.json");
+  assert.equal(localResult.grunnlag.eiendomsgeojson?.features[0].properties.kildeObjektId, 8464);
+  assert.equal(localResult.grunnlag.nabotomter?.kilde.fil, "matrikkel_bk_25.json");
+  assert.equal(localResult.grunnlag.nabotomter?.tomter[0].teig?.bnr, 210);
+  assert.equal(localResult.grunnlag.nabotomter?.tomter[0].kvalitetsklasse, undefined);
+  const localTeigkilde = localResult.grunnlag.kilder.find(k => k.id === "eiendomsgrenser")!;
+  assert.equal(localTeigkilde.koordinatsystem, "EPSG:4326");
+  assert(localResult.grunnlag.arealberegning.kilde.includes(`matrikkel_bk_25.json via ${localTeigkilde.url}`));
+  assert(!localResult.grunnlag.arealberegning.kilde.includes("api.kartverket.no"));
+  assert.match(localResult.grunnlag.arealberegning.metode, /teiger i EPSG:4326/);
+  assert(localResult.grunnlag.arealberegning.forbehold.some(text => text.includes("uten presis datumtransformasjon")));
+  assert(!publicRequests.some(url => url.startsWith("https://api.kartverket.no/")));
+  assert.equal(localResult.vurdering.utfall, "maa_avklares");
+  failNeighbours = true;
+  const missingNeighbours = await asJson<Result>(await request(`/api/garasje/sjekk?${q}`));
+  assert.equal(missingNeighbours.grunnlag.nabotomter?.kilde.status, "feil");
+  assert.deepEqual(missingNeighbours.vurdering, localResult.vurdering);
+  assert.deepEqual(missingNeighbours.grunnlag.arealberegning, localResult.grunnlag.arealberegning);
+  assert.deepEqual(missingNeighbours.grunnlag.eiendomsgrenser, localResult.grunnlag.eiendomsgrenser);
+  failNeighbours = false;
+  localTeig = false;
   failPlans = true;
   q.set("tiltak", JSON.stringify(tiltak));
   const failed = await asJson<Result>(await request(`/api/garasje/sjekk?${q}`));
   assert.equal(failed.vurdering.utfall, "maa_avklares");
   assert.equal(failed.grunnlag.kilder.find(k => k.id === "kpa")?.status, "feil");
   const audit = JSON.parse(await readFile(path.join(stateDir, "revisjonslogg.json"), "utf8"));
+  const localEvent = audit.find((e: { handling: string; sporingsId: string }) => e.handling === "GARASJE_VURDERT" && e.sporingsId === "garasje-lokal-integrasjon");
+  assert.equal(localEvent.grunnlag.datagrunnlag.kilder.find((k: { id: string }) => k.id === "eiendomsgrenser").fil, "matrikkel_bk_25.json");
+  assert.equal(localEvent.grunnlag.datagrunnlag.nabotomter.kilde.fil, "matrikkel_bk_25.json");
+  assert.deepEqual(localEvent.grunnlag.datagrunnlag.arealberegning, localResult.grunnlag.arealberegning,
+    "Lagret arealgrunnlag skal ha samme kilde og koordinatsystem som API-svaret");
   const event = audit.find((e: { handling: string; sporingsId: string }) => e.handling === "GARASJE_VURDERT" && e.sporingsId === "garasje-integrasjon");
   assert(event?.grunnlag.datagrunnlag.kilder.length);
   assert.equal(event.grunnlag.tiltak.bra, tiltak.bra);

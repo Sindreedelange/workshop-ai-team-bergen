@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { fitKartutsnitt, projectGarasjePunkt, unprojectGarasjePunkt } from "../apps/demo-gui/src/client/garasje-kart.ts";
+import { findNabotomtLabel, fitKartutsnitt, projectGarasjePunkt, unprojectGarasjePunkt } from "../apps/demo-gui/src/client/garasje-kart.ts";
 import type { GarasjePolygon } from "../apps/shared/garasje.ts";
 
 const center = { lat: 60.2536577976675, lon: 5.255241147052527 };
@@ -36,3 +36,17 @@ for (const polygons of [[polygon], rectangles, []]) {
   assert.deepEqual(unprojectGarasjePunkt(2, 2, bounds), { lon: bounds.east, lat: bounds.south });
 }
 console.log("Garasjekart: tomteutsnitt med minst ti meter marg, proporsjoner og markørplassering besto.");
+const labelBounds = { west: 0, east: 640, south: 0, north: 480 };
+const own = { id: "own", ringer: [[[180, 100], [460, 100], [460, 380], [180, 380], [180, 100]]] as [number, number][][] };
+const surrounding = { id: "neighbour", ringer: [
+  [[0, 0], [640, 0], [640, 480], [0, 480], [0, 0]],
+  [[180, 100], [180, 380], [460, 380], [460, 100], [180, 100]]
+] as [number, number][][] };
+const label = findNabotomtLabel(surrounding, [own], labelBounds, 64, []);
+assert(label);
+assert(label.x < 180 || label.x > 460 || label.y < 100 || label.y > 380, "Nabonummer må ikke ligge inne på valgt tomt");
+assert.equal(findNabotomtLabel(own, [own], labelBounds, 64, []), null);
+const nextLabel = findNabotomtLabel(surrounding, [own], labelBounds, 64, [label]);
+assert(nextLabel);
+assert(Math.abs(nextLabel.x - label.x) >= 70 || Math.abs(nextLabel.y - label.y) >= 26, "Nabomerkene må ikke overlappe");
+console.log("Nabomerker plasseres på riktig tomt, utenfor valgt tomt og uten overlapp.");

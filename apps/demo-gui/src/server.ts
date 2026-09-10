@@ -43,6 +43,8 @@ const KLIENTFILER: Record<string, string> = {
   "ds-eksempel.ts": KLIENTSKRIPT,
   "garasje.ts": KLIENTSKRIPT,
   "garasje-kart.ts": KLIENTSKRIPT,
+  "garasje-tema.ts": KLIENTSKRIPT,
+  "garasje-utfylling.ts": KLIENTSKRIPT,
   "garasje-prosess.ts": KLIENTSKRIPT,
   "callback.ts": KLIENTSKRIPT
 };
@@ -82,6 +84,11 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
 
   if (sti === "/klient-konfigurasjon") {
     send(response, 200, `globalThis.sandkasseKonfigurasjon = ${JSON.stringify(buildClientKonfigurasjon())};`, KLIENTSKRIPT);
+    return;
+  }
+
+  if (sti === "/shared/garasje-dialog.ts") {
+    await sendFil(response, path.join(sharedDir, "garasje-dialog.ts"), KLIENTSKRIPT);
     return;
   }
 

@@ -36,6 +36,8 @@ paths:
                     type: integer
                   antallEiendommer:
                     type: integer
+                  teigdatasett:
+                    $ref: "#/components/schemas/TeigdatasettStatus"
                   eierforhold:
                     type: object
                     nullable: true
@@ -250,6 +252,149 @@ paths:
           description: >
             Treffliste. Naken array uten `limit`/`offset`, ellers en konvolutt
             `{ items, total, offset, limit }`.
+  /mock/matrikkel/naboteiger:
+    get:
+      summary: Hent lokale teiger i et avgrenset kartutsnitt
+      description: >
+        Leser samme mellomlagrede Bergen-uttrekk som teigoppslaget, uten nettverksreserve.
+        Alle fem parametere kreves én gang hver; andre parametere avvises.
+        Utsnittet er lengdegrad/breddegrad og må være høyst 500 meter langs hver side.
+        Indeksen velger teiger med omsluttende rektangel som berører utsnittet,
+        ikke bare bekreftede grensenaboer. Valgt eiendom kan være med i svaret.
+        Alle seksjoner og hull beholdes. Høyst 200 teiger returneres; flere treff
+        gir 400, aldri en avkortet liste. Uttrekket er ikke en komplett matrikkel.
+        Eieropplysninger hentes ikke. Ingen grensekvalitet eller tviststatus oppdiktes.
+      parameters:
+        - in: query
+          name: kommunenummer
+          required: true
+          description: Fire sifre, unntatt 0000. Bare Bergen 4601 har lokalt uttrekk.
+          schema:
+            type: string
+            pattern: '^\d{4}$'
+          example: "4601"
+        - in: query
+          name: vest
+          required: true
+          description: Vestlig lengdegrad, mindre enn ost.
+          schema: { type: number, minimum: -180, maximum: 180 }
+          example: 5.2545
+        - in: query
+          name: sor
+          required: true
+          description: Sørlig breddegrad, mindre enn nord og ikke på en pol.
+          schema: { type: number, exclusiveMinimum: -90, exclusiveMaximum: 90 }
+          example: 60.2533
+        - in: query
+          name: ost
+          required: true
+          description: Østlig lengdegrad.
+          schema: { type: number, minimum: -180, maximum: 180 }
+          example: 5.2559
+        - in: query
+          name: nord
+          required: true
+          description: Nordlig breddegrad, ikke på en pol.
+          schema: { type: number, exclusiveMinimum: -90, exclusiveMaximum: 90 }
+          example: 60.2541
+      responses:
+        "200":
+          description: >
+            Alle indekstreff, inkludert eventuell valgt eiendom. tilgjengelig betyr
+            at Bergen-filen kan leses, ikke at den har full geografisk dekning.
+            Andre kommuner gir ikke_dekket og tom liste uten å lese Bergen-filen.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MatrikkelNaboteigSvar"
+        "400":
+          description: Manglende eller ugyldige parametere, for stort utsnitt eller over 200 treff.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeigFeil"
+        "502":
+          description: Uleselig, endret eller ugyldig lokal kilde. Ingen gammel indeks eller tom liste skjuler feilen.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeigFeil"
+  /mock/matrikkel/teiger:
+    get:
+      summary: Hent teiggeometri for en matrikkelenhet
+      description: >
+        Lokalt, reelt GeoJSON-uttrekk bundet til Bergen (4601). Kommunenummer
+        finnes ikke i kildefilen og utledes ikke av gårds- og bruksnummer.
+        Filen har ikke et eget CRS; GeoJSON-standardens EPSG:4326 brukes.
+        Alle teiger for nøyaktig gnr/bnr/fnr returneres i kildefilens rekkefølge,
+        inkludert alle seksjonsnumre og hull. fnr betyr festenummer, ikke
+        fødselsnummer. snr og andre parametere støttes ikke; duplikate parametere
+        avvises. Ingen helfil, eieropplysninger, oppdiktede teigidentifikatorer
+        eller nøyaktighetsverdier eksponeres. Manglende treff er ikke en
+        kildefeil og må skilles fra 502 av klienter som bruker en annen kilde
+        som reserve.
+      parameters:
+        - in: query
+          name: kommunenummer
+          required: true
+          description: Fire sifre. Bare 4601 dekkes av det lokale uttrekket.
+          schema:
+            type: string
+            pattern: '^\d{4}$'
+          example: "4601"
+        - in: query
+          name: gnr
+          required: true
+          description: Gårdsnummer som et positivt heltall skrevet med sifre.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 9007199254740991
+          example: 105
+        - in: query
+          name: bnr
+          required: true
+          description: Bruksnummer som et ikke-negativt heltall skrevet med sifre.
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 9007199254740991
+          example: 209
+        - in: query
+          name: fnr
+          required: false
+          description: Festenummer. Alle seksjoner for matrikkelenheten beholdes.
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 9007199254740991
+            default: 0
+          example: 0
+      responses:
+        "200":
+          description: >
+            FeatureCollection. For Bergen er kildestatus tilgjengelig, også ved
+            en tom treffliste. Andre kommuner gir ikke_dekket og tom liste,
+            uten å lese Bergen-filen.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MatrikkelTeigSvar"
+        "400":
+          description: Manglende eller ugyldige parametere
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeigFeil"
+        "502":
+          description: >
+            Bergen-kilden mangler, kan ikke leses, endres under innlasting eller
+            har ugyldig JSON, felter eller geometri. Ingen gammel indeks eller
+            tom treffliste brukes til å skjule en kildefeil.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeigFeil"
   /mock/matrikkel/eiendom-oppslag:
     get:
       summary: Hent eiendom via eksakt adresse
@@ -289,3 +434,187 @@ paths:
             text/html:
               schema:
                 type: string
+
+components:
+  schemas:
+    TeigFeil:
+      type: object
+      additionalProperties: false
+      required: [feil]
+      properties:
+        feil:
+          type: string
+          description: Feilmelding uten rådata eller full filsti.
+    TeigdatasettStatus:
+      type: object
+      additionalProperties: false
+      required: [status, kommunenummer, fil]
+      description: >
+        Siste kjente tilstand i minnet. Helsesjekken leser ikke teigfilen og
+        utløser ikke innlasting eller en ny filkontroll. Antall og lastetid
+        finnes bare etter vellykket innlasting. Feil her endrer ikke helsen
+        for det eksisterende syntetiske matrikkelregisteret.
+      properties:
+        status:
+          type: string
+          enum: [ikke_lastet, laster, tilgjengelig, feil]
+        kommunenummer:
+          type: string
+          const: "4601"
+        fil:
+          type: string
+          description: Bare filnavnet, aldri en absolutt filsti.
+        antallTeiger:
+          type: integer
+          minimum: 0
+        antallEiendommer:
+          type: integer
+          minimum: 0
+          description: Antall ulike kombinasjoner av GNR, BNR og FNR, uten seksjonsfilter.
+        lastetTidspunkt:
+          type: string
+          format: date-time
+          description: Når prosessen lastet filen, ikke når eiendommen ble målt.
+    MatrikkelTeigSvar:
+      type: object
+      additionalProperties: false
+      required: [kommunenummer, kildestatus, kilde, type, features]
+      properties:
+        kommunenummer:
+          type: string
+          pattern: '^\d{4}$'
+        kildestatus:
+          type: string
+          enum: [tilgjengelig, ikke_dekket]
+        kilde:
+          type: object
+          additionalProperties: false
+          required: [navn, fil, uttrekksaar, koordinatsystem, syntetisk]
+          properties:
+            navn:
+              type: string
+            fil:
+              type: [string, "null"]
+              description: Bare filnavnet. Null når kommunen ikke dekkes.
+              examples: [matrikkel_bk_25.json]
+            uttrekksaar:
+              type: [integer, "null"]
+              description: >
+                Året utledet av filnavnet matrikkel_bk_25.json er 2025. Dette er
+                ikke en måledato eller en bekreftelse på at grensene er oppdaterte.
+                Null når filnavnet ikke følger navnemønsteret eller kommunen
+                ikke dekkes.
+              examples: [2025]
+            koordinatsystem:
+              type: string
+              const: "EPSG:4326"
+            syntetisk:
+              type: boolean
+              const: false
+        type:
+          type: string
+          const: FeatureCollection
+        features:
+          type: array
+          items:
+            $ref: "#/components/schemas/MatrikkelTeigFeature"
+    MatrikkelNaboteigSvar:
+      type: object
+      additionalProperties: false
+      required: [kommunenummer, kildestatus, kilde, type, features, avkortet]
+      properties:
+        kommunenummer:
+          $ref: "#/components/schemas/MatrikkelTeigSvar/properties/kommunenummer"
+        kildestatus:
+          $ref: "#/components/schemas/MatrikkelTeigSvar/properties/kildestatus"
+        kilde:
+          $ref: "#/components/schemas/MatrikkelTeigSvar/properties/kilde"
+        type: { type: string, const: FeatureCollection }
+        features:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/MatrikkelTeigFeature"
+        avkortet:
+          type: boolean
+          const: false
+          description: Alle indekstreff returneres. Dette bekrefter ikke at alle eiendommer finnes i uttrekket.
+    MatrikkelTeigFeature:
+      type: object
+      additionalProperties: false
+      required: [type, id, geometry, properties]
+      properties:
+        type:
+          type: string
+          const: Feature
+        id:
+          type: integer
+          minimum: 0
+          description: Kildens OBJECTID, ikke en global teigidentifikator.
+        geometry:
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [type, coordinates]
+              properties:
+                type:
+                  type: string
+                  const: Polygon
+                coordinates:
+                  $ref: "#/components/schemas/TeigPolygon"
+            - type: object
+              additionalProperties: false
+              required: [type, coordinates]
+              properties:
+                type:
+                  type: string
+                  const: MultiPolygon
+                coordinates:
+                  type: array
+                  minItems: 1
+                  items:
+                    $ref: "#/components/schemas/TeigPolygon"
+        properties:
+          type: object
+          additionalProperties: false
+          required: [OBJECTID, OBJTYPE, GNR, BNR, FNR, SNR, AREAL, AREALMERKNAD, TINGLYST, ANTALL_GID, Shape_Area, Shape_Length]
+          properties:
+            OBJECTID: { type: integer, minimum: 0 }
+            OBJTYPE: { type: string, const: Teig }
+            GNR: { type: integer, minimum: 0 }
+            BNR: { type: integer, minimum: 0 }
+            FNR: { type: integer, minimum: 0 }
+            SNR: { type: integer, minimum: 0 }
+            AREAL:
+              type: [number, "null"]
+              minimum: 0
+              description: Areal fra kilden. Enkelte objekter mangler verdi; null beholdes.
+            AREALMERKNAD: { type: [string, "null"] }
+            TINGLYST:
+              type: string
+              description: Kildens verdi, for eksempel Ja, Nei eller -. Sier ikke hvem som eier eiendommen.
+            ANTALL_GID:
+              type: integer
+              minimum: 0
+              description: Kildens antall matrikkelidentiteter; ikke et mål på nøyaktighet.
+            Shape_Area: { type: number, minimum: 0 }
+            Shape_Length: { type: number, minimum: 0 }
+    TeigPolygon:
+      type: array
+      minItems: 1
+      description: >
+        Første ring er yttergrensen, senere ringer er hull. Ringer er lukket
+        og har minst tre ulike posisjoner. Full topologisk kontroll utføres
+        ikke ved innlasting av datasettet.
+      items:
+        type: array
+        minItems: 4
+        items:
+          type: array
+          minItems: 2
+          maxItems: 3
+          description: Endelig lengdegrad og breddegrad i grader, eventuelt en tredje høydekoordinat.
+          prefixItems:
+            - { type: number, minimum: -180, maximum: 180 }
+            - { type: number, minimum: -90, maximum: 90 }
+            - { type: number }

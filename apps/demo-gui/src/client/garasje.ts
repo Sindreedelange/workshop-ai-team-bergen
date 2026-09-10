@@ -1,7 +1,9 @@
 import type {
   GarasjeAdresse, GarasjeGrunnlag, GarasjePolygon, GarasjePunkt, GarasjeTiltak, GarasjeVurdering
 } from "../../../shared/garasje.ts";
-import { fitKartutsnitt, projectGarasjePunkt, unprojectGarasjePunkt } from "./garasje-kart.ts";
+import { findNabotomtLabel, fitKartutsnitt, projectGarasjePunkt, unprojectGarasjePunkt, type KartLabel } from "./garasje-kart.ts";
+import { createGarasjeUtfylling, type GarasjeDialogReply } from "./garasje-utfylling.ts";
+import { GARASJE_DIALOGFELTER, projectGarasjeDialogGrunnlag } from "../../../shared/garasje-dialog.ts";
 
 type GarasjeSvar = { grunnlag: GarasjeGrunnlag; vurdering: GarasjeVurdering; sporingsId: string };
 type Innbygger = Person & {
@@ -15,18 +17,20 @@ type Adressevalg = { tekst: string; kommune?: string; gnr?: number; bnr?: number
 
 let backendBase = "";
 let idportenBase = "";
-let aiBase = "";
+let agentBase = "";
+let utfylling: ReturnType<typeof createGarasjeUtfylling> | undefined;
 const pageParams = new URLSearchParams(location.search);
 const embedded = pageParams.has("integrert");
 const embeddedOektId = pageParams.get("oektsId");
 const embeddedStegId = pageParams.get("stegId");
 let embeddedOekt: Prosessoekt | null = null;
 let pendingSave = false;
-let helpField: string | undefined;
 const helpHistory: { rolle: string; tekst: string }[] = [];
 let busy = false;
 let propertyConfirmed = false;
+let propertyVersion = 0;
 let placementChosen = false;
+let placementConfirmed = false;
 let valgtAdresse: GarasjeAdresse | null = null;
 let plassering: GarasjePunkt | null = null;
 let grunnlag: GarasjeGrunnlag | null = null;
@@ -76,10 +80,27 @@ function invalidateResult(): void {
   krevEl("assessment").hidden = true;
 }
 
+function renderPropertySteps(): void {
+  krevEl("property-controls").hidden = propertyConfirmed;
+  krevEl("edit-property").hidden = !propertyConfirmed;
+  krevEl("placement-step").hidden = placementConfirmed;
+  krevEl("placement-summary").hidden = !placementConfirmed;
+  krevEl("garage-step").hidden = !placementConfirmed;
+  form.hidden = !placementConfirmed;
+}
+
 function clearConfirmation(): void {
+  utfylling?.cancel();
   propertyConfirmed = false;
-  form.hidden = true;
-  krevEl("confirm-reminder").hidden = false;
+  propertyVersion++;
+  placementChosen = false;
+  placementConfirmed = false;
+  grunnlag = null;
+  krevEl("property-workspace").hidden = true;
+  krevEl("plan-facts").replaceChildren();
+  krevEl("sources").replaceChildren();
+  svg.querySelector("#map-image")!.removeAttribute("href");
+  renderPropertySteps();
   krevEl("confirm-property").hidden = true;
   krevEl("confirm-note").textContent = "";
   invalidateResult();
@@ -104,6 +125,7 @@ async function perform(label: string, action: () => Promise<void>): Promise<void
   } finally {
     controls.forEach(control => { control.disabled = pendingSave; });
     busy = false;
+    utfylling?.refresh();
   }
 }
 
@@ -157,7 +179,7 @@ async function searchAdresse(tekst: string, kommunenummer?: string): Promise<voi
       const button = element("button", `${adresse.adressetekst} · kommune ${adresse.kommunenummer} · ${adresse.gardsnummer}/${adresse.bruksnummer}`, "ds-button");
       button.type = "button";
       button.dataset.variant = "secondary";
-      button.addEventListener("click", () => void perform("Henter eiendom og plangrunnlag …", () => selectAdresse(adresse)));
+      button.addEventListener("click", () => void perform("Velger eiendom …", () => selectAdresse(adresse)));
       results.append(button);
     }
   }
@@ -172,27 +194,85 @@ async function selectAdresse(adresse: GarasjeAdresse): Promise<void> {
   const facts = krevEl("property-facts");
   facts.replaceChildren();
   facts.append(element("h3", adresse.adressetekst, "ds-heading"));
-  facts.append(element("p", `Kommune ${adresse.kommunenummer} · Gnr. ${adresse.gardsnummer}, bnr. ${adresse.bruksnummer}` +
-    (adresse.festenummer ? `, festenr. ${adresse.festenummer}` : ""), "ds-paragraph"));
+  facts.append(element("p", formatEiendomsdetaljer(adresse), "ds-paragraph"));
   facts.append(element("p", "Identifisert i det offentlige adresseregisteret. Eierskapet i sandkassen er syntetisk og sier ikke hvem som eier eiendommen i virkeligheten.", "ds-paragraph muted"));
   facts.hidden = false;
   bounds = fitKartutsnitt([], adresse.punkt);
-  await refreshGrunnlag();
   krevEl("confirm-property").hidden = false;
-  krevEl("confirm-note").textContent = `Kontroller at ${adresse.adressetekst}, gnr. ${adresse.gardsnummer}/bnr. ${adresse.bruksnummer}, er eiendommen du vil sjekke. Kartet under viser tomten.`;
+  krevEl("confirm-property").textContent = "Bekreft eiendom";
+  krevEl("confirm-note").textContent = `Er ${adresse.adressetekst} (${formatEiendomsdetaljer(adresse)}) riktig eiendom? Etter bekreftelsen henter vi kart og øvrige opplysninger.`;
+}
+
+function formatEiendomsdetaljer(adresse: GarasjeAdresse): string {
+  const navn = adresse.kommunenavn?.toLocaleLowerCase("nb-NO")
+    .replace(/(^|[\s(-])\p{L}/gu, bokstav => bokstav.toLocaleUpperCase("nb-NO"));
+  const kommune = navn ? `${navn} (${adresse.kommunenummer})` : adresse.kommunenummer;
+  return `gnr. ${adresse.gardsnummer}, bnr. ${adresse.bruksnummer}` +
+    (adresse.festenummer ? `, festenr. ${adresse.festenummer}` : "") + `, Kommune: ${kommune}`;
+}
+
+async function confirmProperty(): Promise<void> {
+  if (!valgtAdresse) throw new Error("Velg en eiendom før du bekrefter.");
+  propertyConfirmed = true;
+  krevEl("confirm-property").hidden = true;
+  renderPropertySteps();
+  krevEl("confirm-note").textContent = `Bekreftet: ${valgtAdresse.adressetekst} (${formatEiendomsdetaljer(valgtAdresse)}).`;
+  await refreshGrunnlag();
+  krevEl("map-heading").focus();
+}
+
+async function confirmPlacement(): Promise<void> {
+  if (!propertyConfirmed) throw new Error("Bekreft eiendommen før du velger plassering.");
+  if (!placementChosen) throw new Error("Plasser garasjen i kartet først. Du kan klikke, dra eller bruke retningsknappene.");
+  await refreshGrunnlag();
+  placementConfirmed = true;
+  renderPropertySteps();
+  krevEl("garage-heading").focus();
+}
+
+function editPlacement(): void {
+  if (busy || pendingSave) return;
+  utfylling?.cancel();
+  placementConfirmed = false;
+  invalidateResult();
+  renderPropertySteps();
+  krevEl("map-heading").focus();
 }
 
 async function refreshGrunnlag(): Promise<void> {
+  if (!propertyConfirmed || !valgtAdresse) throw new Error("Bekreft eiendommen før kart og opplysninger hentes.");
+  const version = propertyVersion;
   invalidateResult();
+  placementConfirmed = false;
   grunnlag = null;
+  krevEl("property-workspace").hidden = !placementChosen;
+  renderPropertySteps();
   krevEl("plan-facts").replaceChildren();
   krevEl("sources").replaceChildren();
-  const data = await api<GarasjeGrunnlag>(`/api/garasje/grunnlag?${selectedQuery()}`);
+  let data: GarasjeGrunnlag;
+  try {
+    data = await api<GarasjeGrunnlag>(`/api/garasje/grunnlag?${selectedQuery()}`);
+  } catch (error) {
+    if (propertyConfirmed && version === propertyVersion) {
+      if (placementChosen) {
+        krevEl("placement-note").textContent = "Kunne ikke hente planer. Plasseringen er ikke bekreftet. Prøv «Bekreft plassering og fortsett» igjen.";
+      } else {
+        krevEl("confirm-property").textContent = "Prøv å hente kart og opplysninger igjen";
+        krevEl("confirm-property").hidden = false;
+      }
+    }
+    throw error;
+  }
+  if (!propertyConfirmed || version !== propertyVersion) {
+    throw new Error("Eiendomsvalget er endret. Bekreft riktig eiendom før du fortsetter.");
+  }
   grunnlag = data;
-  krevEl("property-workspace").hidden = false;
   renderGrunnlag(data);
   renderMap(data);
   updateMarker();
+  krevEl("property-workspace").hidden = false;
+  renderPropertySteps();
+  krevEl("confirm-property").hidden = true;
   krevEl("placement-note").textContent = placementChosen
     ? "Plangrunnlaget gjelder den valgte garasjeplasseringen. Markøren viser ett punkt, ikke hele bygget."
     : "Markøren viser foreløpig adressepunktet. Velg aktivt hvor garasjen skal stå ved å klikke, dra eller bruke retningsknappene.";
@@ -201,6 +281,12 @@ async function refreshGrunnlag(): Promise<void> {
 function renderGrunnlag(data: GarasjeGrunnlag): void {
   const facts = krevEl("plan-facts");
   facts.replaceChildren();
+  const teigkilde = data.kilder.find(kilde => kilde.id === "eiendomsgrenser");
+  if (teigkilde?.status === "ok") {
+    facts.append(element("p", teigkilde.fil
+      ? `Tomtegrenser: Data hentet fra lokal fil (${teigkilde.fil}).`
+      : `Tomtegrenser: Data hentet fra API (${teigkilde.navn}).`, "ds-paragraph"));
+  }
   for (const formaal of data.arealformaal) {
     facts.append(element("p", `${formaal.sonenavn || formaal.beskrivelse} · arealformål ${formaal.kode}` +
       (formaal.arealstatus === undefined ? "" : ` / status ${formaal.arealstatus}`) + ` · plan ${formaal.planId}`, "ds-paragraph"));
@@ -232,9 +318,11 @@ function renderGrunnlag(data: GarasjeGrunnlag): void {
   for (const polygon of data.eiendomsgrenser) {
     if (polygon.teig) {
       const teig = polygon.teig;
-      facts.append(element("p", `Teig ${teig.teigId ?? polygon.id} · ${teig.gnr}/${teig.bnr}. ` +
-        `Kvalitetsklasse fra Kartverket: ${polygon.kvalitetsklasse ?? teig.kvalitet ?? "ikke oppgitt"}. ` +
+      const id = polygon.kildeObjektId === undefined ? `Teig ${teig.teigId ?? polygon.id}` : `Objekt ${polygon.kildeObjektId} i lokalt teiguttrekk`;
+      facts.append(element("p", `${id} · ${teig.gnr}/${teig.bnr}. ` +
+        `Kvalitetsklasse fra kilden: ${polygon.kvalitetsklasse ?? teig.kvalitet ?? "ikke oppgitt"}. ` +
         `Tvist: ${teig.tvist ?? "ikke oppgitt i denne kilden"}.` +
+        (polygon.registrertArealM2 === undefined ? "" : ` Oppgitt teigareal: ${polygon.registrertArealM2.toLocaleString("nb-NO")} m².`) +
         (polygon.oppdatert ? ` Geometrien sist oppdatert: ${polygon.oppdatert.replace("T", " ")}.` : ""), "ds-paragraph"));
     }
   }
@@ -258,6 +346,10 @@ function renderGrunnlag(data: GarasjeGrunnlag): void {
     const item = element("li");
     addLink(item, kilde.navn, kilde.url);
     item.append(element("p", `${status[kilde.status]} · ${new Date(kilde.hentet).toLocaleString("nb-NO")}`, "ds-paragraph"));
+    if (kilde.status === "ok") {
+      item.append(element("p", kilde.fil ? `Data hentet fra lokal fil: ${kilde.fil}` : "Data hentet fra API", "ds-paragraph"));
+    }
+    if (kilde.koordinatsystem) item.append(element("p", `Koordinatsystem: ${kilde.koordinatsystem}`, "ds-paragraph"));
     if (kilde.merknad) item.append(element("p", kilde.merknad, "ds-paragraph"));
     list.append(item);
   }
@@ -283,6 +375,42 @@ function drawPolygons(id: string, polygons: GarasjePolygon[], className: string)
   }
 }
 
+function renderNeighbours(data: GarasjeGrunnlag): void {
+  const neighbours = data.nabotomter;
+  const parcels = neighbours?.tomter ?? [];
+  drawPolygons("map-neighbours", parcels, "neighbour");
+  const labels = svg.querySelector("#map-neighbour-labels")!;
+  labels.replaceChildren();
+  const details = krevEl("neighbour-details");
+  details.replaceChildren();
+  const status = krevEl("neighbour-status");
+  if (!neighbours) {
+    status.textContent = "Nabodata er ikke hentet for denne vurderingen.";
+    return;
+  }
+  const kilde = neighbours.kilde;
+  const statuses = { ok: `${parcels.length} naboflater i kartutsnittet.`, ingen_treff: "Ingen nabotomter funnet i dette utsnittet.", feil: "Nabodata kunne ikke hentes.", ikke_sjekket: "Nabodata er ikke tilgjengelig for dette utsnittet." };
+  status.textContent = `${statuses[kilde.status]} ${kilde.status === "ok" ? kilde.fil ? "Data hentet fra lokal fil." : "Data hentet fra API." : ""}`;
+  addLink(details, kilde.navn, kilde.url);
+  if (kilde.merknad) details.append(element("p", kilde.merknad, "ds-paragraph"));
+  details.append(element("p", "Nabotomtene er kun kartinformasjon. Eieropplysninger er ikke hentet, og naboflatene inngår ikke i arealet eller vurderingen av din tomt.", "ds-paragraph"));
+  const occupied: KartLabel[] = [];
+  for (const polygon of parcels) {
+    const teig = polygon.teig;
+    const reference = teig ? `${teig.gnr}/${teig.bnr}${teig.fnr ? `/${teig.fnr}` : ""}` : polygon.matrikkelnummer || polygon.id;
+    const position = findNabotomtLabel(polygon, data.eiendomsgrenser, bounds, reference.length * 8 + 8, occupied);
+    if (!position) continue;
+    occupied.push(position);
+    const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    text.setAttribute("class", "neighbour-label");
+    text.setAttribute("x", String(position.x));
+    text.setAttribute("y", String(position.y));
+    text.setAttribute("text-anchor", "middle");
+    text.textContent = reference;
+    labels.append(text);
+  }
+}
+
 function renderMap(data: GarasjeGrunnlag): void {
   bounds = fitKartutsnitt(data.eiendomsgrenser, data.adresse.punkt);
   const query = new URLSearchParams({
@@ -296,6 +424,7 @@ function renderMap(data: GarasjeGrunnlag): void {
   else svg.querySelector("#map-image")!.removeAttribute("href");
   drawPolygons("map-parcels", data.eiendomsgrenser, "parcel");
   drawPolygons("map-buildings", data.bygninger, "building");
+  renderNeighbours(data);
 }
 
 function updateMarker(): void {
@@ -307,7 +436,7 @@ function updateMarker(): void {
 }
 
 function moveMarker(punkt: GarasjePunkt): void {
-  if (busy || !valgtAdresse) return;
+  if (busy || pendingSave || !propertyConfirmed || placementConfirmed || !valgtAdresse) return;
   if (punkt.lat < bounds.south || punkt.lat > bounds.north || punkt.lon < bounds.west || punkt.lon > bounds.east) {
     krevEl("placement-note").textContent = "Markøren er ved kanten av kartutsnittet. Velg en plassering innenfor utsnittet.";
     return;
@@ -316,27 +445,14 @@ function moveMarker(punkt: GarasjePunkt): void {
   placementChosen = true;
   invalidateResult();
   updateMarker();
-  krevEl("placement-note").textContent = "Plasseringen er endret. Hent planer for denne plasseringen før du leser kartgrunnlaget. Søknadssjekken henter alltid oppdaterte data.";
+  krevEl("placement-note").textContent = "Plasseringen er endret. Velg «Bekreft plassering og fortsett» for å hente planer for punktet og beskrive garasjen.";
   krevEl("plan-facts").replaceChildren(element("p", "Tidligere planopplysninger er skjult fordi plasseringen er endret.", "ds-paragraph"));
   krevEl("sources").replaceChildren();
   grunnlag = null;
 }
 
-const numericFields: { id: keyof GarasjeTiltak; label: string; hint: string; max: number; optional?: boolean; integer?: boolean }[] = [
-  { id: "bya", label: "Bebygd areal (BYA), m²", hint: "Byggets fotavtrykk, inkludert areal som skal medregnes.", max: 10000 },
-  { id: "bra", label: "Bruksareal (BRA), m²", hint: "Bruksarealet innenfor omsluttende vegger.", max: 10000 },
-  { id: "gesimshoyde", label: "Høyde der vegg og tak møtes (gesimshøyde), meter", hint: "Måles fra gjennomsnittet av bakken rundt bygget etter terrengarbeidene. Spør KI om takformen eller målepunktet er uklart.", max: 100 },
-  { id: "monehoyde", label: "Høyde til mønet på taket (mønehøyde), meter", hint: "Måles fra samme gjennomsnittsnivå som gesimshøyden. Et flatt tak har ikke et vanlig møne; avklar målepunktet.", max: 100 },
-  { id: "etasjer", label: "Antall etasjer", hint: "Alle etasjer i det planlagte bygget.", max: 100, integer: true },
-  { id: "avstandNabogrense", label: "Avstand til nabogrense, meter", hint: "Korteste avstand fra bygget. La stå tomt hvis ukjent.", max: 10000, optional: true },
-  { id: "avstandBygning", label: "Avstand til annen bygning på eiendommen, meter", hint: "Korteste avstand. La stå tomt hvis ukjent.", max: 10000, optional: true }
-];
-const booleanFields: { id: keyof GarasjeTiltak; label: string }[] = [
-  { id: "frittliggende", label: "Er garasjen frittliggende?" },
-  { id: "beboelse", label: "Skal bygget brukes til beboelse eller overnatting?" },
-  { id: "kjeller", label: "Skal bygget ha kjeller?" },
-  { id: "overVannAvlop", label: "Skal garasjen stå over vann- eller avløpsledninger?" }
-];
+const numericFields = GARASJE_DIALOGFELTER.filter(field => field.type === "tall");
+const booleanFields = GARASJE_DIALOGFELTER.filter(field => field.type === "valg");
 
 function renderFields(): void {
   const container = krevEl("garage-fields");
@@ -348,10 +464,10 @@ function renderFields(): void {
     input.id = field.id;
     input.name = field.id;
     input.type = "number";
-    input.min = field.id === "etasjer" ? "1" : field.optional ? "0" : "0.01";
-    input.max = String(field.max);
-    input.step = field.integer ? "1" : "any";
-    input.required = !field.optional;
+    if (field.min !== undefined) input.min = String(field.min);
+    if (field.max !== undefined) input.max = String(field.max);
+    input.step = field.heltall ? "1" : "any";
+    input.required = !field.ukjentTillatt;
     input.setAttribute("aria-describedby", `${field.id}-hint`);
     const hint = element("p", field.hint, "ds-paragraph muted");
     hint.id = `${field.id}-hint`;
@@ -402,6 +518,12 @@ function renderVurdering(data: GarasjeSvar): void {
   const summary = krevEl("result-summary");
   summary.dataset.color = colors[data.vurdering.utfall];
   summary.replaceChildren(element("p", data.vurdering.forklaring, "ds-paragraph"));
+  const teigkilde = data.grunnlag.kilder.find(k => k.id === "eiendomsgrenser");
+  if (teigkilde?.status === "ok") {
+    summary.append(element("p", teigkilde.fil
+      ? `Tomtegrenser: Data hentet fra lokal fil (${teigkilde.fil}).`
+      : `Tomtegrenser: Data hentet fra API (${teigkilde.navn}).`, "ds-paragraph"));
+  }
   const national = { oppfylt: "De kontrollerte nasjonale unntaksvilkårene er oppfylt.", brudd: "Minst ett nasjonalt unntaksvilkår er ikke oppfylt.", uavklart: "Nasjonale unntaksvilkår er ikke ferdig avklart." };
   krevEl("result-basis").textContent = `${national[data.vurdering.nasjonaltUnntak]} ${data.grunnlag.adresse.adressetekst} · Sporings-ID: ${data.sporingsId}. Vurderingen gjelder innsendte mål og det valgte punktet, ikke et godkjent byggeprosjekt.`;
   const list = krevEl("checks");
@@ -478,19 +600,41 @@ async function loadPerson(): Promise<void> {
     searchInput.value = first.tekst;
     await searchAdresse(first.tekst, first.kommune);
   } else if (!person.skjermet) {
-    note.textContent += " Ingen eide eiendommer funnet for testpersonen. Bruk adressesøket eller en demonstrasjonsadresse.";
+    note.textContent += " Ingen eide eiendommer funnet for testpersonen. Du kan bruke adressesøket i den frittstående Garasjesjekken.";
     if (bostedsadresse) searchInput.value = bostedsadresse;
   }
 }
 
 renderFields();
+utfylling = createGarasjeUtfylling({
+  fields: GARASJE_DIALOGFELTER,
+  locked: () => busy || pendingSave || !placementConfirmed,
+  changed: invalidateResult,
+  ask: async (feltId, tekst, signal) => {
+    const response = await fetch(`${agentBase}/agent/garasje/dialog`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      signal: AbortSignal.any([signal, AbortSignal.timeout(60000)]),
+      body: JSON.stringify({
+        feltId, tekst, sporingsId: embeddedOekt?.sporingsId,
+        kontekst: {
+          resultater: projectGarasjeDialogGrunnlag(grunnlag),
+          samtale: helpHistory.slice(-4).map(turn => ({ rolle: turn.rolle, tekst: turn.tekst.slice(0, 1000) }))
+        }
+      })
+    });
+    const data: GarasjeDialogReply & { feil?: string } = await response.json();
+    if (!response.ok) throw new Error(data.feil || "AI-agenten kunne ikke svare. Prøv igjen eller velg stegvis utfylling.");
+    if (!["svar", "sporsmaal", "ugyldig"].includes(data.type) || typeof data.tekst !== "string") {
+      throw new Error("AI-agenten svarte i et ukjent format. Svarene dine er ikke endret.");
+    }
+    helpHistory.push({ rolle: "innbygger", tekst }, { rolle: "assistent", tekst: data.tekst });
+    return data;
+  }
+});
 krevEl("login").addEventListener("click", () => void perform("Åpner ID-porten …", async () => {
   if (await requireLogin({ idportenBaseUrl: idportenBase })) await loadPerson();
 }));
 krevEl("logout").addEventListener("click", () => { logOut(); location.reload(); });
-krevEl<HTMLSelectElement>("theme").addEventListener("change", event => {
-  document.documentElement.dataset.colorScheme = (event.target as HTMLSelectElement).value;
-});
 krevEl("search-form").addEventListener("submit", event => {
   event.preventDefault();
   void perform("Søker etter adressen …", () => searchAdresse(searchInput.value.trim()));
@@ -510,17 +654,13 @@ searchInput.addEventListener("input", () => {
   clearConfirmation();
   krevEl("confirm-note").textContent = "Adressesøket er endret. Finn og bekreft eiendommen på nytt.";
 });
-krevEl("confirm-property").addEventListener("click", () => {
-  if (!valgtAdresse || busy) return;
-  propertyConfirmed = true;
-  krevEl("confirm-property").hidden = true;
-  krevEl("confirm-reminder").hidden = true;
-  krevEl("confirm-note").textContent = `Bekreftet: ${valgtAdresse.adressetekst}, kommune ${valgtAdresse.kommunenummer}, gnr. ${valgtAdresse.gardsnummer}/bnr. ${valgtAdresse.bruksnummer}.`;
-  form.hidden = false;
-});
-for (const [id, adresse] of [["case-milde", "Litle Milde 65"], ["case-krakenes", "Kråkenestoppen 60"]]) {
-  krevEl(id).addEventListener("click", () => void perform("Henter demonstrasjonsadressen …", () => searchAdresse(adresse, "4601")));
-}
+krevEl("confirm-property").addEventListener("click", () => void perform("Henter kart og opplysninger om eiendommen …", confirmProperty));
+krevEl("edit-property").addEventListener("click", () => void perform("Åpner eiendomsvalget …", async () => {
+  if (!valgtAdresse) throw new Error("Velg en eiendom først.");
+  await selectAdresse(valgtAdresse);
+  krevEl("property-heading").focus();
+}));
+krevEl("edit-placement").addEventListener("click", editPlacement);
 function placeFromPointer(event: PointerEvent): void {
   const rect = svg.getBoundingClientRect();
   moveMarker(unprojectGarasjePunkt(
@@ -556,21 +696,23 @@ krevEl("reset-placement").addEventListener("click", () => {
     krevEl("placement-note").textContent = "Markøren er tilbake ved adressepunktet. Velg garasjeplassering før du kjører sjekken.";
   }
 });
-krevEl("refresh-placement").addEventListener("click", () => void perform("Henter planer for plasseringen …", refreshGrunnlag));
+krevEl("refresh-placement").addEventListener("click", () => void perform("Henter planer for plasseringen …", confirmPlacement));
 svg.querySelector("#map-image")!.addEventListener("error", () => {
   krevEl("placement-note").textContent = "Bakgrunnskartet kunne ikke lastes. Eventuelle eiendomsflater vises fortsatt. Dette gir ingen bekreftelse på fravær av begrensninger.";
 });
 form.addEventListener("input", event => {
-  invalidateResult();
-  if (event.target instanceof HTMLInputElement) event.target.removeAttribute("aria-invalid");
-});
-form.addEventListener("focusin", event => {
   const target = event.target;
-  if (target instanceof HTMLInputElement && numericFields.some(field => field.id === target.id)) {
-    helpField = target.id;
+  if ((target instanceof HTMLInputElement || target instanceof HTMLSelectElement)
+    && GARASJE_DIALOGFELTER.some(field => field.id === target.id)) {
+    invalidateResult();
+    target.removeAttribute("aria-invalid");
   }
 });
-form.addEventListener("change", invalidateResult);
+form.addEventListener("change", event => {
+  const target = event.target;
+  if ((target instanceof HTMLInputElement || target instanceof HTMLSelectElement)
+    && GARASJE_DIALOGFELTER.some(field => field.id === target.id)) invalidateResult();
+});
 form.addEventListener("invalid", event => {
   if (event.target instanceof HTMLInputElement) event.target.setAttribute("aria-invalid", "true");
 }, true);
@@ -581,11 +723,12 @@ form.addEventListener("submit", event => {
     krevEl("error").hidden = false;
     return;
   }
-  if (!placementChosen) {
-    krevEl("error").textContent = "Plasser garasjen i kartet først. Du kan klikke, dra eller bruke retningsknappene.";
+  if (!placementConfirmed) {
+    krevEl("error").textContent = "Bekreft plasseringen i kartet før du kjører garasjesjekken.";
     krevEl("error").hidden = false;
     return;
   }
+  if (!utfylling?.validateComplete()) return;
   // Capture before perform disables controls; disabled inputs are omitted by FormData.
   const tiltak = readTiltak();
   if (embedded) {
@@ -633,49 +776,6 @@ krevEl("download").addEventListener("click", () => {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 });
 krevEl("print").addEventListener("click", () => window.print());
-async function askGarasjeQuestion(text: string): Promise<void> {
-  const button = krevEl<HTMLButtonElement>("help-send");
-  if (button.disabled) return;
-  button.disabled = true;
-  const answer = krevEl("help-answer");
-  answer.textContent = "KI forklarer …";
-  try {
-    const response = await fetch(`${aiBase}/ai/sporsmaal`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      signal: AbortSignal.timeout(180000),
-      body: JSON.stringify({
-        tekst: text, sprak: "nb", sporingsId: embeddedOekt?.sporingsId,
-        kontekst: {
-          tjeneste: "Garasjesjekken", prosessId: "garasjesjekk",
-          steg: { id: "garasje-prosjekt", type: "QUESTION", tittel: "Forklar begreper og hvordan man måler garasjen" },
-          flyt: { status: embeddedOekt?.status || "AKTIV", soknadSendt: false },
-          resultater: grunnlag ? { garasje: grunnlag } : {},
-          aktivtFelt: helpField ? { id: helpField } : undefined,
-          samtale: helpHistory.slice(-4)
-        }
-      })
-    });
-    const data: { tekst?: string; feil?: string; advarsel?: string } = await response.json();
-    if (!response.ok || !data.tekst) throw new Error(data.feil || "KI-tjenesten svarte uten en forklaring.");
-    answer.textContent = data.tekst + (data.advarsel ? ` (${data.advarsel})` : "");
-    helpHistory.push({ rolle: "innbygger", tekst: text }, { rolle: "assistent", tekst: data.tekst });
-  } catch (error) {
-    answer.textContent = `Kunne ikke forklare nå: ${feilmelding(error)}. Prøv igjen. Opplysningene dine er ikke endret.`;
-  } finally {
-    button.disabled = false;
-  }
-}
-krevEl("help-form").addEventListener("submit", event => {
-  event.preventDefault();
-  void askGarasjeQuestion(krevEl<HTMLTextAreaElement>("help-question").value.trim());
-});
-for (const button of document.querySelectorAll<HTMLButtonElement>("[data-help]")) {
-  button.addEventListener("click", () => {
-    helpField = button.dataset.helpField;
-    void askGarasjeQuestion(button.dataset.help!);
-  });
-}
-
 if (embedded) {
   document.documentElement.classList.add("embedded");
   window.addEventListener("message", event => {
@@ -686,6 +786,7 @@ if (embedded) {
       krevEl("error").textContent = typeof event.data.melding === "string" ? event.data.melding : "Svaret ble ikke lagret. Prøv igjen.";
       krevEl("error").hidden = false;
       krevEl("progress").textContent = "";
+      utfylling?.refresh();
     }
     if (event.data?.type === "garasje-lagret") {
       krevEl("progress").textContent = "Opplysningene er lagret. Fortsett i prosessflyten utenfor kartet.";
@@ -698,7 +799,7 @@ if (embedded) {
 void perform("Klargjør Garasjesjekken …", async () => {
   backendBase = sandkasseKonfigurasjon.backendBaseUrl;
   idportenBase = sandkasseKonfigurasjon.idportenBaseUrl;
-  aiBase = sandkasseKonfigurasjon.aiBaseUrl;
+  agentBase = sandkasseKonfigurasjon.agentBaseUrl;
   if (embedded) {
     if (window.parent === window || !embeddedOektId || !embeddedStegId) throw new Error("Åpne dette steget fra Chat, AI-agent eller Stegvis.");
     embeddedOekt = await api<Prosessoekt>(`/api/prosessoekter/${encodeURIComponent(embeddedOektId)}`);
@@ -732,6 +833,7 @@ void perform("Klargjør Garasjesjekken …", async () => {
         const value = values[field.id];
         krevEl<HTMLSelectElement>(field.id).value = value === true || value === "ja" ? "true" : value === false || value === "nei" ? "false" : "";
       }
+      utfylling?.refresh();
       krevEl("confirm-note").textContent += " Tidligere mål er fylt inn. Bekreft eiendommen og velg plasseringen på nytt.";
     }
   } else if (tokenValid()) {

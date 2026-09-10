@@ -5,6 +5,7 @@ export type GarasjePunkt = { lat: number; lon: number };
 export type GarasjeAdresse = {
   adressetekst: string;
   kommunenummer: string;
+  kommunenavn?: string;
   gardsnummer: number;
   bruksnummer: number;
   festenummer: number;
@@ -19,9 +20,12 @@ export type GarasjeKilde = {
   hentet: string;
   status: "ok" | "ingen_treff" | "feil" | "ikke_sjekket";
   merknad?: string;
+  fil?: string;
+  uttrekksaar?: number;
+  koordinatsystem?: "EPSG:4326" | "EPSG:4258";
 };
 
-/** Coordinates are [longitude, latitude] in EPSG:4258, including any inner rings. */
+/** Geographic [longitude, latitude] rings. Source CRS is retained with the geometry and source. */
 export type GarasjePolygon = {
   id: string;
   ringer: [number, number][][];
@@ -30,6 +34,8 @@ export type GarasjePolygon = {
   kvalitetsklasse?: string;
   oppdatert?: string;
   matrikkelnummer?: string;
+  kildeObjektId?: number;
+  registrertArealM2?: number;
 };
 
 export type GarasjeTeig = {
@@ -42,9 +48,10 @@ export type GarasjeTeig = {
   tvist?: string;
 };
 
-/** Native Kartverket GeoJSON, requested in EPSG:4258 like the map's rings. */
+/** Normalised parcel GeoJSON. A dataset OBJECTID is never a Matrikkel teig ID. */
 export type GarasjeEiendomsGeoJson = {
   type: "FeatureCollection";
+  koordinatsystem?: "EPSG:4326" | "EPSG:4258";
   features: {
     type: "Feature";
     geometry:
@@ -56,7 +63,13 @@ export type GarasjeEiendomsGeoJson = {
       bruksnummer: number;
       festenummer: number;
       seksjonsnummer: number;
-      lokalid: number;
+      lokalid?: number;
+      kildeObjektId?: number;
+      kildefil?: string;
+      registrertArealM2?: number;
+      arealmerknad?: string | null;
+      tinglyst?: string;
+      antallMatrikkelenheter?: number;
       objekttype: "Teig";
       matrikkelnummertekst: string;
       "nøyaktighetsklasseteig"?: string;
@@ -116,6 +129,12 @@ export type GarasjeArealberegning = {
   forbehold: string[];
 };
 
+/** Tomter i kartutsnittet, ikke bekreftet grensenabo eller vurdert eiendom. */
+export type GarasjeNabotomter = {
+  tomter: GarasjePolygon[];
+  kilde: GarasjeKilde;
+};
+
 export type GarasjeGrunnlag = {
   adresse: GarasjeAdresse;
   punkt: GarasjePunkt;
@@ -123,6 +142,7 @@ export type GarasjeGrunnlag = {
   reguleringsplaner: GarasjePlan[];
   eiendomsgrenser: GarasjePolygon[];
   eiendomsgeojson?: GarasjeEiendomsGeoJson;
+  nabotomter?: GarasjeNabotomter;
   bygninger: GarasjePolygon[];
   bebyggelse: GarasjeBebyggelse;
   arealberegning: GarasjeArealberegning;

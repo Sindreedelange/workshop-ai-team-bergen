@@ -98,6 +98,42 @@ paths:
                               eksempel: { type: string }
                               beskrivelse: { type: string }
                         kroppEksempel: { type: string }
+  /agent/garasje/dialog:
+    post:
+      summary: Forklar eller tolk ett felt i garasjeutkastet
+      security: []
+      description: >
+        Statsløs hjelp til utfylling, uten person, agentøkt eller prosessøkt.
+        Et entydig svar tolkes med den samme feltparseren som garasjeintervjuet.
+        Et tall, ja, nei eller uttrykkelig ukjent returneres bare som et forslag.
+        Klienten må be innbyggeren velge «Bruk svaret» før utkastet endres.
+        Spørsmål og forklaringer går til answer_citizen_question med tjeneste,
+        prosess og aktivt felt satt av serveren. KI-tjenestens eksisterende
+        personvernfilter begrenser konteksten til offentlige kartopplysninger.
+        KI beregner ikke målene og avgjør ikke om det er lov å bygge.
+        Ruten lagrer ingenting og kaller aldri verktøy som besvarer, utfører
+        eller flytter et prosess-steg. Spørsmål kan inngå i eksisterende KI-spor.
+        Et utilgjengelig verktøy gir lokal hjelpetekst med advarsel; modellnavn og
+        advarsel fra KI-tjenestens eget reservesvar videreformidles uendret.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GarasjeDialogRequest"
+      responses:
+        "200":
+          description: Et svarforslag, en forklaring eller hjelp til å rette feltverdien
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GarasjeDialogResponse"
+        "400":
+          description: Ugyldig JSON, ukjent felt, for lang tekst eller ugyldig kontekst
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentError"
   /agent/sessions:
     post:
       summary: Create an agent session
@@ -215,6 +251,78 @@ paths:
 
 components:
   schemas:
+    GarasjeDialogRequest:
+      type: object
+      additionalProperties: false
+      required: [tekst, feltId]
+      properties:
+        tekst:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: Ett felt-svar eller et spørsmål. Bare blanke tegn er ikke tillatt.
+          examples: ["49 m²", "3 meter", "vet ikke", "Hva er gesimshøyde?"]
+        feltId:
+          type: string
+          enum: [bya, bra, gesimshoyde, monehoyde, etasjer, avstandNabogrense, avstandBygning, frittliggende, beboelse, kjeller, overVannAvlop]
+          description: Felt fra GARASJE_DIALOGFELTER i apps/shared/garasje-dialog.ts.
+        sporingsId:
+          type: string
+          minLength: 1
+          maxLength: 100
+          pattern: "^[a-zA-Z0-9_-]+$"
+          description: Valgfri korrelasjon for KI-sporet, ikke en prosessøkt.
+        kontekst:
+          type: object
+          additionalProperties: false
+          description: >
+            Bare offentlig kartgrunnlag og samtale. Maksimalt 30000 tegn som JSON.
+            Ingen persondata, sesjonsidentifikatorer eller overstyring av tjeneste
+            og felt. KI-tjenesten projiserer kartgrunnlaget før modellen kalles.
+          properties:
+            resultater:
+              type: object
+              additionalProperties: true
+              description: Offentlige kartresultater fra garasjesjekken, ikke rå person- eller eierdata.
+            samtale:
+              type: array
+              maxItems: 6
+              items:
+                type: object
+                additionalProperties: false
+                required: [rolle, tekst]
+                properties:
+                  rolle:
+                    type: string
+                    enum: [innbygger, assistent]
+                  tekst:
+                    type: string
+                    maxLength: 2000
+                    description: De første 400 tegnene sendes til forklaringstjenesten.
+    GarasjeDialogResponse:
+      type: object
+      additionalProperties: false
+      required: [type, tekst]
+      properties:
+        type:
+          type: string
+          enum: [svar, sporsmaal, ugyldig]
+        tekst:
+          type: string
+        svar:
+          type: [number, boolean, "null"]
+          description: >
+            Bare ved type svar. Areal og høyder må være positive, etasjer et heltall
+            fra 1. Avstander kan være 0. Utkastets grenser er 10000 for areal og
+            avstander, 100 for høyder og etasjer. Ukjent avstand og ukjente valg
+            blir null, aldri et antatt nei. Ingen vurdering av søknadsplikt.
+        modell:
+          type: string
+          description: Modellnavnet som forklaringstjenesten oppgir, også ved reservesvar.
+        advarsel:
+          type: string
+        grunnlag:
+          description: Kilder og avgrensninger fra forklaringstjenesten.
     HealthResponse:
       type: object
       required: [status, tjeneste, tidspunkt]

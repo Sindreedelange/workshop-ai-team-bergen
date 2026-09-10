@@ -29,7 +29,7 @@
     "test:oppsummering": "node scripts/test-fartsdempende-oppsummering.ts",
     "test:skjerming": "node scripts/test-skjerming.ts",
     "test:vilkaar": "node scripts/test-vilkaar.ts",
-    "test:garasje": "node scripts/test-garasje.ts && node scripts/test-garasje-request.ts && node scripts/test-garasje-kart.ts && node scripts/test-garasje-klient.ts && node scripts/test-garasje-kunnskap.ts && node scripts/test-garasje-api.ts && node scripts/test-garasje-prosess.ts && node scripts/test-agent-garasje.ts",
+    "test:garasje": "node scripts/test-matrikkel-teiger.ts && node scripts/test-garasje.ts && node scripts/test-garasje-request.ts && node scripts/test-garasje-kart.ts && node scripts/test-garasje-klient.ts && node scripts/test-garasje-kunnskap.ts && node scripts/test-garasje-api.ts && node scripts/test-garasje-prosess.ts && node scripts/test-agent-garasje.ts && node scripts/test-garasje-dialog.ts && node scripts/test-garasje-ux.ts",
     "test:foedselsnummer": "node scripts/test-foedselsnummer.ts",
     "test:handleevne": "node scripts/test-handleevne.ts",
     "test:samtykke": "node scripts/test-samtykke.ts",

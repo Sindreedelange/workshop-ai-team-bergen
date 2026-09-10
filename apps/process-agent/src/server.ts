@@ -8,6 +8,10 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { cors, readRequestBody, svarhjelpere } from "../../shared/http.ts";
 import { feilmelding } from "../../shared/errors.ts";
 import { buildGarasjeBegrepssvar, isGarasjeKontekst } from "../../shared/garasje-begreper.ts";
+import {
+  GARASJE_DIALOGFELTER, isGarasjeDialogfeltId, normalizeQuestionFieldAnswer, validateGarasjeDialogSvar
+} from "../../shared/garasje-dialog.ts";
+import type { GarasjeDialogfeltId } from "../../shared/garasje-dialog.ts";
 
 const port = Number(process.env.PORT || 8084);
 const toolsBaseUrl = process.env.TOOLS_BASE_URL || "http://tools-api:8083";
@@ -1173,70 +1177,6 @@ function questionFieldPrompt(field: NonNullable<Agentsteg["felter"]>[number]): s
     : field.label;
 }
 
-function normalizeGarasjeFieldAnswer(
-  field: NonNullable<Agentsteg["felter"]>[number], answer: string
-): { valid: true; value: string } | { valid: false; retryMessage: string } | null {
-  const area = ["bra", "bya"].includes(field.id);
-  const distance = ["avstandNabogrense", "avstandBygning"].includes(field.id);
-  const length = distance || ["gesimshoyde", "monehoyde"].includes(field.id);
-  const integer = ["gnr", "bnr", "etasjer"].includes(field.id);
-  const coordinate = ["lat", "lon"].includes(field.id);
-  if (!area && !length && !integer && !coordinate) return null;
-
-  const text = answer.trim().toLowerCase();
-  if (distance && ["vet ikke", "vet-ikke", "ukjent"].includes(text)) return { valid: true, value: "vet-ikke" };
-  const pattern = area ? /^([+-]?\d+(?:[.,]\d+)?)\s*(?:m2|m²|kvm|kvadratmeter)?$/
-    : length ? /^([+-]?\d+(?:[.,]\d+)?)\s*(?:m|meter)?$/
-      : field.id === "etasjer" ? /^([+]?\d+)\s*(?:etasje|etasjer)?$/
-        : integer ? /^([+]?\d+)$/
-          : /^([+-]?\d+(?:[.,]\d+)?)$/;
-  const match = text.match(pattern);
-  const value = match ? Number(match[1].replace(",", ".")) : NaN;
-  const valid = Number.isFinite(value)
-    && (coordinate ? field.id === "lat" ? Math.abs(value) <= 90 : Math.abs(value) <= 180
-      : distance ? value >= 0 : value > 0)
-    && (!integer || Number.isSafeInteger(value));
-  if (!valid) {
-    const hint = area ? "Skriv ett positivt areal, for eksempel 49 m² eller 49,5 m²."
-      : length ? `Skriv ett mål i meter, for eksempel 3 meter eller 3,5 m.${distance ? " Du kan også svare «vet ikke»." : " Høyden må være større enn null."}`
-        : integer ? `Skriv ett positivt heltall${field.id === "etasjer" ? ", for eksempel 1 etasje" : ""}.`
-          : "Skriv én koordinat som tall, for eksempel 60,39. Bruk kartet hvis du er usikker.";
-    return { valid: false, retryMessage: `${field.label}: ${hint}` };
-  }
-  return { valid: true, value: String(value) };
-}
-
-function normalizeQuestionFieldAnswer(
-  field: NonNullable<Agentsteg["felter"]>[number],
-  answer: string,
-  garasje = false
-): { valid: true; value: string } | { valid: false; retryMessage?: string } {
-  if (garasje) {
-    const numeric = normalizeGarasjeFieldAnswer(field, answer);
-    if (numeric) return numeric;
-  }
-  if (field.type === "ja-nei") {
-    const folded = normalize(answer);
-    if (["ja", "japp", "yes"].includes(folded)) return { valid: true, value: "ja" };
-    if (["nei", "no"].includes(folded)) return { valid: true, value: "nei" };
-    return { valid: false };
-  }
-  if (field.type !== "valg" || !field.alternativer?.length) {
-    return { valid: true, value: answer };
-  }
-  const folded = normalize(answer);
-  const match = field.alternativer.find((alternativ) => {
-    const value = typeof alternativ === "string" ? alternativ : alternativ.verdi;
-    const label = typeof alternativ === "string" ? alternativ : alternativ.label;
-    return normalize(value) === folded || normalize(label) === folded;
-  });
-  if (!match) return { valid: false };
-  return {
-    valid: true,
-    value: typeof match === "string" ? match : match.verdi
-  };
-}
-
 function findNextFreeTextQuestionStep(state: Agentsesjon, fromStepId: string | null): Agentsteg | null {
   const steg = state.processDefinition?.steg;
   if (!Array.isArray(steg)) return null;
@@ -2304,6 +2244,87 @@ async function createAgentSession(body: { personId?: string }) {
   };
 }
 
+type GarasjeDialogRequest = {
+  tekst: string;
+  feltId: GarasjeDialogfeltId;
+  sporingsId?: string;
+  kontekst?: {
+    samtale?: { rolle: "innbygger" | "assistent"; tekst: string }[];
+    resultater?: Record<string, unknown>;
+  };
+};
+
+function validateGarasjeDialogRequest(body: unknown): GarasjeDialogRequest {
+  if (!isRecord(body) || Object.keys(body).some(key => !["tekst", "feltId", "kontekst", "sporingsId"].includes(key))
+    || typeof body.tekst !== "string" || !body.tekst.trim() || body.tekst.length > 500
+    || !isGarasjeDialogfeltId(body.feltId)) {
+    throw new Verktoyfeil("Oppgi et kjent garasjefelt og en tekst på 1 til 500 tegn.", 400);
+  }
+  if (body.sporingsId !== undefined && (typeof body.sporingsId !== "string"
+    || !/^[a-zA-Z0-9_-]{1,100}$/.test(body.sporingsId))) {
+    throw new Verktoyfeil("sporingsId må være 1 til 100 bokstaver, tall, bindestreker eller understreker.", 400);
+  }
+  if (body.kontekst !== undefined) {
+    const context = body.kontekst;
+    if (!isRecord(context) || Object.keys(context).some(key => !["samtale", "resultater"].includes(key))
+      || JSON.stringify(context).length > 30000
+      || (context.resultater !== undefined && !isRecord(context.resultater))) {
+      throw new Verktoyfeil("Konteksten kan bare inneholde samtale og offentlige kartresultater, inntil 30000 tegn.", 400);
+    }
+    if (context.samtale !== undefined && (!Array.isArray(context.samtale) || context.samtale.length > 6
+      || context.samtale.some(turn => !isRecord(turn) || Object.keys(turn).some(key => !["rolle", "tekst"].includes(key))
+        || !["innbygger", "assistent"].includes(String(turn.rolle))
+        || typeof turn.tekst !== "string" || turn.tekst.length > 2000))) {
+      throw new Verktoyfeil("Samtalen kan ha inntil seks meldinger med rolle og tekst på inntil 2000 tegn.", 400);
+    }
+  }
+  return body as GarasjeDialogRequest;
+}
+
+async function handleGarasjeDialog(body: GarasjeDialogRequest) {
+  const field = GARASJE_DIALOGFELTER.find(field => field.id === body.feltId)!;
+  const folded = normalize(body.tekst).replace(/ø/g, "o");
+  const clarification = /^(forklar|hjelp|kan du|jeg (forstar|skjonner) ikke|(?:jeg )?vet ikke (hva|hvordan|hvor|hvilk)|er|har|skal|ma|bor|betyr|regnes|teller)\b/.test(folded);
+  if (looksLikeCitizenQuestion(body.tekst) || clarification) {
+    try {
+      const result = await invokeTool<unknown>("answer_citizen_question", {
+        tekst: body.tekst.trim(),
+        sporingsId: body.sporingsId,
+        kontekst: {
+          tjeneste: "Garasjesjekken",
+          prosessId: "garasjesjekk",
+          steg: { id: "garasje-prosjekt", type: "QUESTION", visning: "garasje", tittel: "Opplysninger om garasjen" },
+          aktivtFelt: { id: field.id, label: field.label },
+          flyt: { status: "UTKAST", soknadSendt: false },
+          // The gateway projects public map facts and drops raw property data.
+          resultater: body.kontekst?.resultater || {},
+          samtale: body.kontekst?.samtale?.map(turn => ({ rolle: turn.rolle, tekst: turn.tekst.slice(0, 400) })) || []
+        }
+      });
+      if (!isRecord(result) || typeof result.tekst !== "string" || !result.tekst.trim()) {
+        throw new Error("Forklaringstjenesten svarte uten tekst.");
+      }
+      return {
+        type: "sporsmaal", tekst: result.tekst,
+        ...(typeof result.modell === "string" ? { modell: result.modell } : {}),
+        ...(typeof result.advarsel === "string" ? { advarsel: result.advarsel } : {}),
+        ...(result.grunnlag !== undefined ? { grunnlag: result.grunnlag } : {})
+      };
+    } catch {
+      return {
+        type: "sporsmaal",
+        tekst: buildGarasjeBegrepssvar(body.tekst, field.id) || "Forklaringen er utilgjengelig akkurat nå. Prøv igjen.",
+        advarsel: "Forklaringstjenesten er utilgjengelig. Dette er hjelpetekst, ikke et KI-svar. Ingen opplysninger er endret."
+      };
+    }
+  }
+  const result = validateGarasjeDialogSvar(body.feltId, body.tekst);
+  if (!result.valid) return { type: "ugyldig", tekst: result.retryMessage };
+  const value = result.value === null ? "vet ikke" : typeof result.value === "boolean"
+    ? result.value ? "ja" : "nei" : String(result.value).replace(".", ",");
+  return { type: "svar", tekst: `Jeg tolker svaret som ${value}. Velg «Bruk svaret» for å legge det inn.`, svar: result.value };
+}
+
 const server = createServer(async (request: IncomingMessage, response: ServerResponse) => {
   const url = new URL(request.url!, `http://${request.headers.host}`);
 
@@ -2331,6 +2352,18 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
     // Den samme spesifikasjonen, lest. Se kommentaren i tools-api.
     if (request.method === "GET" && url.pathname === "/openapi-ruter.json") {
       json(response, 200, await routeOverview(openapiFile));
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/agent/garasje/dialog") {
+      let body: unknown;
+      try {
+        body = await readRequestBody(request);
+      } catch (error) {
+        if (error instanceof SyntaxError) throw new Verktoyfeil("Meldingen må være gyldig JSON.", 400);
+        throw error;
+      }
+      json(response, 200, await handleGarasjeDialog(validateGarasjeDialogRequest(body)));
       return;
     }
 
