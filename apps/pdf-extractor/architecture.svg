@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" role="img" aria-labelledby="title desc">
+  <title id="title">Arkitektur for PDF-extractor</title>
+  <desc id="desc">Flyt fra opplasting via deterministisk uttrekk og valgfrie modeller til kontrollgrunnlag, kompakt kunnskap, RAG-biter og godkjenning.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f3f7fb"/><stop offset="1" stop-color="#e9f1f8"/></linearGradient>
+    <filter id="shadow" x="-15%" y="-15%" width="130%" height="140%"><feDropShadow dx="0" dy="7" stdDeviation="8" flood-color="#17324d" flood-opacity=".14"/></filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0l10 5-10 5z" fill="#54718c"/></marker>
+    <style>
+      .title{font:700 34px system-ui,sans-serif;fill:#10283d}.subtitle{font:400 17px system-ui,sans-serif;fill:#4d6478}.h{font:700 19px system-ui,sans-serif;fill:#10283d}.t{font:400 14px system-ui,sans-serif;fill:#40586c}.small{font:600 12px system-ui,sans-serif;fill:#62798c;letter-spacing:.5px}.box{fill:#fff;stroke:#c5d5e2;stroke-width:1.5;rx:18;filter:url(#shadow)}.primary{fill:#e5f3ff;stroke:#68a9d6}.evidence{fill:#fff4db;stroke:#dba83a}.knowledge{fill:#e5f7ef;stroke:#55a985}.approved{fill:#e9f7e8;stroke:#61a35e}.line{fill:none;stroke:#54718c;stroke-width:2.2;marker-end:url(#arrow)}.dash{stroke-dasharray:7 6}.pill{rx:11}.white{fill:#fff}
+    </style>
+  </defs>
+  <rect width="1440" height="900" fill="url(#bg)"/>
+  <text class="title" x="70" y="70">PDF-extractor: fra fil til brukbar kunnskap</text>
+  <text class="subtitle" x="70" y="102">Kildetro uttrekk først. Modeller supplerer. Detaljer for kontroll og kompakt tekst for agenter holdes atskilt.</text>
+
+  <rect class="box primary" x="70" y="178" width="225" height="145"/>
+  <text class="small" x="94" y="207">INNGANG</text><text class="h" x="94" y="243">PDF-opplasting</text>
+  <text class="t" x="94" y="273">API-utforsker eller HTTP</text><text class="t" x="94" y="296">Kilde, profil og SHA-256</text>
+
+  <path class="line" d="M295 251H365"/>
+  <rect class="box" x="365" y="150" width="290" height="202"/>
+  <text class="small" x="390" y="179">KILDETRO PIPELINE</text><text class="h" x="390" y="215">Deterministisk uttrekk</text>
+  <text class="t" x="390" y="246">PyMuPDF: tekst, blokker, geometri</text><text class="t" x="390" y="271">pdfplumber: tabeller og kolonner</text><text class="t" x="390" y="296">Tesseract ved manglende tekstlag</text><text class="t" x="390" y="321">Rå kildebevis bevares alltid</text>
+
+  <path class="line" d="M655 220H735"/>
+  <rect class="box" x="735" y="140" width="305" height="222"/>
+  <text class="small" x="760" y="169">VALGFRI BERIKELSE</text><text class="h" x="760" y="205">AI-gateway</text>
+  <rect class="pill" x="760" y="229" width="250" height="43" fill="#edf1ff"/><text class="t" x="780" y="256">Tekstmodell: normalisering</text>
+  <rect class="pill" x="760" y="286" width="250" height="51" fill="#f0eafe"/><text class="t" x="780" y="308">Qwen3-VL: bare uklare,</text><text class="t" x="780" y="327">skannede eller diagramtunge sider</text>
+  <path class="line dash" d="M735 294H684V316H655"/>
+
+  <path class="line" d="M1040 251H1117"/>
+  <rect class="box evidence" x="1117" y="168" width="255" height="167"/>
+  <text class="small" x="1142" y="197">KONTROLLGRUNNLAG</text><text class="h" x="1142" y="233">document.json</text>
+  <text class="t" x="1142" y="262">Blokker, bbox, skrifter</text><text class="t" x="1142" y="285">konfidens, metode og spor</text><text class="t" x="1142" y="308">+ visuell kontrollrapport</text>
+
+  <path class="line" d="M1245 335V430"/>
+  <rect class="box" x="1050" y="430" width="322" height="180"/>
+  <text class="small" x="1075" y="459">MENNESKELIG KONTROLL</text><text class="h" x="1075" y="495">Rapport i nettleseren</text>
+  <circle cx="1085" cy="527" r="7" fill="#e2aa2e"/><text class="t" x="1103" y="532">Gult: gjennomgang kreves</text>
+  <circle cx="1085" cy="557" r="7" fill="#4a8dbb"/><text class="t" x="1103" y="562">Blått: gjennomgang valgfri</text>
+  <circle cx="1085" cy="587" r="7" fill="#56a35c"/><text class="t" x="1103" y="592">Grønt: godkjent og publisert</text>
+
+  <path class="line" d="M1117 294H965V468H860"/>
+  <rect class="box knowledge" x="565" y="430" width="295" height="180"/>
+  <text class="small" x="590" y="459">AGENTVENNLIG LAG</text><text class="h" x="590" y="495">Kompakt kunnskap</text>
+  <text class="t" x="590" y="526">knowledge.md: hel kontekst</text><text class="t" x="590" y="552">chunks.jsonl: RAG-klare biter</text><text class="t" x="590" y="578">Side, autoritet og kilde beholdes</text>
+
+  <path class="line" d="M565 490H450"/>
+  <rect class="box primary" x="70" y="414" width="380" height="202"/>
+  <text class="small" x="95" y="443">BRUK</text><text class="h" x="95" y="479">Agenter og applikasjoner</text>
+  <text class="t" x="95" y="511">pdf_get_context - hele dokumentet</text><text class="t" x="95" y="539">pdf_search - relevante dokumentbiter</text><text class="t" x="95" y="567">pdf_get_extraction - bevis og revisjon</text><text class="t" x="95" y="594">Alle treff peker tilbake til side og dokument</text>
+
+  <path class="line" d="M1210 610V706H923"/>
+  <rect class="box approved" x="565" y="690" width="358" height="143"/>
+  <text class="small" x="590" y="719">VERSJONERT ETTER GODKJENNING</text><text class="h" x="590" y="755">data/pdf/approved/</text>
+  <text class="t" x="590" y="786">Detaljert JSON + Markdown + JSONL</text><text class="t" x="590" y="810">Tilgjengelig fra en ren Git-checkout</text>
+
+  <rect x="70" y="738" width="380" height="80" rx="16" fill="#fff" stroke="#c5d5e2"/>
+  <text class="small" x="94" y="768">LOKALT FØR GODKJENNING</text><text class="t" x="94" y="795">state/pdf-extractor/ - kan brukes straks, men pushes ikke til Git</text>
+</svg>

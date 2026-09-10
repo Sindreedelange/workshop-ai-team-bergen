@@ -1,0 +1,302 @@
+openapi: 3.1.0
+info:
+  title: PDF Extractor API
+  version: 0.1.0
+  description: Kildeforankret uttrekk fra generelle, juridiske og planfaglige PDF-er.
+servers:
+  - url: http://localhost:8089
+security: []
+paths:
+  /docs:
+    get:
+      summary: Interaktiv API-dokumentasjon
+      responses:
+        "200": { description: Swagger UI }
+  /openapi.yaml:
+    get:
+      summary: Denne spesifikasjonen
+      responses:
+        "200": { description: OpenAPI-dokumentet }
+  /openapi.json:
+    get:
+      summary: FastAPI-generert OpenAPI
+      responses:
+        "200": { description: Maskinlesbar OpenAPI }
+  /openapi-ruter.json:
+    get:
+      summary: Maskinlesbar ruteoversikt
+      responses:
+        "200": { description: Ruteoversikten }
+  /helse:
+    get:
+      summary: Helsesjekk, køstatus og bildeanalysemodell
+      responses:
+        "200": { description: Tjenesten svarer }
+  /dokumenter:
+    get:
+      summary: List opplastede og godkjente dokumenter
+      responses:
+        "200": { description: Dokumentliste }
+    post:
+      summary: Last opp en PDF
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [fil]
+              properties:
+                fil: { type: string, format: binary }
+                kildeType: { type: string, enum: [provided, provided-reference, discovered], default: provided }
+                kanoniskUrl: { type: string, format: uri }
+                profil: { type: string, enum: [generic, legal, arealplan], default: generic }
+      responses:
+        "201": { description: Dokumentet er lagret }
+        "400": { description: Ugyldig fil eller metadata }
+        "413": { description: Filen er for stor }
+  /dokumenter/{documentId}/uttrekk:
+    post:
+      summary: Legg et dokumentuttrekk i kø
+      parameters:
+        - { name: documentId, in: path, required: true, schema: { type: string } }
+      responses:
+        "202": { description: Jobben er opprettet }
+        "404": { description: Dokumentet finnes ikke }
+    get:
+      summary: Hent kanonisk strukturert uttrekk
+      parameters:
+        - { name: documentId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Strukturert uttrekk
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExtractionDocument" }
+        "404": { description: Uttrekket finnes ikke }
+  /dokumenter/{documentId}/kunnskap:
+    get:
+      summary: Hent kompakt dokumentinnhold for modellkontekst
+      parameters:
+        - { name: documentId, in: path, required: true, schema: { type: string } }
+        - { name: maxChars, in: query, required: false, schema: { type: integer, minimum: 1000, maximum: 2000000 } }
+      responses:
+        "200": { description: Kompakt Markdown-innhold med side- og autoritetsmetadata }
+        "404": { description: Uttrekket finnes ikke }
+  /dokumenter/{documentId}/kunnskap.md:
+    get:
+      summary: Hent kompakt dokumentinnhold som Markdown
+      parameters:
+        - { name: documentId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Markdown-dokument, content: { text/markdown: { schema: { type: string } } } }
+        "404": { description: Uttrekket finnes ikke }
+  /dokumenter/{documentId}/biter:
+    get:
+      summary: Hent RAG-klare dokumentbiter
+      parameters:
+        - { name: documentId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Kompakte tekstbiter med kildepekere }
+        "404": { description: Uttrekket finnes ikke }
+  /jobber/{jobId}:
+    get:
+      summary: Hent jobbstatus og advarsler
+      parameters:
+        - { name: jobId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Jobbstatus }
+        "404": { description: Jobben finnes ikke }
+  /dokumenter/{documentId}/rapport:
+    get:
+      summary: Visuell kontrollrapport
+      parameters:
+        - { name: documentId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Rapport, content: { text/html: { schema: { type: string } } } }
+        "404": { description: Rapporten finnes ikke }
+  /dokumenter/{documentId}/godkjenning:
+    get:
+      summary: Hent krav og status for menneskelig kontroll
+      parameters:
+        - { name: documentId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Godkjenningsstatus, kontrollgrunner og eventuell godkjenning }
+        "404": { description: Uttrekket finnes ikke }
+    post:
+      summary: Godkjenn og publiser uttrekket som varig kunnskapsgrunnlag
+      parameters:
+        - { name: documentId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ApprovalRequest" }
+      responses:
+        "200": { description: Uttrekket er godkjent og publisert }
+        "404": { description: Lokalt uttrekk finnes ikke }
+        "422": { description: Kontrollør mangler eller input er ugyldig }
+  /dokumenter/{documentId}/sider/{pageNumber}.png:
+    get:
+      summary: Render av én kildeside
+      parameters:
+        - { name: documentId, in: path, required: true, schema: { type: string } }
+        - { name: pageNumber, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: PNG-side }
+        "404": { description: Siden finnes ikke }
+  /sok:
+    post:
+      summary: Søk i RAG-klare, kildeforankrede dokumentbiter
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query: { type: string }
+                profile: { type: string, enum: [generic, legal, arealplan] }
+                planId: { type: string }
+                topic: { type: string }
+                zoneCode: { type: string }
+                limit: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        "200": { description: Kildeforankrede treff }
+components:
+  schemas:
+    ExtractionDocument:
+      type: object
+      required: [schemaVersion, documentId, profile, source, document, pages, sections, rules, tables, entities, profileData, unclassified, quality]
+      properties:
+        schemaVersion: { type: string }
+        documentId: { type: string }
+        profile: { type: string, enum: [generic, legal, arealplan] }
+        source: { $ref: "#/components/schemas/SourceMetadata" }
+        document: { $ref: "#/components/schemas/DocumentIdentity" }
+        pages: { type: array, items: { $ref: "#/components/schemas/Page" } }
+        sections: { type: array, items: { $ref: "#/components/schemas/Section" } }
+        rules: { type: array, items: { $ref: "#/components/schemas/Rule" } }
+        tables: { type: array, items: { type: object, additionalProperties: true } }
+        entities: { type: array, items: { type: object, additionalProperties: true } }
+        profileData: { type: object, additionalProperties: true }
+        unclassified: { type: array, items: { type: object, additionalProperties: true } }
+        quality: { $ref: "#/components/schemas/Quality" }
+        review: { type: [object, "null"], additionalProperties: true }
+    ApprovalRequest:
+      type: object
+      required: [reviewer]
+      properties:
+        reviewer: { type: string, minLength: 2, maxLength: 120 }
+        note: { type: [string, "null"], maxLength: 1000 }
+    SourceMetadata:
+      type: object
+      required: [kind, filename, retrievedAt, sha256]
+      properties:
+        kind: { type: string, enum: [provided, provided-reference, discovered] }
+        filename: { type: string }
+        canonicalUrl: { type: [string, "null"], format: uri }
+        retrievedAt: { type: string, format: date-time }
+        sha256: { type: string, pattern: "^[a-f0-9]{64}$" }
+    DocumentIdentity:
+      type: object
+      required: [type, title]
+      properties:
+        type: { type: string, enum: [generic, legal, arealplan] }
+        title: { type: string }
+        language: { type: [string, "null"] }
+        pdfMetadata: { type: object, additionalProperties: true }
+    Evidence:
+      type: object
+      required: [page, bbox, text, method]
+      properties:
+        page: { type: integer, minimum: 1 }
+        bbox:
+          type: array
+          minItems: 4
+          maxItems: 4
+          items: { type: number }
+        text: { type: string, description: Verbatim source excerpt before semantic normalization. }
+        method: { type: string, enum: [text-layer, ocr, vision] }
+    Measurement:
+      type: object
+      required: [raw]
+      properties:
+        raw: { type: string }
+        value: { type: [number, "null"] }
+        unit: { type: [string, "null"] }
+    Rule:
+      type: object
+      required: [ruleId, authority, text, topics, conditions, exceptions, references, measurements, confidence, evidence]
+      properties:
+        ruleId: { type: string }
+        parentRuleId: { type: [string, "null"] }
+        title: { type: [string, "null"] }
+        authority: { type: string, enum: [binding, guidance, informative, unknown] }
+        text: { type: string }
+        topics: { type: array, items: { type: string } }
+        conditions: { type: array, items: { type: string } }
+        exceptions: { type: array, items: { type: string } }
+        references: { type: array, items: { type: string } }
+        measurements: { type: array, items: { $ref: "#/components/schemas/Measurement" } }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+        evidence: { type: array, minItems: 1, items: { $ref: "#/components/schemas/Evidence" } }
+        aiInterpretation: { type: [object, "null"], additionalProperties: true }
+    Block:
+      type: object
+      required: [id, bbox, text, rawText, fonts, fontSizes, authority, method, confidence]
+      properties:
+        id: { type: string }
+        bbox: { type: array, minItems: 4, maxItems: 4, items: { type: number } }
+        text: { type: string }
+        rawText: { type: string }
+        fonts: { type: array, items: { type: string } }
+        fontSizes: { type: array, items: { type: number } }
+        authority: { type: string, enum: [binding, guidance, informative, unknown] }
+        method: { type: string, enum: [text-layer, ocr, vision] }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+    Page:
+      type: object
+      required: [number, width, height, rotation, image, method, layout, blocks, tables, visionAttempted]
+      properties:
+        number: { type: integer, minimum: 1 }
+        width: { type: number }
+        height: { type: number }
+        rotation: { type: integer }
+        image: { type: string }
+        method: { type: string, enum: [text-layer, ocr] }
+        layout:
+          type: object
+          required: [estimatedColumns]
+          properties:
+            estimatedColumns: { type: integer, minimum: 1 }
+        blocks: { type: array, items: { $ref: "#/components/schemas/Block" } }
+        tables: { type: array, items: { type: array, items: { type: array } } }
+        visionAttempted: { type: boolean }
+        vision: { type: [object, "null"], additionalProperties: true }
+    Section:
+      type: object
+      required: [id, title, page, bbox]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        page: { type: integer, minimum: 1 }
+        bbox: { type: array, minItems: 4, maxItems: 4, items: { type: number } }
+    Quality:
+      type: object
+      required: [warnings, pageCount, textCharacters, ruleCount, semanticModelAvailable, ocrAvailable, visionModelAvailable, visionRequestedPages, requiresHumanReview]
+      properties:
+        warnings: { type: array, items: { type: string } }
+        pageCount: { type: integer, minimum: 0 }
+        textCharacters: { type: integer, minimum: 0 }
+        ruleCount: { type: integer, minimum: 0 }
+        semanticModel: { type: [string, "null"] }
+        semanticModelAvailable: { type: boolean }
+        ocrAvailable: { type: boolean }
+        ocrPages: { type: array, items: { type: integer } }
+        visionModel: { type: [string, "null"] }
+        visionModelAvailable: { type: boolean }
+        visionRequestedPages: { type: array, items: { type: integer } }
+        reviewRequired: { type: boolean }
+        reviewReasons: { type: array, items: { type: string } }
+        requiresHumanReview: { type: boolean }

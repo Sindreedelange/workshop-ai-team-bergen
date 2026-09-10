@@ -32,11 +32,12 @@ holder spesifikasjonene i takt med koden; ingenting holdt denne filen i takt med
 | digdir-mock | 8086 | `openapi/digdir-mock.yaml` |
 | pasientjournal-mock | 8087 | `openapi/pasientjournal-mock.yaml` |
 | politiattest-mock | 8088 | `openapi/politiattest-mock.yaml` |
+| pdf-extractor | 8089 | `openapi/pdf-extractor.yaml` |
 
 Listen over tjenester bor i `apps/shared/tjenester.json`, som dashboardet og
 API-utforskeren begge leser. `pnpm test:openapi` krever at den er enig med seg selv.
 
-Alle ni svarer også på `GET /helse`. Det finnes ingen `/health` - den var et alias som
+Alle ti svarer også på `GET /helse`. Det finnes ingen `/health` - den var et alias som
 gjorde at hver tjeneste sto oppført to ganger i utforskeren.
 
 Beskyttede ruter i `sandbox-backend` godtar ID-porten eller Maskinporten etter
@@ -73,6 +74,8 @@ Spesifikasjonen har signaturene. Dette er det den ikke sier:
 - `POST /ai/dommer` – LLM-as-judge for `scripts/eval.ts`. Ikke en del av en innbyggerflyt.
 - `POST /ai/velg-prosess`
 - `POST /ai/velg-verktoy` – Gitt et prosessteg og liste over tilgjengelige verktøy, returnerer hvilke som er relevante (`kontekst`, `validering`, eller `kontekst_og_validering`). Brukes av `tools-api/suggest_step_tools`.
+- `POST /ai/strukturer-dokument` – Normaliserer kildeblokker uten å erstatte dem.
+- `POST /ai/les-dokumentside` – Leser en vanskelig side med den lokale bildemodellen.
 
 ## Tools API (port 8083)
 
@@ -110,6 +113,10 @@ den som leser uten å kjøre stacken.
 | `brreg_get_organisation` | Hent organisasjon på orgnr |
 | `folkeregister_search_persons` | Søk i folkeregisteret |
 | `folkeregister_get_person` | Hent person på fødselsnummer |
+| `pdf_start_extraction` | Start uttrekk for en opplastet PDF |
+| `pdf_get_extraction` | Hent jobbstatus eller strukturert PDF-uttrekk |
+| `pdf_get_context` | Hent kompakt dokumentinnhold for modellkontekst |
+| `pdf_search` | Søk i RAG-klare, kildeforankrede dokumentbiter |
 
 </details>
 

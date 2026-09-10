@@ -21,11 +21,11 @@ set DOWN=0
 set RESET=0
 set RECREATE=
 
-rem The eleven Node services. Naming them explicitly keeps the ~4 GB ollama image
+rem The application services. Naming them explicitly keeps the ~4 GB ollama image
 rem out of the pull: it has no compose profile, so a bare "up -d" would start it
 rem even though this script never downloads a model for it to serve.
-set SERVICES=sandbox-backend fiks-simulator ai-gateway tools-api process-agent matrikkel-mock digdir-mock pasientjournal-mock politiattest-mock demo-gui process-builder
-set SERVICE_PORTS=3000 3001 8080 8081 8082 8083 8084 8085 8086 8087 8088
+set SERVICES=sandbox-backend fiks-simulator ai-gateway pdf-extractor tools-api process-agent matrikkel-mock digdir-mock pasientjournal-mock politiattest-mock demo-gui process-builder
+set SERVICE_PORTS=3000 3001 8080 8081 8082 8083 8084 8085 8086 8087 8088 8089
 
 :parse_args
 if "%~1"=="--reload" (set "RELOAD=1" & shift & goto parse_args)
@@ -73,6 +73,8 @@ rem would be template text with nothing saying so. Being explicit makes the
 rem stack honest about what it is. For a real model, use Git Bash or WSL and
 rem run ./start.sh, which detects your hardware and downloads a matching model.
 set AI_PROVIDER=mock
+set PDF_EXTRACTOR_AI_ENABLED=false
+set PDF_EXTRACTOR_VISION_ENABLED=false
 
 rem WATCH_POLL=1 switches scripts/dev.sh to nodemon --legacy-watch so that
 rem file changes on the Windows host filesystem are picked up inside the
@@ -160,7 +162,7 @@ echo Stoppet.
 exit /b 0
 
 :do_reload
-echo Starter Node-tjenestene om igjen ...
+echo Starter tjenestene om igjen ...
 rem Force a fresh process even when the container configuration is unchanged.
 docker compose up -d --force-recreate --no-deps %SERVICES%
 if errorlevel 1 goto compose_failed
@@ -256,8 +258,8 @@ echo Starter sandkassen i Docker, uten Git Bash eller WSL. Denne filen starter
 echo alltid uten modell, og da er KI-svarene maltekst.
 echo.
 echo Valg:
-echo   --reset     Stopp Node-tjenestene, kopier og slett state/, gjenskap dem
-echo   --reload    Gjenskap Node-containerne med dagens konfigurasjon
+echo   --reset     Stopp tjenestene, kopier og slett state/, gjenskap dem
+echo   --reload    Gjenskap containerne med dagens konfigurasjon
 echo   --mock      Uten effekt: denne filen starter alltid uten modell
 echo   -d, --down  Stopp og fjern alle containere
 echo   -h, --help  Vis denne hjelpen

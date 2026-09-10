@@ -21,11 +21,12 @@ cd "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # digdir-mock must stay in this list for the same reason as matrikkel-mock: on
 # macOS we start only these by name, and everything that needs a token dials it.
 # Leave it out and every authenticated call fails while the stack looks healthy.
-NODE_SERVICES=(sandbox-backend fiks-simulator ai-gateway tools-api process-agent matrikkel-mock digdir-mock pasientjournal-mock politiattest-mock demo-gui process-builder)
-SERVICE_PORTS=(8080 8081 8082 8083 8084 8085 8086 8087 8088 3000 3001)
+APP_SERVICES=(sandbox-backend fiks-simulator ai-gateway pdf-extractor tools-api process-agent matrikkel-mock digdir-mock pasientjournal-mock politiattest-mock demo-gui process-builder)
+SERVICE_PORTS=(8080 8081 8082 8083 8084 8085 8086 8087 8088 8089 3000 3001)
 OLLAMA_PORT=11434
 
 MODEL=""
+VISION_MODEL=""
 ASSUME_YES=false
 DOWN=false
 MOCK=false
@@ -50,8 +51,8 @@ Valg:
   -m, --model MODELL Bruk en bestemt Ollama-modell i stedet for den automatiske
   -y, --yes          Ikke spør før Ollama installeres eller en modell lastes ned
       --mock         Kjør uten språkmodell (KI-svarene blir maler)
-      --reset        Stopp Node-tjenestene, sikkerhetskopier og tøm state/, og gjenskap dem
-      --reload       Gjenskap Node-containerne med dagens konfigurasjon, og avslutt
+      --reset        Stopp tjenestene, sikkerhetskopier og tøm state/, og gjenskap dem
+      --reload       Gjenskap containerne med dagens konfigurasjon, og avslutt
   -d, --down         Stopp og fjern alle containere
   -h, --help         Vis denne hjelpen
 
@@ -141,6 +142,7 @@ vram_gb() {
 }
 
 MODEL_TIERS=(qwen2.5:0.5b qwen2.5:7b qwen2.5:14b)
+VISION_MODEL_TIERS=(qwen3-vl:2b qwen3-vl:4b qwen3-vl:8b)
 
 tier_for() { # tier_for GB MID_THRESHOLD HIGH_THRESHOLD -> index into MODEL_TIERS
   local gb="$1"
@@ -181,6 +183,9 @@ model_size() {
     qwen2.5:14b)  echo "rundt 9 GB" ;;
     llama3.1:8b)  echo "rundt 4,9 GB" ;;
     mistral-nemo) echo "rundt 7 GB" ;;
+    qwen3-vl:2b)  echo "rundt 1,9 GB" ;;
+    qwen3-vl:4b)  echo "rundt 3,3 GB" ;;
+    qwen3-vl:8b)  echo "rundt 6,1 GB" ;;
     *)            echo "ukjent nedlastingsstørrelse" ;;
   esac
 }
@@ -194,16 +199,29 @@ env_value() {
 # Precedence: --model, then OLLAMA_MODEL in the environment, then .env,
 # then automatic. A model someone chose deliberately is never overridden.
 resolve_model() {
-  [[ -n "$MODEL" ]] && return
-  MODEL="${OLLAMA_MODEL:-$(env_value OLLAMA_MODEL)}"
   if [[ -z "$MODEL" ]]; then
-    auto_model
-    info "valgte $MODEL ut fra $AUTO_REASON"
-    if [[ "$MODEL" == "qwen2.5:0.5b" ]]; then
-      warn "denne maskinen har lite minne, så den minste modellen ble valgt."
-      warn "den svarer, men kvaliteten er dårlig. --mock er ofte like nyttig."
+    MODEL="${OLLAMA_MODEL:-$(env_value OLLAMA_MODEL)}"
+    if [[ -z "$MODEL" ]]; then
+      auto_model
+      info "valgte $MODEL ut fra $AUTO_REASON"
+      if [[ "$MODEL" == "qwen2.5:0.5b" ]]; then
+        warn "denne maskinen har lite minne, så den minste modellen ble valgt."
+        warn "den svarer, men kvaliteten er dårlig. --mock er ofte like nyttig."
+      fi
     fi
   fi
+  VISION_MODEL="${OLLAMA_VISION_MODEL:-$(env_value OLLAMA_VISION_MODEL)}"
+  if [[ -z "$VISION_MODEL" ]]; then
+    local ram tier vram vram_tier
+    ram="$(total_ram_gb)"
+    tier="$(tier_for "$ram" 12 24)"
+    if vram="$(vram_gb)"; then
+      vram_tier="$(tier_for "$vram" 6 12)"
+      (( vram_tier < tier )) && tier="$vram_tier"
+    fi
+    VISION_MODEL="${VISION_MODEL_TIERS[$tier]}"
+  fi
+  info "valgte bildemodellen $VISION_MODEL"
 }
 
 # --- 3. Preflight -----------------------------------------------------------
@@ -213,7 +231,7 @@ port_in_use() {
   return 1
 }
 
-# Every Node service answers /helse with a "tjeneste" field, so this tells
+# Every application service answers /helse with a "tjeneste" field, so this tells
 # our own containers apart from an unrelated process on the same port.
 port_is_ours() {
   curl -fsS -m 2 "http://localhost:$1/helse" 2>/dev/null | grep -q '"tjeneste"'
@@ -264,11 +282,16 @@ ensure_env() {
   cp .env.example .env
   sed -i.bak -E "s|^OLLAMA_BASE_URL=.*|OLLAMA_BASE_URL=${base_url}|" .env
   sed -i.bak -E "s|^OLLAMA_MODEL=.*|OLLAMA_MODEL=${MODEL}|" .env
+  if grep -q '^OLLAMA_VISION_MODEL=' .env; then
+    sed -i.bak -E "s|^OLLAMA_VISION_MODEL=.*|OLLAMA_VISION_MODEL=${VISION_MODEL}|" .env
+  else
+    printf '\nOLLAMA_VISION_MODEL=%s\n' "$VISION_MODEL" >> .env
+  fi
   rm -f .env.bak
   info "opprettet .env som peker på ${base_url}"
 }
 
-# Called only after all Node writers have stopped. Include hidden files and
+# Called only after all application writers have stopped. Include hidden files and
 # directories too; the signing key must never reach a committable directory.
 backup_state() {
   local filer=()
@@ -296,8 +319,8 @@ backup_state() {
 reset_state() {
   [[ ! -L state ]] || fail "state/ er en symbolsk lenke. Avbryter uten å slette."
   [[ ! -e state || -d state ]] || fail "state/ er ikke en mappe. Avbryter uten å slette."
-  step "🛑 Stopper alle Node-tjenester før nullstilling"
-  docker compose "${COMPOSE_FILES[@]}" stop "${NODE_SERVICES[@]}" \
+  step "🛑 Stopper alle tjenester før nullstilling"
+  docker compose "${COMPOSE_FILES[@]}" stop "${APP_SERVICES[@]}" \
     || fail "Kunne ikke stoppe tjenestene. state/ er ikke slettet."
   backup_state
   rm -rf -- state || fail "Kunne ikke tømme state/. Tjenestene er fortsatt stoppet."
@@ -352,16 +375,17 @@ ensure_ollama_container() {
 }
 
 model_present() {
-  local want="$MODEL"
+  local want="$1"
   [[ "$want" == *:* ]] || want="${want}:latest"
   curl -fsS -m 5 "http://localhost:${OLLAMA_PORT}/api/tags" 2>/dev/null | grep -q "\"${want}\""
 }
 
 pull_model() {
+  local model="$1"
   if [[ "$PROFILE" == "macos-native" ]]; then
-    ollama pull "$MODEL"
+    ollama pull "$model"
   else
-    docker compose "${COMPOSE_FILES[@]}" exec -T ollama ollama pull "$MODEL"
+    docker compose "${COMPOSE_FILES[@]}" exec -T ollama ollama pull "$model"
   fi
 }
 
@@ -369,13 +393,14 @@ pull_model() {
 # ai-gateway would be live and silently answering with template text for the
 # whole download.
 ensure_model() {
-  if model_present; then
-    info "modellen $MODEL er tilgjengelig"
+  local model="$1"
+  if model_present "$model"; then
+    info "modellen $model er tilgjengelig"
     return
   fi
-  confirm "Modellen $MODEL er ikke lastet ned ennå ($(model_size "$MODEL")). Dette henter den."
-  pull_model
-  model_present || fail "Modellen $MODEL er fortsatt ikke tilgjengelig etter nedlastingen."
+  confirm "Modellen $model er ikke lastet ned ennå ($(model_size "$model")). Dette henter den."
+  pull_model "$model"
+  model_present "$model" || fail "Modellen $model er fortsatt ikke tilgjengelig etter nedlastingen."
 }
 
 # --- 6. Services ------------------------------------------------------------
@@ -390,10 +415,10 @@ start_services() {
     # what keeps the 4 GB ollama image from being pulled - it has no profile, so
     # a bare "up -d" would start it even under --mock, on exactly the bad
     # connection that flag exists for.
-    docker compose "${COMPOSE_FILES[@]}" "${args[@]}" --no-deps "${NODE_SERVICES[@]}"
+    docker compose "${COMPOSE_FILES[@]}" "${args[@]}" --no-deps "${APP_SERVICES[@]}"
   elif $RESET || $RELOAD; then
-    # Name only the Node services so --force-recreate never restarts Ollama.
-    docker compose "${COMPOSE_FILES[@]}" "${args[@]}" "${NODE_SERVICES[@]}"
+    # Name only the application services so --force-recreate never restarts Ollama.
+    docker compose "${COMPOSE_FILES[@]}" "${args[@]}" "${APP_SERVICES[@]}"
   else
     docker compose "${COMPOSE_FILES[@]}" up -d
   fi
@@ -478,7 +503,7 @@ if $DOWN; then
 fi
 
 if $RELOAD; then
-  step "🔄 Laster Node-tjenestene på nytt"
+  step "🔄 Laster tjenestene på nytt"
   # --mock has to be exported here too, not only on the start path below, which
   # this branch exits before reaching. "up -d" recreates the container from the
   # current environment, so without this line a --mock --reload silently swaps
@@ -491,7 +516,7 @@ if $RELOAD; then
   start_services
   wait_for_services
   if $MOCK; then verify_mock; fi
-  info "alle ${#NODE_SERVICES[@]} tjenestene er lastet på nytt"
+  info "alle ${#APP_SERVICES[@]} tjenestene er lastet på nytt"
   printf '\n✅ Klar - kodeendringene er i drift.\n\n'
   exit 0
 fi
@@ -501,10 +526,13 @@ info "Plattform: $PROFILE"
 
 if $MOCK; then
   export AI_PROVIDER=mock
+  export PDF_EXTRACTOR_AI_ENABLED=false
+  export PDF_EXTRACTOR_VISION_ENABLED=false
   info "Modell:    ingen (--mock)"
 else
   resolve_model
   export OLLAMA_MODEL="$MODEL"
+  export OLLAMA_VISION_MODEL="$VISION_MODEL"
   info "Modell:    $MODEL"
 fi
 
@@ -518,7 +546,10 @@ if ! $MOCK; then
     macos-native) ensure_ollama_native ;;
     *)            ensure_ollama_container ;;
   esac
-  ensure_model
+  ensure_model "$MODEL"
+  if [[ "${PDF_EXTRACTOR_VISION_ENABLED:-$(env_value PDF_EXTRACTOR_VISION_ENABLED)}" != "false" ]]; then
+    ensure_model "$VISION_MODEL"
+  fi
 fi
 
 # Do downloads and configuration checks before stopping writers or clearing data.
@@ -528,7 +559,7 @@ step "📦 Starter tjenestene"
 start_services
 wait_for_services
 if $MOCK; then verify_mock; fi
-info "alle ${#NODE_SERVICES[@]} tjenestene svarer"
+info "alle ${#APP_SERVICES[@]} tjenestene svarer"
 
 LLM_OK=false
 VERIFIED_MODEL=""

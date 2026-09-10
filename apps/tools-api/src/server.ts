@@ -37,6 +37,7 @@ const TOKEN = {
   resource: "sandbox-backend"
 };
 const aiBaseUrl = process.env.AI_BASE_URL || "http://ai-gateway:8082";
+const pdfExtractorBaseUrl = process.env.PDF_EXTRACTOR_BASE_URL || "http://pdf-extractor:8089";
 const matrikkelBaseUrl = process.env.MATRIKKEL_BASE_URL || "http://matrikkel-mock:8085";
 const matrikkelMode = String(process.env.MATRIKKEL_MODE || "mock").toLowerCase();
 const geonorgeAdresseBaseUrl = process.env.GEONORGE_ADRESSE_API_BASE_URL || "https://ws.geonorge.no/adresser/v1";
@@ -479,6 +480,47 @@ const toolDefs: Verktoy[] = [
     }
   },
   {
+    name: "pdf_start_extraction",
+    description: "Start asynchronous extraction for an uploaded PDF document. Use profile generic, legal, or arealplan when uploading the document.",
+    inputSchema: {
+      type: "object",
+      required: ["documentId"],
+      properties: { documentId: { type: "string", description: "ID returned by POST /dokumenter on pdf-extractor." } }
+    }
+  },
+  {
+    name: "pdf_get_extraction",
+    description: "Get PDF extraction job status by jobId, or the canonical structured result by documentId.",
+    inputSchema: {
+      type: "object",
+      properties: { jobId: { type: "string" }, documentId: { type: "string" } }
+    }
+  },
+  {
+    name: "pdf_get_context",
+    description: "Get compact, source-grounded PDF content for an agent's context window. Omits layout and confidence details; use pdf_get_extraction when auditing evidence.",
+    inputSchema: {
+      type: "object",
+      required: ["documentId"],
+      properties: {
+        documentId: { type: "string" },
+        maxChars: { type: "integer", minimum: 1000, maximum: 2000000, description: "Optional context size cap. Use pdf_search for targeted retrieval." }
+      }
+    }
+  },
+  {
+    name: "pdf_search",
+    description: "Search RAG-ready, source-grounded chunks across extracted PDFs, including optional legal or arealplan profile filters.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string" }, profile: { type: "string", enum: ["generic", "legal", "arealplan"] },
+        planId: { type: "string" }, topic: { type: "string" }, zoneCode: { type: "string" },
+        limit: { type: "integer", minimum: 1, maximum: 100 }
+      }
+    }
+  },
+  {
     name: "suggest_step_tools",
     description: "Ask the AI gateway which tools are relevant for a given process step. Returns tools to call proactively for context and/or to validate user answers.",
     inputSchema: {
@@ -574,6 +616,13 @@ async function matrikkel<T = unknown>(path: string): Promise<T> {
     throw upstreamError(data, res.status, "Matrikkel");
   }
   return data as T;
+}
+
+async function pdfExtractor(pathname: string, init: RequestInit = {}): Promise<unknown> {
+  const response = await fetch(`${pdfExtractorBaseUrl}${pathname}`, { ...init, headers: { "Content-Type": "application/json", ...(init.headers || {}) } });
+  const data = await response.json() as { detail?: string; feil?: string };
+  if (!response.ok) throw clientError(data.detail || data.feil || `PDF-extractor feil ${response.status}`, response.status);
+  return data;
 }
 
 function normalize(verdi: unknown): string {
@@ -977,6 +1026,27 @@ function fuzzyGateTreff(gater: Gatetreff[], gateSoek: string, limit = 10): Gatet
 // Returtypen er unknown: hvert verktøy har sin egen svarform, og resultatet går
 // rett ut som JSON. Kallstedet pakker det inn uten å lese i det.
 async function invokeTool(name: string | undefined, args: Verktoyargumenter = {}): Promise<unknown> {
+  if (name === "pdf_start_extraction") {
+    if (!args.documentId) throw clientError("Oppgi documentId.");
+    return pdfExtractor(`/dokumenter/${argSti(args.documentId)}/uttrekk`, { method: "POST" });
+  }
+
+  if (name === "pdf_get_extraction") {
+    if (args.jobId) return pdfExtractor(`/jobber/${argSti(args.jobId)}`);
+    if (args.documentId) return pdfExtractor(`/dokumenter/${argSti(args.documentId)}/uttrekk`);
+    throw clientError("Oppgi jobId eller documentId.");
+  }
+
+  if (name === "pdf_get_context") {
+    if (!args.documentId) throw clientError("Oppgi documentId.");
+    const maxChars = args.maxChars === undefined ? "" : `?maxChars=${encodeURIComponent(String(args.maxChars))}`;
+    return pdfExtractor(`/dokumenter/${argSti(args.documentId)}/kunnskap${maxChars}`);
+  }
+
+  if (name === "pdf_search") {
+    return pdfExtractor("/sok", { method: "POST", body: JSON.stringify(args) });
+  }
+
   if (name === "list_processes") {
     const prosessdata = await api<Prosessinfo[] | Prosessliste>("/api/prosesser");
     const prosesser: Prosessinfo[] = Array.isArray(prosessdata)

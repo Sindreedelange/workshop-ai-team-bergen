@@ -120,6 +120,7 @@ const AI_PROVIDERS = ["mock", "ollama", "openrouter", "telenor-ai-factory", "bed
 let aiProvider = (process.env.AI_PROVIDER || "mock").toLowerCase();
 const ollamaBaseUrl = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
 const ollamaModel = process.env.OLLAMA_MODEL || "qwen2.5:7b";
+const ollamaVisionModel = process.env.OLLAMA_VISION_MODEL || "qwen3-vl:4b";
 const openRouterApiKey = process.env.OPENROUTER_API_KEY || "";
 const openRouterModel = process.env.OPENROUTER_MODEL || "mistralai/mistral-7b-instruct:free";
 const aiFactoryBaseUrl = (process.env.TELENOR_AI_FACTORY_BASE_URL || "https://litellm.apps.s99ct03.aifactory.telenor.com").replace(/\/+$/, "");
@@ -237,6 +238,8 @@ function docsHtml(): string {
         <li><code>POST /ai/tolk-svar</code></li>
         <li><code>POST /ai/velg-prosess</code></li>
         <li><code>POST /ai/velg-verktoy</code></li>
+        <li><code>POST /ai/strukturer-dokument</code></li>
+        <li><code>POST /ai/les-dokumentside</code></li>
         <li><code>POST /ai/dommer</code> - LLM-dommer for <code>pnpm test:eval</code>. Revisjonslogges ikke.</li>
       </ul>
       <h2>Innsyn</h2>
@@ -1410,13 +1413,14 @@ const SYSTEM_JSON = "Du returnerer kun gyldig JSON uten kodeblokker eller forkla
 // must reach Ollama too: dropping it would make SYSTEM_JSON ("return only valid
 // JSON, no code fences") a no-op for exactly the callers that parse the reply
 // as JSON.
-async function callOllama(prompt: string, temperature: number, systemMessage: string, signal: AbortSignal): Promise<Modellsvar> {
+async function callOllama(prompt: string, temperature: number, systemMessage: string, signal: AbortSignal, model = ollamaModel, images?: string[]): Promise<Modellsvar> {
   const svar = await fetch(`${ollamaBaseUrl}/api/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: ollamaModel,
+      model,
       prompt,
+      ...(images?.length ? { images } : {}),
       // /api/generate takes the system prompt as a top-level field, not as a message.
       ...(systemMessage ? { system: systemMessage } : {}),
       stream: false,
@@ -1430,7 +1434,7 @@ async function callOllama(prompt: string, temperature: number, systemMessage: st
   const data = (await svar.json()) as { response?: string };
   return {
     tekst: data.response?.trim() || "",
-    modell: `ollama:${ollamaModel}`
+    modell: `ollama:${model}`
   };
 }
 
@@ -1816,6 +1820,72 @@ async function callModel(prompt: string, valg: Modellvalg = {}): Promise<Modells
 // Task-specific calls. Each builds its prompt, calls the model, and validates the
 // answer against a whitelist so hallucinated ids never get through.
 
+async function structureDocumentWithAi(body: AiKropp) {
+  const blocks = Array.isArray(body.blokker) ? body.blokker : [];
+  if (!blocks.length) throw new Error("Krever en ikke-tom blokker-liste.");
+  const prompt = [
+    "Normaliser regler fra et PDF-uttrekk uten å endre eller gjenta kildeteksten.",
+    "Svar kun med JSON: {\"rules\":[{\"ruleId\":\"...\",\"topics\":[],\"conditions\":[],\"exceptions\":[],\"applicability\":[]}]}.",
+    "Bruk bare ruleId-er som finnes i input. Ikke avgjør hva som gjelder for en person eller eiendom.",
+    `Profil: ${String(body.profil || "generic")}`,
+    `Blokker: ${JSON.stringify(blocks)}`
+  ].join("\n");
+  let answer: Modellsvar;
+  try {
+    answer = await callModel(prompt, { temperature: 0, systemMessage: SYSTEM_JSON, task: "strukturer-dokument", sporingsId: String(body.sporingsId || "") });
+  } catch {
+    const fallbackStart = Date.now();
+    try {
+      answer = await callOllama(prompt, 0, SYSTEM_JSON, AbortSignal.timeout(modelTimeoutMs));
+      await writeTrace({ timestamp: new Date().toISOString(), sporingsId: String(body.sporingsId || "") || null, task: "strukturer-dokument-fallback", provider: "ollama", temperature: 0, prompt, model: answer.modell, response: answer.tekst, durationMs: Date.now() - fallbackStart, failed: false });
+    } catch (error) {
+      await writeTrace({ timestamp: new Date().toISOString(), sporingsId: String(body.sporingsId || "") || null, task: "strukturer-dokument-fallback", provider: "ollama", temperature: 0, prompt, model: `ollama:${ollamaModel}`, response: null, durationMs: Date.now() - fallbackStart, failed: true, error: feilmelding(error) });
+      throw error;
+    }
+  }
+  const parsed = parseJsonObject(answer.tekst);
+  const allowedIds = new Set(blocks.map((block) => block && typeof block === "object" ? String((block as Record<string, unknown>).ruleId || "") : "").filter(Boolean));
+  const rules = Array.isArray(parsed?.rules) ? parsed.rules
+    .filter((rule): rule is Record<string, unknown> => Boolean(rule) && typeof rule === "object" && allowedIds.has(String((rule as Record<string, unknown>).ruleId || "")))
+    .map((rule) => ({
+      ruleId: String(rule.ruleId),
+      ...Object.fromEntries(["topics", "conditions", "exceptions", "applicability"].map((key) => [key, Array.isArray(rule[key]) ? (rule[key] as unknown[]).filter((item): item is string => typeof item === "string") : []]))
+    })) : [];
+  return { rules, modell: answer.modell };
+}
+
+async function checkVisionModel() {
+  try {
+    const response = await fetch(`${ollamaBaseUrl}/api/tags`, { signal: AbortSignal.timeout(3000) });
+    if (!response.ok) return { model: ollamaVisionModel, available: false };
+    const data = (await response.json()) as { models?: { name?: string; model?: string }[] };
+    return { model: ollamaVisionModel, available: (data.models || []).some((item) => item.name === ollamaVisionModel || item.model === ollamaVisionModel) };
+  } catch {
+    return { model: ollamaVisionModel, available: false };
+  }
+}
+
+async function readDocumentPageWithVision(body: AiKropp) {
+  const image = typeof body.bilde === "string" ? body.bilde : "";
+  if (!image) throw new Error("Krever feltet bilde som base64.");
+  const prompt = [
+    "Les denne PDF-siden som et dokumentbilde.",
+    "Svar kun med JSON: {\"blocks\":[{\"text\":\"...\",\"role\":\"heading|paragraph|table|figure|unknown\"}],\"warnings\":[]}.",
+    "Transkriber synlig tekst nøyaktig. Ikke legg til juridiske konklusjoner.",
+    `Profil: ${String(body.profil || "generic")}; side: ${String(body.side || "")}`
+  ].join("\n");
+  const started = Date.now();
+  try {
+    const answer = await callOllama(prompt, 0, SYSTEM_JSON, AbortSignal.timeout(modelTimeoutMs), ollamaVisionModel, [image]);
+    await writeTrace({ timestamp: new Date().toISOString(), sporingsId: String(body.sporingsId || "") || null, task: "les-dokumentside", provider: "ollama", temperature: 0, prompt: `${prompt}\n[bilde utelatt fra spor]`, model: answer.modell, response: answer.tekst, durationMs: Date.now() - started, failed: false });
+    const parsed = parseJsonObject(answer.tekst);
+    return { blocks: Array.isArray(parsed?.blocks) ? parsed.blocks : [], warnings: Array.isArray(parsed?.warnings) ? parsed.warnings : [], modell: answer.modell };
+  } catch (error) {
+    await writeTrace({ timestamp: new Date().toISOString(), sporingsId: String(body.sporingsId || "") || null, task: "les-dokumentside", provider: "ollama", temperature: 0, prompt: `${prompt}\n[bilde utelatt fra spor]`, model: `ollama:${ollamaVisionModel}`, response: null, durationMs: Date.now() - started, failed: true, error: feilmelding(error) });
+    throw error;
+  }
+}
+
 // LLM-as-judge for scripts/eval.js. It lives here rather than in the eval script
 // so it uses the configured provider, inherits the timeout, and shows up in the
 // trace like any other model call.
@@ -2140,12 +2210,15 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
       // status here, a gateway with a dead model looks perfectly healthy, and the
       // failure first surfaces as template text in a response nobody suspects.
       const provider = await checkProvider();
+      const vision = await checkVisionModel();
       jsonResponse(response, 200, {
         status: "ok",
         tjeneste: "ai-gateway",
         provider: aiProvider,
         modell: provider.modell,
         modellNaaBar: provider.naaBar,
+        visionModel: vision.model,
+        visionModelNaaBar: vision.available,
         ...(provider.feil ? { feil: provider.feil } : {}),
         tidspunkt: new Date().toISOString()
       });
@@ -2300,6 +2373,18 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
         aktor: { type: "system", id: "ai-gateway" }
       });
       jsonResponse(response, 200, svar);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/ai/strukturer-dokument") {
+      const body = await readRequestBody(request) as AiKropp;
+      jsonResponse(response, 200, await structureDocumentWithAi(body));
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/ai/les-dokumentside") {
+      const body = await readRequestBody(request) as AiKropp;
+      jsonResponse(response, 200, await readDocumentPageWithVision(body));
       return;
     }
 

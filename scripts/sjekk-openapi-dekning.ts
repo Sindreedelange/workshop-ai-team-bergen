@@ -470,6 +470,21 @@ const tjenester: Tjeneste[] = [
     kilde: "apps/tools-api/src/server.ts"
   },
   {
+    navn: "pdf-extractor",
+    spesifikasjon: "openapi/pdf-extractor.yaml",
+    ruter: async () => [
+      { metode: "GET", sti: "/helse" }, { metode: "GET", sti: "/docs" }, { metode: "GET", sti: "/openapi.yaml" }, { metode: "GET", sti: "/openapi.json" }, { metode: "GET", sti: "/openapi-ruter.json" }, { metode: "GET", sti: "/dokumenter" },
+      { metode: "POST", sti: "/dokumenter" }, { metode: "POST", sti: "/dokumenter/{documentId}/uttrekk" },
+      { metode: "GET", sti: "/jobber/{jobId}" }, { metode: "GET", sti: "/dokumenter/{documentId}/uttrekk" },
+      { metode: "GET", sti: "/dokumenter/{documentId}/kunnskap" },
+      { metode: "GET", sti: "/dokumenter/{documentId}/kunnskap.md" },
+      { metode: "GET", sti: "/dokumenter/{documentId}/biter" },
+      { metode: "GET", sti: "/dokumenter/{documentId}/rapport" },
+      { metode: "GET", sti: "/dokumenter/{documentId}/godkjenning" }, { metode: "POST", sti: "/dokumenter/{documentId}/godkjenning" },
+      { metode: "GET", sti: "/dokumenter/{documentId}/sider/{pageNumber}.png" }, { metode: "POST", sti: "/sok" }
+    ]
+  },
+  {
     navn: "process-agent",
     spesifikasjon: "openapi/process-agent.yaml",
     kilde: "apps/process-agent/src/server.ts"
@@ -719,7 +734,7 @@ for (const tjeneste of tjenester) {
   }
 
   // 7. Kodeverk spesifikasjonen gjentar.
-  const tekst = await readFile(path.join(repoRoot, tjeneste.spesifikasjon), "utf8");
+  const tekst = (await readFile(path.join(repoRoot, tjeneste.spesifikasjon), "utf8")).replace(/\r\n/g, "\n");
   if (tjeneste.navn === "tools-api") {
     const response = skjemablokk(tekst, "InvokeToolResponse");
     // All specialised object results also match the unrestricted object branch.

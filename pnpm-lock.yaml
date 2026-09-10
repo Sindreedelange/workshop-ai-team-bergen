@@ -34,6 +34,8 @@ importers:
 
   apps/pasientjournal-mock: {}
 
+  apps/pdf-extractor: {}
+
   apps/politiattest-mock: {}
 
   apps/process-agent: {}
