@@ -28,7 +28,9 @@ export function createTiltaksvalg<T extends string>(options: Options<T>) {
   description.className = "ds-input";
   description.id = "measure-description";
   description.rows = 3;
+  description.required = true;
   description.maxLength = 500;
+  description.setAttribute("aria-describedby", "measure-status");
   description.placeholder = "For eksempel: Jeg vil sette opp et stakittgjerde mot veien.";
   field.append(label, description);
   const propose = document.createElement("button");
@@ -55,7 +57,7 @@ export function createTiltaksvalg<T extends string>(options: Options<T>) {
   status.className = "ds-paragraph";
   status.id = "measure-status";
   status.setAttribute("role", "status");
-  status.textContent = "Beskriv tiltaket eller velg type selv. Forslaget er ikke en vurdering av søknadsplikt.";
+  status.textContent = "Beskriv tiltaket kort. Du kan få et forslag til type eller velge typen selv. Forslaget er ikke en vurdering av søknadsplikt.";
   const confirm = document.createElement("button");
   confirm.className = "ds-button";
   confirm.type = "button";
@@ -64,6 +66,18 @@ export function createTiltaksvalg<T extends string>(options: Options<T>) {
   const before = document.getElementById("login-panel");
   if (!before?.parentElement) throw new Error("Tiltaksvalget mangler et sted på siden.");
   before.parentElement.insertBefore(panel, before);
+  function validDescription(focus = true): boolean {
+    const text = description.value.trim();
+    const valid = text.length > 0 && text.length <= 500;
+    description.setAttribute("aria-invalid", String(!valid));
+    if (!valid) {
+      status.textContent = text.length === 0
+        ? "Skriv en kort beskrivelse av tiltaket før du bekrefter typen."
+        : "Beskrivelsen kan ha maksimalt 500 tegn.";
+      if (focus) description.focus();
+    }
+    return valid;
+  }
   const invalidate = () => {
     if (options.locked()) return;
     options.changed();
@@ -75,12 +89,8 @@ export function createTiltaksvalg<T extends string>(options: Options<T>) {
   propose.addEventListener("click", () => {
     if (options.locked()) return;
     options.changed();
+    if (!validDescription()) return;
     const text = description.value.trim();
-    if (!text) {
-      status.textContent = "Skriv en kort beskrivelse, eller velg tiltakstypen selv.";
-      description.focus();
-      return;
-    }
     const suggested = options.suggest(text);
     select.value = suggested ?? options.unknownType;
     status.textContent = suggested
@@ -90,17 +100,12 @@ export function createTiltaksvalg<T extends string>(options: Options<T>) {
   confirm.addEventListener("click", () => {
     if (options.locked()) return;
     const selected = options.choices.find(choice => choice.id === select.value);
-    if (description.value.trim().length > 500) {
-      status.textContent = "Beskrivelsen kan ha maksimalt 500 tegn.";
-      description.setAttribute("aria-invalid", "true");
-      return;
-    }
+    if (!validDescription()) return;
     if (!selected) {
       status.textContent = "Velg en kjent tiltakstype før du bekrefter.";
       return;
     }
     options.confirmed(selected.id, description.value.trim());
-    description.setAttribute("aria-invalid", "false");
     confirm.textContent = "Tiltakstype bekreftet";
     status.textContent = selected.id === options.unknownType
       ? "Tiltakstypen er uavklart. Vi viser eiendommens planforhold og hva du bør ta opp med kommunens byggesaksveiledning, ikke en automatisk tillatelse."
@@ -110,7 +115,12 @@ export function createTiltaksvalg<T extends string>(options: Options<T>) {
     restore(type: T, text: string): void {
       select.value = type;
       description.value = text;
-      options.confirmed(type, text);
+      if (!validDescription(false)) {
+        options.changed();
+        confirm.textContent = "Bekreft tiltakstype";
+        return;
+      }
+      options.confirmed(type, text.trim());
       status.textContent = "Tidligere tiltakstype og beskrivelse er hentet fra prosessøkten.";
     },
     focus(): void { select.focus(); },
