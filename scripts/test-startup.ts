@@ -97,6 +97,8 @@ if (command === "curl") {
 if (command === "uname") { console.log(process.env.FIXTURE_PLATFORM || "Linux"); process.exit(0); }
 if (command === "date") { console.log("20260908-200000"); process.exit(0); }
 if (command === "nvidia-smi") process.exit(1);
+// hw.memsize in bytes, so total_ram_gb's Darwin branch divides down to a clean 16.
+if (command === "sysctl" && args.includes("hw.memsize")) { console.log(String(16 * 1024 ** 3)); process.exit(0); }
 if (command === "sleep") process.exit(0);
 if (command === "ollama") {
   if (args[0] === "pull") writeFileSync("model-present", "yes");
@@ -121,7 +123,7 @@ function makeFixture(name: string, state = true): string {
     copyFileSync(path.join(root, file), path.join(directory, file));
   }
   writeFileSync(path.join(directory, "bin/fixture.ts"), fake);
-  for (const command of ["docker", "curl", "uname", "date", "nvidia-smi", "sleep", "ollama", "cp", "rm", "mkdir"]) {
+  for (const command of ["docker", "curl", "uname", "date", "nvidia-smi", "sysctl", "sleep", "ollama", "cp", "rm", "mkdir"]) {
     const target = path.join(directory, "bin", command);
     writeFileSync(target, `#!/bin/sh\nexec "${process.execPath}" "$(dirname "$0")/fixture.ts" ${command} "$@"\n`);
     chmodSync(target, 0o755);
