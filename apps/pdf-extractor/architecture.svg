@@ -1,60 +1,74 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1040" viewBox="0 0 1600 1040" role="img" aria-labelledby="title desc">
   <title id="title">Arkitektur for PDF-extractor</title>
-  <desc id="desc">Flyt fra opplasting via kildekritisk uttrekk til kontrollgrunnlag, hel dokumentkontekst, innebygd vektordatabase og agentverktøy.</desc>
+  <desc id="desc">To tydelige flyter: opplasting skriver PDF, uttrekk, kunnskapsfiler og vektorer til lokal state; agenter leser heltekst, vektortreff eller kildebevis gjennom tools-api.</desc>
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f3f7fb"/><stop offset="1" stop-color="#e9f1f8"/></linearGradient>
-    <filter id="shadow" x="-15%" y="-15%" width="130%" height="140%"><feDropShadow dx="0" dy="7" stdDeviation="8" flood-color="#17324d" flood-opacity=".14"/></filter>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0l10 5-10 5z" fill="#54718c"/></marker>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#315b78"/></marker>
+    <marker id="arrow-optional" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#76539b"/></marker>
     <style>
-      .title{font:700 34px system-ui,sans-serif;fill:#10283d}.subtitle{font:400 17px system-ui,sans-serif;fill:#4d6478}.h{font:700 19px system-ui,sans-serif;fill:#10283d}.t{font:400 14px system-ui,sans-serif;fill:#40586c}.small{font:600 12px system-ui,sans-serif;fill:#62798c;letter-spacing:.5px}.box{fill:#fff;stroke:#c5d5e2;stroke-width:1.5;rx:18;filter:url(#shadow)}.primary{fill:#e5f3ff;stroke:#68a9d6}.evidence{fill:#fff4db;stroke:#dba83a}.knowledge{fill:#e5f7ef;stroke:#55a985}.line{fill:none;stroke:#54718c;stroke-width:2.2;marker-end:url(#arrow)}.dash{stroke-dasharray:7 6}.pill{rx:11}.white{fill:#fff}
+      text{font-family:Arial,sans-serif;fill:#153047}
+      .page-title{font-size:32px;font-weight:700}.subtitle{font-size:17px;fill:#52697b}.lane-title{font-size:15px;font-weight:700;letter-spacing:1.2px;fill:#52697b}
+      .heading{font-size:18px;font-weight:700}.body{font-size:14px;fill:#40586b}.small{font-size:12px;fill:#60778a}
+      .lane{fill:#f5f8fa;stroke:#d6e0e7;stroke-width:1.5}.box{fill:#fff;stroke:#aebfcb;stroke-width:1.5}.entry{fill:#e9f4fc;stroke:#5f9bc2}.worker{fill:#fff4dd;stroke:#c28a27}.store{fill:#eaf6ef;stroke:#55906e}.ai{fill:#f3edfa;stroke:#8a68aa}.agent{fill:#eaf1ff;stroke:#6685bd}
+      .flow{fill:none;stroke:#315b78;stroke-width:2.2;marker-end:url(#arrow)}.optional{fill:none;stroke:#76539b;stroke-width:2;stroke-dasharray:7 6;marker-end:url(#arrow-optional)}
+      .divider{stroke:#d6e0e7;stroke-width:1.5}.number{fill:#315b78}.number-text{font-size:13px;font-weight:700;fill:#fff;text-anchor:middle}
     </style>
   </defs>
-  <rect width="1440" height="900" fill="url(#bg)"/>
-  <text class="title" x="70" y="70">PDF-extractor: fra fil til brukbar kunnskap</text>
-  <text class="subtitle" x="70" y="102">Kildetro uttrekk først. Modeller supplerer. Detaljer for kontroll og kompakt tekst for agenter holdes atskilt.</text>
+  <rect width="1600" height="1040" fill="#fff"/>
+  <text class="page-title" x="64" y="58">PDF-extractor: faktisk dataflyt</text>
+  <text class="subtitle" x="64" y="88">Skriveflyt og leseflyt er separate. Modellene supplerer kildeuttrekket; de er ikke datalageret.</text>
 
-  <rect class="box primary" x="70" y="178" width="225" height="145"/>
-  <text class="small" x="94" y="207">INNGANG</text><text class="h" x="94" y="243">PDF-opplasting</text>
-  <text class="t" x="94" y="273">API-utforsker eller HTTP</text><text class="t" x="94" y="296">Kilde, profil og SHA-256</text>
+  <rect class="lane" x="48" y="124" width="1504" height="522" rx="18"/>
+  <text class="lane-title" x="76" y="158">SKRIVEFLYT · ÉN OPPLASTING STARTER HELE JOBBEN</text>
 
-  <path class="line" d="M295 251H365"/>
-  <rect class="box" x="365" y="150" width="290" height="202"/>
-  <text class="small" x="390" y="179">KILDETRO PIPELINE</text><text class="h" x="390" y="215">Deterministisk uttrekk</text>
-  <text class="t" x="390" y="246">PyMuPDF: tekst, blokker, geometri</text><text class="t" x="390" y="271">pdfplumber: tabeller og kolonner</text><text class="t" x="390" y="296">Tesseract ved manglende tekstlag</text><text class="t" x="390" y="321">Rå kildebevis bevares alltid</text>
+  <rect class="box entry" x="76" y="198" width="228" height="132" rx="12"/>
+  <circle class="number" cx="102" cy="224" r="14"/><text class="number-text" x="102" y="229">1</text>
+  <text class="heading" x="126" y="230">Last opp PDF</text>
+  <text class="body" x="98" y="265">API-utforsker eller HTTP-klient</text><text class="body" x="98" y="290">POST /dokumenter</text><text class="small" x="98" y="312">Svar: documentId + jobId (202)</text>
 
-  <path class="line" d="M655 220H735"/>
-  <rect class="box" x="735" y="140" width="305" height="222"/>
-  <text class="small" x="760" y="169">VALGFRI BERIKELSE</text><text class="h" x="760" y="205">AI-gateway</text>
-  <rect class="pill" x="760" y="229" width="250" height="43" fill="#edf1ff"/><text class="t" x="780" y="256">Tekstmodell: normalisering</text>
-  <rect class="pill" x="760" y="286" width="250" height="51" fill="#f0eafe"/><text class="t" x="780" y="308">Qwen3-VL: bare uklare,</text><text class="t" x="780" y="327">skannede eller diagramtunge sider</text>
-  <path class="line dash" d="M735 294H684V316H655"/>
+  <path class="flow" d="M304 264H354"/>
+  <rect class="box" x="354" y="186" width="255" height="156" rx="12"/>
+  <circle class="number" cx="380" cy="212" r="14"/><text class="number-text" x="380" y="217">2</text>
+  <text class="heading" x="404" y="218">API + jobbkø</text>
+  <text class="body" x="376" y="254">Validerer PDF og metadata</text><text class="body" x="376" y="279">Lagrer source.pdf</text><text class="body" x="376" y="304">Legger uttrekket i kø</text><text class="small" x="376" y="325">Én worker begrenser GPU-belastning</text>
 
-  <path class="line" d="M1040 251H1117"/>
-  <rect class="box evidence" x="1117" y="168" width="255" height="167"/>
-  <text class="small" x="1142" y="197">KONTROLLGRUNNLAG</text><text class="h" x="1142" y="233">document.json</text>
-  <text class="t" x="1142" y="262">Blokker, bbox, skrifter</text><text class="t" x="1142" y="285">konfidens, metode og spor</text><text class="t" x="1142" y="308">+ visuell kontrollrapport</text>
+  <path class="flow" d="M609 264H659"/>
+  <rect class="box worker" x="659" y="174" width="330" height="180" rx="12"/>
+  <circle class="number" cx="685" cy="200" r="14"/><text class="number-text" x="685" y="205">3</text>
+  <text class="heading" x="709" y="206">Kildetro uttrekks-worker</text>
+  <text class="body" x="681" y="244">PyMuPDF · tekstblokker og geometri</text><text class="body" x="681" y="269">pdfplumber · tabeller og kolonner</text><text class="body" x="681" y="294">Tesseract · bare ved svakt tekstlag</text><text class="body" x="681" y="319">Bygger struktur, regler og kvalitetsflagg</text><text class="small" x="681" y="340">Rå kildebevis beholdes alltid</text>
 
-  <path class="line" d="M1245 335V430"/>
-  <rect class="box" x="1050" y="430" width="322" height="180"/>
-  <text class="small" x="1075" y="459">KVALITETSFLAGG</text><text class="h" x="1075" y="495">Rapport i nettleseren</text>
-  <circle cx="1085" cy="537" r="7" fill="#e2aa2e"/><text class="t" x="1103" y="542">Gult: kontroll anbefales</text>
-  <circle cx="1085" cy="572" r="7" fill="#56a35c"/><text class="t" x="1103" y="577">Grønt: ingen kjente problemer</text>
+  <path class="optional" d="M824 174V137H1113V174"/>
+  <rect class="box ai" x="1039" y="174" width="425" height="180" rx="12"/>
+  <text class="heading" x="1063" y="207">AI-gateway · valgfri støtte</text>
+  <text class="body" x="1063" y="244">/ai/strukturer-dokument</text><text class="small" x="1270" y="244">tekstnormalisering</text>
+  <text class="body" x="1063" y="277">/ai/les-dokumentside</text><text class="small" x="1270" y="277">Qwen3-VL via Ollama</text>
+  <text class="body" x="1063" y="310">Bare uklare, skannede eller diagramtunge sider</text><text class="small" x="1063" y="333">Feil gir advarsel; kildeuttrekket består</text>
+  <path class="optional" d="M1039 318H989"/>
 
-  <path class="line" d="M1117 294H965V468H860"/>
-  <rect class="box knowledge" x="565" y="430" width="295" height="180"/>
-  <text class="small" x="590" y="459">AGENTVENNLIG LAG</text><text class="h" x="590" y="495">Kompakt kunnskap</text>
-  <text class="t" x="590" y="526">knowledge.md: hel kontekst</text><text class="t" x="590" y="552">SQLite: semantiske vektorbiter</text><text class="t" x="590" y="578">Side, autoritet og kilde beholdes</text>
+  <path class="flow" d="M824 354V402"/>
+  <rect class="box store" x="236" y="402" width="1128" height="202" rx="14"/>
+  <circle class="number" cx="266" cy="432" r="14"/><text class="number-text" x="266" y="437">4</text>
+  <text class="heading" x="292" y="438">state/pdf-extractor/ · lokal, vedvarende runtime</text>
+  <line class="divider" x1="602" y1="462" x2="602" y2="580"/><line class="divider" x1="984" y1="462" x2="984" y2="580"/>
+  <text class="heading" x="270" y="484">Kilde og kontroll</text><text class="body" x="270" y="516">source.pdf · metadata.json</text><text class="body" x="270" y="542">document.json · siderenderinger</text><text class="body" x="270" y="568">review.html · jobbstatus</text>
+  <text class="heading" x="636" y="484">Agentvennlig innhold</text><text class="body" x="636" y="516">knowledge.md · kompakt heltekst</text><text class="body" x="636" y="542">chunks.jsonl · kildeforankrede biter</text><text class="small" x="636" y="568">side + dokument-ID + kvalitetsflagg</text>
+  <text class="heading" x="1018" y="484">Semantisk indeks</text><text class="body" x="1018" y="516">vectors.sqlite3</text><text class="body" x="1018" y="542">lokale flerspråklige embeddings</text><text class="small" x="1018" y="568">jobb fullføres først når alt er lagret</text>
 
-  <path class="line" d="M565 490H450"/>
-  <rect class="box primary" x="70" y="414" width="380" height="202"/>
-  <text class="small" x="95" y="443">BRUK</text><text class="h" x="95" y="479">Agenter og applikasjoner</text>
-  <text class="t" x="95" y="511">pdf_read_document - hele dokumentet</text><text class="t" x="95" y="539">pdf_search_chunks - semantiske treff</text><text class="t" x="95" y="567">pdf_get_extraction_result - bevis</text><text class="t" x="95" y="594">Alle treff peker tilbake til side og dokument</text>
+  <rect class="lane" x="48" y="678" width="1504" height="314" rx="18"/>
+  <text class="lane-title" x="76" y="712">LESEFLYT · AGENTEN LESER KUNNSKAP GJENNOM VERKTØYLAGET</text>
 
-  <path class="line" d="M1210 610V706H923"/>
-  <rect class="box knowledge" x="565" y="690" width="358" height="143"/>
-  <text class="small" x="590" y="719">VEDVARENDE LOKAL KUNNSKAP</text><text class="h" x="590" y="755">state/pdf-extractor/</text>
-  <text class="t" x="590" y="786">PDF + JSON + Markdown + JSONL + SQLite</text><text class="t" x="590" y="810">Bygges automatisk ved uttrekk og oppstart</text>
+  <rect class="box agent" x="76" y="758" width="244" height="136" rx="12"/>
+  <text class="heading" x="100" y="794">Process-agent</text><text class="body" x="100" y="826">Spørsmål fra innbygger</text><text class="body" x="100" y="851">berikes med relevante PDF-treff</text><text class="small" x="100" y="875">Ingen direkte filsystemtilgang</text>
+  <path class="flow" d="M320 826H382"/>
 
-  <rect x="70" y="738" width="380" height="80" rx="16" fill="#fff" stroke="#c5d5e2"/>
-  <text class="small" x="94" y="768">ENKEL FLYT</text><text class="t" x="94" y="795">Last opp → trekk ut → søk. Resultatet kan brukes med en gang.</text>
+  <rect class="box entry" x="382" y="746" width="260" height="160" rx="12"/>
+  <text class="heading" x="406" y="782">Tools API</text><text class="body" x="406" y="814">pdf_search_chunks</text><text class="body" x="406" y="839">pdf_read_document</text><text class="body" x="406" y="864">pdf_get_extraction_result</text><text class="small" x="406" y="888">HTTP-proxy til PDF-extractor</text>
+  <path class="flow" d="M642 826H704"/>
+
+  <rect class="box" x="704" y="734" width="346" height="184" rx="12"/>
+  <text class="heading" x="728" y="770">PDF-extractor lese-API</text><text class="body" x="728" y="804">Heltekst → knowledge.md</text><text class="body" x="728" y="832">Semantisk søk → vectors.sqlite3</text><text class="body" x="728" y="860">Kildebevis → document.json</text><text class="body" x="728" y="888">Logger dokument- og chunk-ID-er</text>
+  <path class="flow" d="M1050 826H1112"/>
+
+  <rect class="box store" x="1112" y="746" width="352" height="160" rx="12"/>
+  <text class="heading" x="1136" y="782">Svar med kildepeker</text><text class="body" x="1136" y="814">tekst + dokument-ID + side</text><text class="body" x="1136" y="839">score + autoritet + kvalitetsflagg</text><text class="body" x="1136" y="864">kontroll anbefales ved usikkerhet</text><text class="small" x="1136" y="888">Ingen godkjenning stopper bruk</text>
 </svg>

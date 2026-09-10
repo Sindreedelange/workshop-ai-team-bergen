@@ -52,8 +52,8 @@ produksjonsskala.
 
 Den visuelle rapporten viser én av to tilstander:
 
-- Gult: kontroll anbefales for juridiske dokumenter og arealplaner, OCR,
-  forsøkt bildeanalyse, advarsler eller lav konfidens.
+- Gult: kontroll anbefales ved OCR, forsøkt bildeanalyse, advarsler eller lav
+  konfidens.
 - Grønt: ingen kjente uttrekksproblemer.
 
 Flagget stopper ikke bruk. Treffene inneholder status, kvalitetsadvarsler, side og
