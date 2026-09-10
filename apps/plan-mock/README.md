@@ -11,7 +11,7 @@ arealformål og reguleringsplaner. Kopien finnes av to grunner, og ingen av dem 
 kilden mangler:
 
 - **Konferansenett.** Et hackathon uten nett skal ikke miste kartsteget i
-  garasjesjekken.
+  [tiltakssjekken «Kan du bygge uten å søke?»](../../docs/garasjesjekk.md).
 - **Flate mot punkt.** Live-oppslaget spør om ett punkt og får ingen geometri
   tilbake. Det kan ikke svare på om sonegrensen går tvers gjennom tomten, som er
   spørsmålet innbyggeren faktisk stiller. Uttrekket har flatene, så det kan.
@@ -68,7 +68,7 @@ kartutsnitt og ikke på en person - det er ingenting her å knytte til noen.
 `matrikkel-mock` står åpen av samme grunn. Det betyr ikke at flaten er uten sperrer:
 alle fem parameterne kreves på begge rutene, og utsnittet må være høyst 3000 meter
 langs hver side, så tjenesten kan ikke svare på «gi meg hele Bergen». Taket er
-høyere enn naboteigrutens 500 fordi garasjekartet strekker teigen til 4:3, og 492
+høyere enn naboteigrutens 500 fordi tiltakskartet strekker teigen til 4:3, og 492
 av Bergens 21 258 teiger blir da bredere enn 500 meter - med det taket svarte
 denne ruten 400 nettopp for de eiendommene som oftest ligger i en sone.
 

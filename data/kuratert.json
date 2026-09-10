@@ -1565,11 +1565,11 @@
     },
     {
       "husstandId": "household-201",
-      "scenario": "Workshopcase for garasjesjekk på Litle Milde 65. Én oppdiktet voksen med syntetisk eierskap til boligen, ikke en faktisk beboer eller eier."
+      "scenario": "Workshopcase for tiltakssjekken «Kan du bygge uten å søke?» på Litle Milde 65, med frittliggende bygg, tilbygg, gjerde og fasade. Én oppdiktet voksen med syntetisk eierskap til boligen, ikke en faktisk beboer eller eier."
     },
     {
       "husstandId": "household-202",
-      "scenario": "Workshopcase for garasjesjekk på Kråkenestoppen 60. Én oppdiktet voksen med syntetisk eierskap til boligen, ikke en faktisk beboer eller eier."
+      "scenario": "Workshopcase for tiltakssjekken «Kan du bygge uten å søke?» på Kråkenestoppen 60, med frittliggende bygg, tilbygg, gjerde og fasade. Én oppdiktet voksen med syntetisk eierskap til boligen, ikke en faktisk beboer eller eier."
     }
   ],
   "inntekter": [

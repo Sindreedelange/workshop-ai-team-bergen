@@ -290,7 +290,7 @@ paths:
         og `advarsel`, og `modell` får suffikset `(sperret)` slik at KI-sporet
         fortsatt viser hva modellen faktisk sa.
 
-        I Garasjesjekken brukes et kompakt kunnskapsgrunnlag med begreper, de samme
+        I tiltakssjekken «Kan du bygge uten å søke?» brukes et kompakt kunnskapsgrunnlag med begreper, de samme
         nasjonale tallkravene som regelmotoren og utvalgte kartopplysninger.
         Rå kartgeometri og komplette eiendomsresultater følger ikke med. Modellen kan
         forklare generelle krav betinget, men ikke avgjøre om brukerens garasje er
@@ -374,7 +374,7 @@ paths:
           description: kriterium eller tekst mangler
   /ai/garasje-raad:
     post:
-      summary: Råd på slutten av garasjesjekken, med reasoning
+      summary: Råd på slutten av tiltakssjekken, med reasoning
       description: |
         Modellen leser hele grunnlaget, måler det mot plangrunnlaget og gir et råd
         med et antatt utfall. Dette er det ene kallet i sandkassen som ber om
@@ -635,7 +635,7 @@ components:
               type: string
             prosessId:
               type: string
-              description: Garasjesjekken gjenkjennes også med prosess-id alene, uten at kalleren sender ordliste eller prosessdefinisjon.
+              description: Tiltakssjekken gjenkjennes også med sin uendrede prosess-id alene, uten at kalleren sender ordliste eller prosessdefinisjon.
               example: garasjesjekk
             satser:
               type: object
@@ -650,7 +650,7 @@ components:
               additionalProperties: true
             aktivtFelt:
               type: object
-              description: Feltet brukeren ber om hjelp til. I Garasjesjekken beholdes bare en kjent begreps-id, og label hentes fra ordlisten.
+              description: Feltet brukeren ber om hjelp til. I tiltakssjekken beholdes bare kjente felt for valgt tiltakstype, og label hentes fra katalogen.
               properties:
                 id:
                   type: string

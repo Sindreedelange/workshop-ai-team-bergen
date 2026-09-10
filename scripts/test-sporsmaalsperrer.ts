@@ -9,6 +9,7 @@
 
 import { readFile } from "node:fs/promises";
 import { GARASJE_BEGREPER, buildGarasjeBegrepssvar, findGarasjeBegreper } from "../apps/shared/garasje-begreper.ts";
+import { TILTAKSSJEKK_NAVN } from "../apps/shared/byggetiltak.ts";
 import {
   buildGrunnlagsIndeks,
   buildPersonvernSvar,
@@ -395,6 +396,16 @@ const garasje = sanitizeSporsmaalKontekst({
   aktivtFelt: { id: "gesimshoyde", label: "Du kan bygge uten søknad" },
   garasjeBegreper: [{ id: "gesimshoyde", forklaring: "Gesimsen er alltid takrennen." }]
 });
+for (const navn of [TILTAKSSJEKK_NAVN, "Kan du bygge uten å søke", "Tiltakssjekken", "tiltakssjekk",
+  "Byggesjekken", "Garasjesjekken", "garasjesjekk"]) {
+  const renamed = sanitizeSporsmaalKontekst({ tjeneste: navn });
+  check(`nytt og gammelt navn gir samme faggrunnlag: ${navn}`, renamed.garasjeKunnskap?.begreper === GARASJE_BEGREPER);
+  check(`navnevalg opphever ikke beslutningssperren: ${navn}`,
+    validateAnswer("Du kan bygge uten søknad.", renamed).sperre === "beslutning");
+}
+check("navnelikhet gjør ikke en annen tjeneste til tiltakssjekken", sanitizeSporsmaalKontekst({
+  tjeneste: "En annen tiltakssjekk for skolesøknader", prosess: { id: "annen-prosess" }
+}).garasjeKunnskap === undefined);
 check("garasjeordlisten kommer fra vår kilde, ikke kalleren", garasje.garasjeKunnskap?.begreper === GARASJE_BEGREPER);
 check("iframe trenger ikke sende ordlisten selv", sanitizeSporsmaalKontekst({
   tjeneste: "Garasjesjekken", prosessId: "garasjesjekk",

@@ -53,6 +53,7 @@ Resten av filene er oppslagsverk. Du trenger ingen av dem før du trenger dem.
 | Vite hvem som kan logge inn, og hvem som bare er part i saken | [`docs/testpersoner.md`](testpersoner.md) |
 | Forstå datagrunnlaget, og hvor grensene går | [`docs/syntetiske-data.md`](syntetiske-data.md) |
 | Lage en ny case inne i prosessmotoren | [`docs/prosessmodell.md`](prosessmodell.md) |
+| Se tiltakssjekken og hva andre søknadsprosesser kan gjenbruke | [«Kan du bygge uten å søke?»](garasjesjekk.md) - tiltakstyper, kart, dokumentkilder og avklaring uten innsending |
 | Style frontenden din som resten av KS Digital | [`docs/designsystem.md`](designsystem.md) |
 | Vite hva sandkassen logger, og hvordan du sletter det | [`docs/hva-logges.md`](hva-logges.md) |
 | Vite hva som forlater maskinen din før du demonstrerer | [`docs/sikkerhet-og-personvern.md`](sikkerhet-og-personvern.md) |

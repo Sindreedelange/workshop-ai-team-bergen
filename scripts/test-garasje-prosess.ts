@@ -205,7 +205,7 @@ try {
   assert.equal(definitions[1]?.id, "sfo-moderasjon", "Eksisterende menyrekkefølge må beholdes");
   const definition = definitions.find(p => p.id === "garasjesjekk");
   assert(definition);
-  assert.equal(definition.navn, "Garasjesjekken");
+  assert.equal(definition.navn, "Kan du bygge uten å søke?");
   assert.equal(definition.redigering.status, "publisert");
   assert.deepEqual(definition.steg.map(s => s.type), ["INFO", "DATA_FETCH", "QUESTION", "DATA_FETCH"]);
   const question = definition.steg[2];

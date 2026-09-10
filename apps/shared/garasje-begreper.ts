@@ -1,3 +1,5 @@
+import { TILTAKSSJEKK_NAVN } from "./byggetiltak.ts";
+
 export type GarasjeBegrep = {
   id: string;
   navn: string;
@@ -23,13 +25,13 @@ export const GARASJE_BEGREPER: readonly GarasjeBegrep[] = [
   {
     id: "bra",
     navn: "Bruksareal (BRA)",
-    forklaring: "BRA er arealet innenfor ytterveggene, også plassen innvendige vegger tar. For en bygning summeres alle måleverdige plan. Åpent overbygd areal kan også telle med. BRA er derfor ikke bare den ledige gulvplassen til bilen.",
+    forklaring: "BRA er arealet innenfor ytterveggene, også plassen innvendige vegger tar. For en bygning summeres alle måleverdige plan. Åpent overbygd areal kan også telle med. BRA er derfor ikke bare den ledige gulvplassen.",
     kilde: "https://www.dibk.no/regelverk/byggteknisk-forskrift-tek17/5/5-4"
   },
   {
     id: "bya",
     navn: "Bebygd areal (BYA)",
-    forklaring: "BYA beskriver bygningens fotavtrykk på bakken, målt fra utsiden av ytterveggene. Overbygde arealer og enkelte utstikkende bygningsdeler kan også telle med. I garasjeskjemaet spør vi om garasjen, ikke samlet bebygd areal på hele eiendommen.",
+    forklaring: "BYA beskriver bygningens fotavtrykk på bakken, målt fra utsiden av ytterveggene. Overbygde arealer og enkelte utstikkende bygningsdeler kan også telle med. I tiltakssjekken spør vi om arealet til det planlagte bygget eller tilbygget, ikke samlet bebygd areal på hele eiendommen.",
     kilde: "https://www.dibk.no/regelverk/byggteknisk-forskrift-tek17/5/5-2"
   },
   {
@@ -56,7 +58,10 @@ export function isGarasjeKontekst(value: unknown): boolean {
   const context = value as { tjeneste?: unknown; prosessId?: unknown; prosess?: { id?: unknown; navn?: unknown }; steg?: { visning?: unknown } };
   return context.prosessId === "garasjesjekk" || context.prosess?.id === "garasjesjekk" || context.steg?.visning === "garasje"
     || [context.tjeneste, context.prosess?.navn].some(name =>
-      typeof name === "string" && ["garasjesjekk", "garasjesjekken"].includes(normalize(name).trim()));
+      typeof name === "string" && [
+        "garasjesjekk", "garasjesjekken", "tiltakssjekk", "tiltakssjekken", "byggesjekk", "byggesjekken",
+        normalize(TILTAKSSJEKK_NAVN), normalize(TILTAKSSJEKK_NAVN).replace(/\?$/, "")
+      ].includes(normalize(name).trim()));
 }
 
 export function findGarasjeBegreper(text: string): readonly GarasjeBegrep[] {

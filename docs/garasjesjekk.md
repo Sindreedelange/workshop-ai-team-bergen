@@ -5,6 +5,40 @@ Innbyggeren beskriver tiltaket, mens tjenesten henter adresse, eiendomsidentitet
 tilgjengelig plangrunnlag. Dette er veiledning, ikke et kommunalt vedtak eller en
 byggesøknad.
 
+## Fra garasje til tiltakssjekk
+
+Det som startet som Garasjesjekken, heter nå **«Kan du bygge uten å søke?»** i
+prosesskatalogen og klientene. Vi omtaler den som **tiltakssjekken**.
+Utvidelsen gjelder avklaring av søknadsplikt for byggetiltak, ikke alle typer
+kommunale søknader.
+
+| Tiltak | Hva veiledningen dekker |
+|---|---|
+| Frittliggende bygg | Blant annet garasje og bod. Areal, høyder, bruk, avstander og øvrige vilkår for det nasjonale unntaket |
+| Tilbygg | Egne areal- og bruksvilkår. Arver ikke avstandsregelen for frittliggende bygg |
+| Gjerde | Høyde, vei, frisikt og utførelse, med varsel om særskilte lokale planbestemmelser |
+| Fasade eller tak | Skillet mellom vedlikehold, endret utseende og inngrep i bæring eller brannsikring |
+| Annet eller uavklart tiltak | En uttrykkelig avklaring hos kommunens byggesaksveiledning, ikke et automatisk valg av garasjereglene |
+
+Felles for alle er bekreftet tiltakstype og eiendom, kart og dokumentkilder,
+spørsmål som passer tiltaket, faste regler og et tydelig neste steg. Et nasjonalt
+unntak er ikke en byggetillatelse: lokale planforhold, dokumentenes gyldighet og
+andre krav kan fortsatt være uavklart. Ingen byggesøknad sendes inn av denne casen.
+
+## Referanse for andre søknadsprosesser
+
+Casen viser et mønster andre tjenester kan bruke: avklar hva innbyggeren vil,
+bekreft typen, hent relevant grunnlag, spør bare om det som trengs, og skill
+regler fra KI-forklaringer. Uavklarte forhold og neste steg er egne resultater,
+ikke feil som skal skjules eller gjøres om til et ja.
+
+Det er mønsteret som kan gjenbrukes, ikke byggereglene. En ny søknadsprosess
+trenger egne faglig avklarte vilkår, kilder, tilgangsregler og tester.
+Prosessmotoren er fortsatt lineær; valg av tiltakstype styrer spørsmålene i denne
+casen, ikke generell forgrening i motoren. Innsending må legges inn uttrykkelig
+i en prosess som faktisk skal sende en søknad. Se [prosessmodellen](prosessmodell.md)
+og [arkitekturen](architecture.md).
+
 ## Start
 
 Start sandkassen med `./start.sh --mock` og velg **Kan du bygge uten å søke?** under
@@ -50,7 +84,7 @@ i den lokale nedlastingen.
 `pnpm test:garasje-raad` kontrollerer kodegrensene uten en ekstern modell.
 
 Tiltakssjekken starter i mørkt tema. Valget av lyst eller mørkt tema lagres lokalt
-i nettleseren og gjenbrukes ved omlasting og i den innebygde garasjevisningen.
+i nettleseren og gjenbrukes ved omlasting og i den innebygde tiltaksvisningen.
 Bare temavalget lagres der, ikke opplysninger om eiendommen eller tiltaket.
 Den lokale rettelsen i `apps/shared/ds-morketema.css` lastes etter de vendorede
 stilarkene, også i den innebygde visningen.
@@ -86,8 +120,8 @@ Adressene bruker vanlige oppslag, ikke forhåndsbestemte svar eller egne
 «Prøv en case»-knapper.
 Oppslaget ved adressepunktet for Litle Milde viste LNF i KPA2018. Ved
 Kråkenestoppen viste det «Øvrig byggesone» og bebyggelsesplan 6170063, Bønes øst,
-felt 19A. Disse karttreffene alene dokumenterer ikke hva en bestemt garasje kan
-bygges som. Eksisterende garasjer, høyder, utnyttelse og den planlagte plasseringen
+felt 19A. Disse karttreffene alene dokumenterer ikke om et bestemt tiltak er
+tillatt. Eksisterende bebyggelse, høyder, utnyttelse og den planlagte plasseringen
 kan endre vurderingen.
 
 ## Slik brukes resultatet
@@ -122,7 +156,7 @@ kan endre vurderingen.
 Du får en oppsummering før sjekken kjøres. Fagspørsmål flytter ikke utfyllingen
 videre, og et agentsvar blir ikke en lagret verdi uten bekreftelse. Den
 felles agenten bruker den samme valideringen av mål og valg som den øvrige
-garasjedialogen. Ved modellfeil kan du fortsette stegvis uten å miste utkastet.
+tiltaksdialogen. Ved modellfeil kan du fortsette stegvis uten å miste utkastet.
 «Endre svaret» viser hvilket felt du retter, legger teksten tilbake i tekstboksen
 og flytter fokus dit. Forslaget lagres ikke før du bekrefter det. Ved «Endre»
 i oppsummeringen vises det nåværende svaret og feltet du redigerer.
@@ -153,7 +187,7 @@ Endrer du adressen, skjules kartet og det gamle grunnlaget til den nye
 eiendommen er bekreftet. Feiler hentingen, vises en knapp for å prøve igjen.
 
 Nasjonale vilkår vurderes separat fra planforhold og andre begrensninger.
-En garasje som oppfyller størrelsesgrensene er ikke automatisk lovlig plassert.
+Et bygg som oppfyller størrelsesgrensene er ikke automatisk lovlig plassert.
 LNF/LNFR kan ha bestemmelser som åpner for enkelte tiltak, mens en boligregulert
 tomt kan ha begrensninger som krever avklaring.
 
@@ -169,10 +203,11 @@ samme; en slik avklaring må gjøres mot det konkrete plangrunnlaget.
 
 | Modul | Ansvar |
 |---|---|
+| [`byggetiltak.ts`](../apps/shared/byggetiltak.ts) | Tiltakstyper, forslag fra beskrivelsen og spørsmål for valgt type. Selve regelvurderingen gjøres i backend. |
 | [`garasje-kommuner.ts`](../apps/shared/garasje-kommuner.ts) | Kobler kommunenummer til kommunens kartlag, planportal, plan-ID, versjon og bestemmelser. Bergen-PDF-en hører bare til `4601`. |
 | [`arealsoner.ts`](../apps/shared/arealsoner.ts) | Kontrollerte sonetyper, nøklet på kommune, plan, versjon, arealformål og arealstatus. Ukjente kombinasjoner forblir ukjente. |
 | [`hensynssoner.ts`](../apps/shared/hensynssoner.ts) | Sonekodene i KPA2018 med klarspråksnavn, datasett-id-ene og formen på tråden. Hvilken fil og kolonne hvert datasett har er `plan-mock` sin egen sak. |
-| [`garasje-regelgrunnlag.ts`](../apps/shared/garasje-regelgrunnlag.ts) | Nasjonale tallkrav, enheter og kilder. Den samme definisjonen brukes av reglene og KI-grunnlaget. |
+| [`garasje-regelgrunnlag.ts`](../apps/shared/garasje-regelgrunnlag.ts) | Nasjonale tallkrav for frittliggende bygg, enheter og kilder. Disse grensene brukes ikke på andre tiltakstyper. |
 | [`garasje-begreper.ts`](../apps/shared/garasje-begreper.ts) | Kildebaserte forklaringer av fagord. |
 | [`garasje-dialog.ts`](../apps/shared/garasje-dialog.ts) | Felles utfyllingsfelter, enheter og validering for samtale og stegvis utfylling. |
 | [`garasje-kunnskap.ts`](../apps/shared/garasje-kunnskap.ts) | Et begrenset, strukturert grunnlag for språkmodellen, uten persondata eller rå kartgeometri. |
@@ -183,8 +218,8 @@ utnyttelsesgrense eller byggetillatelse. Slike regler trenger en konkret,
 kontrollert bestemmelse med kilde.
 
 `GET /api/garasje/veiledning` viser det tjenestespesifikke kunnskapsgrunnlaget.
-De felles KI-verktøyene er fortsatt tjenestenøytrale. Garasjegrunnlaget legges
-bare til for en garasjekontekst; de øvrige casene bruker sine eksisterende data
+De felles KI-verktøyene er fortsatt tjenestenøytrale. Tiltaksgrunnlaget legges
+bare til for denne casen; de øvrige casene bruker sine eksisterende data
 og regler.
 
 `POST /agent/garasje/dialog` gir et svarforslag eller en forklaring for det
@@ -214,7 +249,7 @@ planbestemmelsene.
 
 Kommuneplanoppslaget mot Bergens kart spør om **ett punkt** og får ingen geometri
 tilbake. Det kan ikke svare på om en sonegrense går tvers gjennom tomten, som er
-spørsmålet innbyggeren stiller når hun setter garasjen i kartet.
+spørsmålet innbyggeren stiller når hun plasserer tiltaket i kartet.
 
 Derfor leses KPA2018 også som flater, fra et frosset uttrekk hos
 [`plan-mock`](../apps/plan-mock/README.md): de seks hensynssonene - gule støysoner,
@@ -227,8 +262,9 @@ gang den flyttes; serveren fastslår det ved «Bekreft plassering».
 **Sonen avgjør ingenting.** Sjekken `hensynssoner` er alltid `uavklart`, og den står
 etter at det nasjonale unntaket er regnet ut, så den kan ikke flytte utfallet. En
 hensynssone er hjemlet i plan- og bygningsloven § 11-8 og sier at et hensyn gjelder
-for området; om tiltaket er tillatt, står i planbestemmelsene, som piloten ikke
-leser. Uttrekket er dessuten fra 2018 og er ikke gjeldende plan.
+for området; om tiltaket er tillatt, står i planbestemmelsene. PDF-søket kan hente
+utdrag til forklaringen, men bekrefter ikke at alle vilkår er kontrollert.
+Kartuttrekket er dessuten fra 2018 og må kontrolleres mot gjeldende plan.
 
 Navnet på flaten kommer fra et kontrollert register - kodeverket for
 hensynssonene, [`arealsoner.ts`](../apps/shared/arealsoner.ts) for formålene - og
@@ -243,7 +279,7 @@ dem.
 
 - [`matrikkel_bk_25.json`](../data/matrikkel_bk_25.json): lokalt Bergen-uttrekk,
   merket 2025, med teigpolygoner og oppgitt areal. Matrikkelmocken er eneste
-  tjeneste som leser filen. Garasjesjekken slår opp på kommunenummer, gnr./bnr.
+  tjeneste som leser filen. Tiltakssjekken slår opp på kommunenummer, gnr./bnr.
   og festenummer gjennom API-et.
 - [Kartverkets adresse-API](https://ws.geonorge.no/adresser/v1/): adresse,
   eiendomsidentifikator og adressepunkt. Et adressepunkt er ikke tomten.
@@ -252,7 +288,7 @@ dem.
   hentes for den konkrete matrikkelidentiteten, ikke fra et generisk eksempel.
 - KPA2018-uttrekket under [`data/`](../data): sju GeoJSON-filer med hensynssoner og
   arealformål, omtrent 62 MB. `plan-mock` er eneste tjeneste som leser dem;
-  garasjesjekken slår opp på kartutsnitt gjennom API-et. Frosset i 2018, og ikke
+  tiltakssjekken slår opp på kartutsnitt gjennom API-et. Frosset i 2018, og ikke
   gjeldende plan.
 - [Bergens karttjenester](https://kart.bergen.kommune.no/arcgis/rest/services):
   tilgjengelige arealformål, reguleringsplanområder og bygninger.

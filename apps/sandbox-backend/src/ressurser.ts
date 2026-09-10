@@ -207,7 +207,7 @@ export const ressurser: Ressurs[] = [
     ressurs: "garasje-veiledning",
     tilgang: "aapen",
     beskrivelse: "Strukturert veiledning om garasjebegreper, måleenheter, nasjonale vilkår og uavklart plangrunnlag. Ingen persondata.",
-    formaal: "Forklare garasjesjekkens begreper og kunnskapsgrunnlag",
+    formaal: "Forklare tiltakssjekkens begreper og kunnskapsgrunnlag",
     handter: () => buildGarasjeKunnskapsgrunnlag()
   },
   {
@@ -221,7 +221,7 @@ export const ressurser: Ressurs[] = [
       if (!personId || !oekt || oekt.prosessId !== "garasjesjekk"
         || oekt.status !== "AKTIV" || steg?.id !== "garasje-vurdering" || steg.type !== "DATA_FETCH"
         || prosess?.avslutning !== "veiledning" || prosess.steg[oekt.stegIndex]?.id !== steg.id) {
-        throw new HttpError("Garasjesjekken krever en aktiv prosessøkt og vurderingssteget.", 400);
+        throw new HttpError("Tiltakssjekken krever en aktiv prosessøkt og vurderingssteget.", 400);
       }
       if (oekt.personId !== personId) throw new HttpError("Prosessøkten tilhører en annen person.", 403);
       if ([...sok.keys()].some(key => key !== "personId")) {
@@ -267,7 +267,7 @@ export const ressurser: Ressurs[] = [
     metode: "GET",
     sti: "/api/garasje/adresser",
     ressurs: "garasje-adresser",
-    beskrivelse: "Finn offentlige adresser og eiendomsidentitet til garasjesjekken, eventuelt avgrenset til en kommune.",
+    beskrivelse: "Finn offentlige adresser og eiendomsidentitet til tiltakssjekken, eventuelt avgrenset til en kommune.",
     formaal: "Finne eiendommen innbyggeren ønsker å bygge garasje på",
     valider: ({ sok }) => { readGarasjeSearch(sok); readGarasjeKommune(sok); },
     handter: ({ sok }) => searchGarasjeAdresser(readGarasjeSearch(sok), readGarasjeKommune(sok))

@@ -32,7 +32,7 @@ valgenes verdier. Valgfrie felt samles ikke inn i denne klienten. Et tall i en
 behovsbeskrivelse velger ikke et menypunkt; skriv for eksempel «2» eller «den andre»
 for å velge fra listen.
 
-Byggesjekken har ett unntak: tiltaksspesifikke felt er valgfrie i den felles
+[Tiltakssjekken «Kan du bygge uten å søke?»](../../docs/garasjesjekk.md) har ett unntak: tiltaksspesifikke felt er valgfrie i den felles
 prosessdefinisjonen, men må likevel samles inn for valgt tiltak. Dialogen velger
 bare den aktuelle kataloggrenen. Uten tiltakstype beholder den de opprinnelige
 garasjespørsmålene, slik at eldre samtaleklienter ikke hopper over mål og avstander.
@@ -66,7 +66,7 @@ går tilbake til det opprinnelige feltet uten å lagre meldingen som et svar.
 - `GET /agent/sessions/{sessionId}` henter status for økten
 - `POST /agent/sessions/{sessionId}/messages` sender en brukermelding
 
-Garasjedialogen og sluttrådet henter PDF-kunnskap gjennom `tools-api`: først
+Tiltaksdialogen og sluttrådet henter PDF-kunnskap gjennom `tools-api`: først
 dokumentlisten med kildemetadata, deretter et søk avgrenset til dokumenter som
 passer kjent kommune og plan. Svaret har høyst tre utdrag på 1800 tegn med
 sidehenvisninger og kvalitetsvarsler. Et søketreff bekrefter ikke at planen

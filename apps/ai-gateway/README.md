@@ -188,7 +188,7 @@ respekteres.
 
 #### Slik legger du til en tung oppgave
 
-Garasjerådet forklarer bare den oppgitte deterministiske vurderingen.
+[Tiltakssjekkens råd](../../docs/garasjesjekk.md) forklarer bare den oppgitte deterministiske vurderingen.
 Tillatende prosa som motsier reglene erstattes i sin helhet, ikke bare gjennom
 et endret utfallsfelt. Alle uavklarte regelvilkår beholdes uten tekst- eller
 antallskutt. Mock-provider, modellfeil og ugyldig JSON gir eksplisitt merket
@@ -199,7 +199,7 @@ dokumenthenting, eller send ferdig hentede utdrag i konteksten. Utdragene
 projiseres med dokument, side, kildeadresse og kvalitetsvarsler; et vektortreff
 setter aldri planbestemmelsene til kontrollert. Kontrakten står i
 `openapi/ai-gateway.yaml`. Dokumentstrukturering og sidelesing har en eksplisitt
-policy uten reasoning og forblir uavhengige av garasjerådet.
+policy uten reasoning og forblir uavhengige av tiltakssjekkens råd.
 
 Policyen er `OPPGAVE_REASONING` i `apps/ai-gateway/src/reasoning.ts`, og `callModel`
 leser den ut fra `task`. Et kallsted bestemmer derfor ikke selv.
