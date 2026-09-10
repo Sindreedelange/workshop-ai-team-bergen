@@ -6,7 +6,7 @@
     <filter id="shadow" x="-15%" y="-15%" width="130%" height="140%"><feDropShadow dx="0" dy="7" stdDeviation="8" flood-color="#17324d" flood-opacity=".14"/></filter>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0l10 5-10 5z" fill="#54718c"/></marker>
     <style>
-      .title{font:700 34px system-ui,sans-serif;fill:#10283d}.subtitle{font:400 17px system-ui,sans-serif;fill:#4d6478}.h{font:700 19px system-ui,sans-serif;fill:#10283d}.t{font:400 14px system-ui,sans-serif;fill:#40586c}.small{font:600 12px system-ui,sans-serif;fill:#62798c;letter-spacing:.5px}.box{fill:#fff;stroke:#c5d5e2;stroke-width:1.5;rx:18;filter:url(#shadow)}.primary{fill:#e5f3ff;stroke:#68a9d6}.evidence{fill:#fff4db;stroke:#dba83a}.knowledge{fill:#e5f7ef;stroke:#55a985}.approved{fill:#e9f7e8;stroke:#61a35e}.line{fill:none;stroke:#54718c;stroke-width:2.2;marker-end:url(#arrow)}.dash{stroke-dasharray:7 6}.pill{rx:11}.white{fill:#fff}
+      .title{font:700 34px system-ui,sans-serif;fill:#10283d}.subtitle{font:400 17px system-ui,sans-serif;fill:#4d6478}.h{font:700 19px system-ui,sans-serif;fill:#10283d}.t{font:400 14px system-ui,sans-serif;fill:#40586c}.small{font:600 12px system-ui,sans-serif;fill:#62798c;letter-spacing:.5px}.box{fill:#fff;stroke:#c5d5e2;stroke-width:1.5;rx:18;filter:url(#shadow)}.primary{fill:#e5f3ff;stroke:#68a9d6}.evidence{fill:#fff4db;stroke:#dba83a}.knowledge{fill:#e5f7ef;stroke:#55a985}.line{fill:none;stroke:#54718c;stroke-width:2.2;marker-end:url(#arrow)}.dash{stroke-dasharray:7 6}.pill{rx:11}.white{fill:#fff}
     </style>
   </defs>
   <rect width="1440" height="900" fill="url(#bg)"/>
@@ -36,10 +36,9 @@
 
   <path class="line" d="M1245 335V430"/>
   <rect class="box" x="1050" y="430" width="322" height="180"/>
-  <text class="small" x="1075" y="459">MENNESKELIG KONTROLL</text><text class="h" x="1075" y="495">Rapport i nettleseren</text>
-  <circle cx="1085" cy="527" r="7" fill="#e2aa2e"/><text class="t" x="1103" y="532">Gult: gjennomgang kreves</text>
-  <circle cx="1085" cy="557" r="7" fill="#4a8dbb"/><text class="t" x="1103" y="562">Blått: gjennomgang valgfri</text>
-  <circle cx="1085" cy="587" r="7" fill="#56a35c"/><text class="t" x="1103" y="592">Grønt: godkjent og publisert</text>
+  <text class="small" x="1075" y="459">KVALITETSFLAGG</text><text class="h" x="1075" y="495">Rapport i nettleseren</text>
+  <circle cx="1085" cy="537" r="7" fill="#e2aa2e"/><text class="t" x="1103" y="542">Gult: kontroll anbefales</text>
+  <circle cx="1085" cy="572" r="7" fill="#56a35c"/><text class="t" x="1103" y="577">Grønt: ingen kjente problemer</text>
 
   <path class="line" d="M1117 294H965V468H860"/>
   <rect class="box knowledge" x="565" y="430" width="295" height="180"/>
@@ -49,13 +48,13 @@
   <path class="line" d="M565 490H450"/>
   <rect class="box primary" x="70" y="414" width="380" height="202"/>
   <text class="small" x="95" y="443">BRUK</text><text class="h" x="95" y="479">Agenter og applikasjoner</text>
-  <text class="t" x="95" y="511">pdf_get_context - hele dokumentet</text><text class="t" x="95" y="539">pdf_search - semantiske vektortreff</text><text class="t" x="95" y="567">pdf_get_extraction - bevis og revisjon</text><text class="t" x="95" y="594">Alle treff peker tilbake til side og dokument</text>
+  <text class="t" x="95" y="511">pdf_read_document - hele dokumentet</text><text class="t" x="95" y="539">pdf_search_chunks - semantiske treff</text><text class="t" x="95" y="567">pdf_get_extraction_result - bevis</text><text class="t" x="95" y="594">Alle treff peker tilbake til side og dokument</text>
 
   <path class="line" d="M1210 610V706H923"/>
-  <rect class="box approved" x="565" y="690" width="358" height="143"/>
-  <text class="small" x="590" y="719">VERSJONERT ETTER GODKJENNING</text><text class="h" x="590" y="755">data/pdf/approved/</text>
-  <text class="t" x="590" y="786">Detaljert JSON + Markdown + JSONL</text><text class="t" x="590" y="810">Tilgjengelig fra en ren Git-checkout</text>
+  <rect class="box knowledge" x="565" y="690" width="358" height="143"/>
+  <text class="small" x="590" y="719">VEDVARENDE LOKAL KUNNSKAP</text><text class="h" x="590" y="755">state/pdf-extractor/</text>
+  <text class="t" x="590" y="786">PDF + JSON + Markdown + JSONL + SQLite</text><text class="t" x="590" y="810">Bygges automatisk ved uttrekk og oppstart</text>
 
   <rect x="70" y="738" width="380" height="80" rx="16" fill="#fff" stroke="#c5d5e2"/>
-  <text class="small" x="94" y="768">LOKALT FØR GODKJENNING</text><text class="t" x="94" y="795">state/pdf-extractor/ - kan brukes straks, men pushes ikke til Git</text>
+  <text class="small" x="94" y="768">ENKEL FLYT</text><text class="t" x="94" y="795">Last opp → trekk ut → søk. Resultatet kan brukes med en gang.</text>
 </svg>

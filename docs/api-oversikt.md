@@ -113,10 +113,11 @@ den som leser uten å kjøre stacken.
 | `brreg_get_organisation` | Hent organisasjon på orgnr |
 | `folkeregister_search_persons` | Søk i folkeregisteret |
 | `folkeregister_get_person` | Hent person på fødselsnummer |
-| `pdf_start_extraction` | Start uttrekk for en opplastet PDF |
-| `pdf_get_extraction` | Hent jobbstatus eller strukturert PDF-uttrekk |
-| `pdf_get_context` | Hent kompakt dokumentinnhold for modellkontekst |
-| `pdf_search` | Semantisk søk i kildeforankrede dokumentbiter fra den innebygde vektordatabasen |
+| `pdf_reprocess_document` | Kjør uttrekk og indeksering på nytt; vanlig opplasting starter dette automatisk |
+| `pdf_get_job_status` | Følg en uttrekksjobb til `completed` eller `failed` |
+| `pdf_get_extraction_result` | Hent strukturert PDF-uttrekk og kildebevis |
+| `pdf_read_document` | Hent hele det kompakte dokumentinnholdet |
+| `pdf_search_chunks` | Semantisk søk i kildeforankrede dokumentbiter fra den innebygde vektordatabasen |
 
 </details>
 

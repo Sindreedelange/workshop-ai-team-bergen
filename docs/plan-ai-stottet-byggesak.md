@@ -144,8 +144,8 @@ Relevant eksisterende grunnmur:
 - `matrikkel-mock` på `8085`: eiendom, adresse, eiere og koordinater.
 - `digdir-mock` på `8086`: ID-porten og Maskinporten.
 - `pdf-extractor` på `8089`: kildeforankret PDF-uttrekk og søk, inkludert profilen
-  `arealplan`, med menneskelig godkjenning før uttrekk publiseres som varig
-  kunnskapsgrunnlag.
+  `arealplan`. Opplasting starter uttrekk og vektorindeksering automatisk;
+  kvalitetsflagg følger alle treff uten å blokkere bruk.
 - `demo-gui` på `3001` og `process-builder` på `3000`.
 
 Viktig status ved overleveringen: arbeidskopien er allerede skitten med et pågående,
@@ -159,8 +159,8 @@ før implementasjon.
 - Matrikkel-fixturene inneholder gate/adresse, gårds- og bruksnummer, koordinater,
   boligtype og eierforhold.
 - PDF-tjenesten kan trekke kildeblokker, planmetadata og RAG-klare utdrag fra
-  planfaglige PDF-er. Et lokalt uttrekk kan brukes som arbeidsmateriale;
-  menneskegodkjenning kreves før det blir varig, versjonert seed-kunnskap.
+  planfaglige PDF-er. Uttrekket blir søkbart automatisk og markerer usikkerhet,
+  OCR og komplekse sider med kvalitetsflagg.
 - Sandkassen har sentral samtykkekontroll, tidsriktig gating av resultater,
   revisjonslogg, AI-spor, deterministiske vilkår og søknads-/SvarUt-flyt.
 - KS Digital-stilene finnes lokalt i `apps/shared`. De kan brukes uten å introdusere
@@ -361,7 +361,7 @@ Utvid kun `ai-gateway` med avgrensede, skjemastyrte oppgaver:
 
 - trekk ut et forslag til tiltak fra brukerens beskrivelse, med eksplisitte
   usikkerheter;
-- forklar et konkret regelfunn med bare de godkjente kildene som følger forespørselen;
+- forklar et konkret regelfunn med bare de kildeforankrede treffene som følger forespørselen;
 - skriv utkast til tiltakstekst, nabovarsel, søknadsbegrunnelse eller
   dispensasjonsbegrunnelse;
 - oppsummer åpne spørsmål for en fagperson eller kommunal saksbehandler.

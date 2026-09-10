@@ -61,4 +61,3 @@ class ExtractionDocument(BaseModel):
     profileData: dict[str, Any]
     unclassified: list[dict[str, Any]]
     quality: dict[str, Any]
-    review: dict[str, Any] | None = None

@@ -48,6 +48,20 @@ export type Sporsmaalskontekst = {
   /** Sandkassens egen personvernerklæring. Settes alltid av sanitize, aldri av kaller. */
   personvern?: { punkter?: string[]; [felt: string]: unknown };
   mineEiendommer?: unknown;
+  /** Godkjente, kildeforankrede treff fra PDF-kunnskapsbasen. */
+  dokumentkunnskap?: {
+    chunkId?: string;
+    documentId?: string;
+    title?: string;
+    page?: number;
+    authority?: string;
+    text?: string;
+    score?: number;
+    ruleIds?: string[];
+    knowledgeStatus?: string;
+    checkRecommended?: boolean;
+    qualityWarnings?: string[];
+  }[];
   samtale?: unknown;
   [felt: string]: unknown;
 };
@@ -636,6 +650,29 @@ export function sanitizeSporsmaalKontekst(kontekst: unknown): Sporsmaalskontekst
     };
   }
 
+  if (Array.isArray(inn.dokumentkunnskap)) {
+    ut.dokumentkunnskap = inn.dokumentkunnskap
+      .slice(0, 5)
+      .filter((treff) => treff && typeof treff.text === "string")
+      .map((treff) => ({
+        chunkId: typeof treff.chunkId === "string" ? treff.chunkId.slice(0, 200) : undefined,
+        documentId: typeof treff.documentId === "string" ? treff.documentId.slice(0, 200) : undefined,
+        title: typeof treff.title === "string" ? treff.title.slice(0, 500) : undefined,
+        page: Number.isInteger(treff.page) && treff.page > 0 ? treff.page : undefined,
+        authority: typeof treff.authority === "string" ? treff.authority.slice(0, 50) : undefined,
+        text: treff.text.slice(0, 3500),
+        score: typeof treff.score === "number" ? treff.score : undefined,
+        knowledgeStatus: typeof treff.knowledgeStatus === "string" ? treff.knowledgeStatus.slice(0, 50) : undefined,
+        checkRecommended: treff.checkRecommended === true,
+        qualityWarnings: Array.isArray(treff.qualityWarnings)
+          ? treff.qualityWarnings.filter((warning: unknown) => typeof warning === "string").slice(0, 10).map((warning: string) => warning.slice(0, 500))
+          : undefined,
+        ruleIds: Array.isArray(treff.ruleIds)
+          ? treff.ruleIds.filter((id: unknown) => typeof id === "string").slice(0, 20).map((id: string) => id.slice(0, 100))
+          : undefined
+      }));
+  }
+
   return ut;
 }
 
@@ -653,6 +690,12 @@ export function buildGrunnlag(kontekst: Sporsmaalskontekst): { kilder: string[];
   if (kontekst.samtykke) kilder.push("Samtykkestatus");
   if (kontekst.personvern) kilder.push("Personvernerklæring");
   if (kontekst.mineEiendommer) kilder.push("Dine eiendommer (matrikkel)");
+  for (const treff of kontekst.dokumentkunnskap || []) {
+    const navn = treff.title || treff.documentId || "PDF-dokument";
+    const side = treff.page ? `, side ${treff.page}` : "";
+    const kvalitet = treff.checkRecommended ? " – kontroll anbefales" : "";
+    kilder.push(`${navn}${side}${kvalitet}`);
+  }
 
   return { kilder, verdier: kontekst };
 }

@@ -7,6 +7,13 @@ servers:
   - url: http://localhost:8089
 security: []
 paths:
+  /revisjon:
+    get:
+      summary: Vis lokal revisjonslogg for dokumentlesing og søk
+      parameters:
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 1000, default: 100 } }
+      responses:
+        "200": { description: Kildebruk uten spørsmålstekst eller dokumentinnhold }
   /docs:
     get:
       summary: Interaktiv API-dokumentasjon
@@ -34,7 +41,7 @@ paths:
         "200": { description: Tjenesten svarer }
   /dokumenter:
     get:
-      summary: List opplastede og godkjente dokumenter
+      summary: List opplastede og ferdig ekstraherte dokumenter
       responses:
         "200": { description: Dokumentliste }
     post:
@@ -52,12 +59,12 @@ paths:
                 kanoniskUrl: { type: string, format: uri }
                 profil: { type: string, enum: [generic, legal, arealplan], default: generic }
       responses:
-        "201": { description: Dokumentet er lagret }
+        "202": { description: Dokumentet er lagret og uttrekket er lagt i kø; svaret inneholder dokumentId og jobId }
         "400": { description: Ugyldig fil eller metadata }
         "413": { description: Filen er for stor }
   /dokumenter/{documentId}/uttrekk:
     post:
-      summary: Legg et dokumentuttrekk i kø
+      summary: Kjør uttrekk og vektorindeksering på nytt
       parameters:
         - { name: documentId, in: path, required: true, schema: { type: string } }
       responses:
@@ -115,27 +122,6 @@ paths:
       responses:
         "200": { description: Rapport, content: { text/html: { schema: { type: string } } } }
         "404": { description: Rapporten finnes ikke }
-  /dokumenter/{documentId}/godkjenning:
-    get:
-      summary: Hent krav og status for menneskelig kontroll
-      parameters:
-        - { name: documentId, in: path, required: true, schema: { type: string } }
-      responses:
-        "200": { description: Godkjenningsstatus, kontrollgrunner og eventuell godkjenning }
-        "404": { description: Uttrekket finnes ikke }
-    post:
-      summary: Godkjenn og publiser uttrekket som varig kunnskapsgrunnlag
-      parameters:
-        - { name: documentId, in: path, required: true, schema: { type: string } }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/ApprovalRequest" }
-      responses:
-        "200": { description: Uttrekket er godkjent og publisert }
-        "404": { description: Lokalt uttrekk finnes ikke }
-        "422": { description: Kontrollør mangler eller input er ugyldig }
   /dokumenter/{documentId}/sider/{pageNumber}.png:
     get:
       summary: Render av én kildeside
@@ -181,13 +167,6 @@ components:
         profileData: { type: object, additionalProperties: true }
         unclassified: { type: array, items: { type: object, additionalProperties: true } }
         quality: { $ref: "#/components/schemas/Quality" }
-        review: { type: [object, "null"], additionalProperties: true }
-    ApprovalRequest:
-      type: object
-      required: [reviewer]
-      properties:
-        reviewer: { type: string, minLength: 2, maxLength: 120 }
-        note: { type: [string, "null"], maxLength: 1000 }
     SourceMetadata:
       type: object
       required: [kind, filename, retrievedAt, sha256]
@@ -283,7 +262,7 @@ components:
         bbox: { type: array, minItems: 4, maxItems: 4, items: { type: number } }
     Quality:
       type: object
-      required: [warnings, pageCount, textCharacters, ruleCount, semanticModelAvailable, ocrAvailable, visionModelAvailable, visionRequestedPages, requiresHumanReview]
+      required: [warnings, pageCount, textCharacters, ruleCount, semanticModelAvailable, ocrAvailable, visionModelAvailable, visionRequestedPages, checkRecommended]
       properties:
         warnings: { type: array, items: { type: string } }
         pageCount: { type: integer, minimum: 0 }
@@ -296,6 +275,5 @@ components:
         visionModel: { type: [string, "null"] }
         visionModelAvailable: { type: boolean }
         visionRequestedPages: { type: array, items: { type: integer } }
-        reviewRequired: { type: boolean }
-        reviewReasons: { type: array, items: { type: string } }
-        requiresHumanReview: { type: boolean }
+        checkRecommended: { type: boolean }
+        qualityReasons: { type: array, items: { type: string } }

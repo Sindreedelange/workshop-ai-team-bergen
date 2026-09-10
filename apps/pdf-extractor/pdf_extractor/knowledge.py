@@ -16,10 +16,13 @@ AUTHORITY_LABELS = {
 
 
 def knowledge_status(result: ExtractionDocument) -> str:
-    if result.review and result.review.get("status") == "approved":
-        return "approved"
-    required = result.quality.get("reviewRequired", result.profile in {"legal", "arealplan"} or bool(result.quality.get("warnings")))
-    return "review-required" if required else "draft"
+    required = bool(
+        result.quality.get("warnings")
+        or result.quality.get("ocrPages")
+        or result.quality.get("visionRequestedPages")
+        or any(rule.confidence < 0.85 for rule in result.rules)
+    )
+    return "check-recommended" if required else "ready"
 
 
 def _split_text(text: str, limit: int = 3500, preserve_lines: bool = False) -> list[str]:
@@ -72,6 +75,8 @@ def _base_chunk(result: ExtractionDocument, page: int, page_type: str, authority
         "documentId": result.documentId,
         "profile": result.profile,
         "knowledgeStatus": knowledge_status(result),
+        "checkRecommended": knowledge_status(result) == "check-recommended",
+        "qualityWarnings": [str(warning) for warning in result.quality.get("warnings", [])[:10]],
         "sourceSha256": result.source.sha256,
         "title": result.document.get("title"),
         "page": page,
@@ -141,7 +146,7 @@ def build_knowledge_chunks(result: ExtractionDocument) -> list[dict[str, Any]]:
 def build_knowledge_markdown(result: ExtractionDocument, chunks: list[dict[str, Any]] | None = None) -> str:
     chunks = chunks if chunks is not None else build_knowledge_chunks(result)
     plan_id = result.profileData.get("arealplan", {}).get("planId")
-    status_labels = {"approved": "godkjent", "review-required": "krever gjennomgang", "draft": "lokalt utkast"}
+    status_labels = {"check-recommended": "kan brukes – kontroll anbefales", "ready": "klar til bruk"}
     lines = [
         f"# {result.document.get('title') or result.source.filename}",
         "",

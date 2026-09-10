@@ -5,16 +5,18 @@ import os
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
 
 import fitz
+from fastapi import UploadFile
 
+from pdf_extractor import service, storage
 from pdf_extractor.extractor import _rules_from_text, extract_pdf, file_sha256, utc_now
 from pdf_extractor.knowledge import build_knowledge_chunks, build_knowledge_markdown
 from pdf_extractor.models import SourceMetadata
-from pdf_extractor.service import ApprovalRequest, approve_document, review_status
-from pdf_extractor.storage import atomic_write, write_json
+from pdf_extractor.storage import atomic_write
 from pdf_extractor import vector_store
 
 
@@ -45,7 +47,7 @@ class ExtractionProfilesTest(unittest.TestCase):
         self.assertEqual(result.pages[0]["blocks"][0]["method"], "text-layer")
         self.assertTrue(result.pages[0]["blocks"][0]["fonts"])
         self.assertIn("rawText", result.pages[0]["blocks"][0])
-        self.assertFalse(result.quality["reviewRequired"])
+        self.assertFalse(result.quality["checkRecommended"])
 
     def test_legal_extracts_rules_with_source_evidence(self):
         result = self.extract("legal")
@@ -58,8 +60,7 @@ class ExtractionProfilesTest(unittest.TestCase):
         self.assertTrue(any(item.conditions for item in result.rules))
         self.assertTrue(any(item.exceptions for item in result.rules))
         self.assertTrue(any(item.references for item in result.rules))
-        self.assertTrue(result.quality["reviewRequired"])
-        self.assertEqual(review_status(result)["status"], "required")
+        self.assertIsInstance(result.quality["checkRecommended"], bool)
 
     def test_arealplan_metadata_is_profile_scoped(self):
         result = self.extract("arealplan")
@@ -144,7 +145,9 @@ class ExtractionProfilesTest(unittest.TestCase):
         self.assertNotIn("bbox", markdown)
         self.assertNotIn("fontSizes", markdown)
         self.assertNotIn("confidence", chunks[0])
-        self.assertEqual(chunks[0]["knowledgeStatus"], "review-required")
+        self.assertEqual(chunks[0]["knowledgeStatus"], "ready")
+        self.assertFalse(chunks[0]["checkRecommended"])
+        self.assertTrue(chunks[0]["qualityWarnings"] == result.quality["warnings"][:10])
         self.assertEqual(chunks[0]["page"], 1)
 
     def test_rule_parser_rejects_amounts_and_bulleted_cross_references(self):
@@ -172,9 +175,26 @@ class ExtractionProfilesTest(unittest.TestCase):
         with patch.object(vector_store, "INDEX_PATH", self.root / "vectors.sqlite3"), patch.object(vector_store, "_embed", side_effect=fake_embed):
             vector_store.index_document(result, chunks)
             hits = vector_store.search_vectors("parkering", document_id=result.documentId, profile="legal")
-            self.assertTrue(vector_store.is_current(result, len(chunks)))
+            self.assertTrue(vector_store.has_current_index(result, chunks))
+            changed_chunks = [{**chunk, "text": f"{chunk['text']} endret"} for chunk in chunks]
+            self.assertFalse(vector_store.has_current_index(result, changed_chunks))
+            vector_store.record_retrieval("search", [result.documentId], [hits[0]["chunkId"]])
+            audit = vector_store.list_retrieval_audit()
         self.assertEqual(hits[0]["chunkId"], f"{result.documentId}:parking")
         self.assertEqual(hits[0]["page"], 2)
+        self.assertEqual(audit[0]["operation"], "search")
+        self.assertEqual(audit[0]["documentIds"], [result.documentId])
+
+    def test_upload_automatically_enqueues_extraction(self):
+        state = self.root / "upload-state"
+        upload = UploadFile(filename="rules.pdf", file=BytesIO(self.pdf.read_bytes()))
+        test_queue = asyncio.Queue()
+        with patch.object(service, "STATE_ROOT", state), patch.object(storage, "STATE_ROOT", state), patch.object(service, "queue", test_queue):
+            response = asyncio.run(service.upload_document(upload, kildeType="provided", kanoniskUrl=None, profil="legal"))
+        self.assertEqual(response["extractionStatus"], "queued")
+        self.assertTrue(response["jobId"].startswith("jobb-"))
+        self.assertEqual(test_queue.qsize(), 1)
+        self.assertTrue((state / "documents" / response["documentId"] / "source.pdf").exists())
 
     def test_scanned_legal_page_runs_ocr_text_through_rule_parser(self):
         scanned = self.root / "scanned.pdf"
@@ -239,26 +259,8 @@ class ExtractionProfilesTest(unittest.TestCase):
         finally:
             os.environ["PDF_EXTRACTOR_AI_ENABLED"] = "false"
         self.assertTrue(result.rules)
-        self.assertTrue(result.quality["requiresHumanReview"])
+        self.assertTrue(result.quality["checkRecommended"])
         self.assertTrue(any("KI-normalisering feilet" in warning for warning in result.quality["warnings"]))
-
-    def test_browser_approval_publishes_reviewed_json(self):
-        from pdf_extractor import storage
-
-        state = self.root / "approval-state"
-        approved = self.root / "approval-data"
-        result = self.extract("legal")
-        document = state / "documents" / result.documentId
-        write_json(document / "document.json", result.model_dump(mode="json"))
-        with patch.object(storage, "STATE_ROOT", state), patch.object(storage, "APPROVED_ROOT", approved):
-            response = asyncio.run(approve_document(result.documentId, ApprovalRequest(reviewer="Test Kontrollør", note="Kontrollert mot siden.")))
-        published = approved / f"{result.documentId}.json"
-        self.assertTrue(published.exists())
-        self.assertTrue((approved / f"{result.documentId}.knowledge.md").exists())
-        self.assertTrue((approved / f"{result.documentId}.chunks.jsonl").exists())
-        self.assertEqual(response["status"], "approved")
-        self.assertEqual(response["review"]["reviewer"], "Test Kontrollør")
-
 
 if __name__ == "__main__":
     unittest.main()

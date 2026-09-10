@@ -480,8 +480,8 @@ const tjenester: Tjeneste[] = [
       { metode: "GET", sti: "/dokumenter/{documentId}/kunnskap.md" },
       { metode: "GET", sti: "/dokumenter/{documentId}/biter" },
       { metode: "GET", sti: "/dokumenter/{documentId}/rapport" },
-      { metode: "GET", sti: "/dokumenter/{documentId}/godkjenning" }, { metode: "POST", sti: "/dokumenter/{documentId}/godkjenning" },
-      { metode: "GET", sti: "/dokumenter/{documentId}/sider/{pageNumber}.png" }, { metode: "POST", sti: "/sok" }
+      { metode: "GET", sti: "/dokumenter/{documentId}/sider/{pageNumber}.png" }, { metode: "POST", sti: "/sok" },
+      { metode: "GET", sti: "/revisjon" }
     ]
   },
   {

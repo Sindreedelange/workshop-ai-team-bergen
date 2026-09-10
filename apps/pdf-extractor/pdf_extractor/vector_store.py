@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 import os
 import sqlite3
 import struct
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
 from typing import Any, Iterable
+from uuid import uuid4
 
 from fastembed import TextEmbedding
 
@@ -19,8 +22,10 @@ from .storage import STATE_ROOT
 MODEL_NAME = os.getenv("PDF_EMBEDDING_MODEL", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
 MODEL_CACHE = Path(os.getenv("PDF_EMBEDDING_CACHE_DIR", "/opt/pdf-embedding-model"))
 INDEX_PATH = Path(os.getenv("PDF_VECTOR_DB", STATE_ROOT / "vectors.sqlite3"))
+INDEX_VERSION = 3
 _model: TextEmbedding | None = None
 _model_lock = Lock()
+_index_lock = Lock()
 
 
 def _embedding_model() -> TextEmbedding:
@@ -43,16 +48,19 @@ def _unpack(value: bytes) -> tuple[float, ...]:
     return struct.unpack(f"<{len(value) // 4}f", value)
 
 
-def _connect() -> sqlite3.Connection:
-    INDEX_PATH.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(INDEX_PATH)
+def _connect(path: Path | None = None) -> sqlite3.Connection:
+    path = path or INDEX_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(path)
     connection.execute("PRAGMA journal_mode=WAL")
     connection.execute("PRAGMA foreign_keys=ON")
+    version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+    if version != INDEX_VERSION:
+        connection.executescript("DROP TABLE IF EXISTS chunks; DROP TABLE IF EXISTS documents; DROP TABLE IF EXISTS retrieval_audit;")
     connection.executescript("""
         CREATE TABLE IF NOT EXISTS documents (
             document_id TEXT PRIMARY KEY,
-            source_sha256 TEXT NOT NULL,
-            chunk_count INTEGER NOT NULL
+            fingerprint TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS chunks (
             chunk_id TEXT PRIMARY KEY,
@@ -66,13 +74,23 @@ def _connect() -> sqlite3.Connection:
         );
         CREATE INDEX IF NOT EXISTS chunks_document ON chunks(document_id);
         CREATE INDEX IF NOT EXISTS chunks_profile ON chunks(profile);
+        CREATE TABLE IF NOT EXISTS retrieval_audit (
+            event_id TEXT PRIMARY KEY,
+            timestamp TEXT NOT NULL,
+            operation TEXT NOT NULL,
+            document_ids TEXT NOT NULL,
+            chunk_ids TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS retrieval_audit_timestamp ON retrieval_audit(timestamp);
     """)
+    connection.execute(f"PRAGMA user_version={INDEX_VERSION}")
+    connection.commit()
     return connection
 
 
 @contextmanager
-def _database():
-    connection = _connect()
+def _database(path: Path | None = None):
+    connection = _connect(path)
     try:
         with connection:
             yield connection
@@ -80,43 +98,94 @@ def _database():
         connection.close()
 
 
-def index_document(result: ExtractionDocument, chunks: list[dict[str, Any]]) -> None:
-    texts = [str(chunk["text"]) for chunk in chunks]
-    vectors = _embed(texts) if texts else []
-    with _database() as connection:
-        connection.execute("BEGIN IMMEDIATE")
-        connection.execute("DELETE FROM documents WHERE document_id = ?", (result.documentId,))
-        connection.execute(
-            "INSERT INTO documents(document_id, source_sha256, chunk_count) VALUES (?, ?, ?)",
-            (result.documentId, result.source.sha256, len(chunks)),
-        )
-        connection.executemany(
-            "INSERT INTO chunks(chunk_id, document_id, profile, page, text, metadata, embedding) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            [
-                (
-                    chunk["chunkId"],
-                    result.documentId,
-                    result.profile,
-                    int(chunk["page"]),
-                    text,
-                    json.dumps(chunk, ensure_ascii=False),
-                    _pack(vector),
-                )
-                for chunk, text, vector in zip(chunks, texts, vectors, strict=True)
-            ],
-        )
+def index_fingerprint(result: ExtractionDocument, chunks: list[dict[str, Any]]) -> str:
+    content = json.dumps(
+        {"version": INDEX_VERSION, "model": MODEL_NAME, "documentId": result.documentId, "chunks": chunks},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
-def is_current(result: ExtractionDocument, chunk_count: int) -> bool:
+def index_document(result: ExtractionDocument, chunks: list[dict[str, Any]], path: Path | None = None) -> None:
+    with _index_lock:
+        texts = [str(chunk["text"]) for chunk in chunks]
+        vectors = _embed(texts) if texts else []
+        with _database(path) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute("DELETE FROM documents WHERE document_id = ?", (result.documentId,))
+            connection.execute(
+                "INSERT INTO documents(document_id, fingerprint) VALUES (?, ?)",
+                (result.documentId, index_fingerprint(result, chunks)),
+            )
+            connection.executemany(
+                "INSERT INTO chunks(chunk_id, document_id, profile, page, text, metadata, embedding) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (
+                        chunk["chunkId"],
+                        result.documentId,
+                        result.profile,
+                        int(chunk["page"]),
+                        text,
+                        json.dumps(chunk, ensure_ascii=False),
+                        _pack(vector),
+                    )
+                    for chunk, text, vector in zip(chunks, texts, vectors, strict=True)
+                ],
+            )
+
+
+def has_current_index(result: ExtractionDocument, chunks: list[dict[str, Any]]) -> bool:
     with _database() as connection:
         row = connection.execute(
-            "SELECT source_sha256, chunk_count FROM documents WHERE document_id = ?",
+            "SELECT fingerprint FROM documents WHERE document_id = ?",
             (result.documentId,),
         ).fetchone()
-    return bool(row and row[0] == result.source.sha256 and row[1] == chunk_count)
+    return bool(row and row[0] == index_fingerprint(result, chunks))
 
 
-def search_vectors(query: str, limit: int = 10, document_id: str | None = None, profile: str | None = None) -> list[dict[str, Any]]:
+def has_document(document_id: str) -> bool:
+    with _database() as connection:
+        return connection.execute("SELECT 1 FROM documents WHERE document_id = ?", (document_id,)).fetchone() is not None
+
+
+def record_retrieval(operation: str, document_ids: list[str], chunk_ids: list[str] | None = None) -> None:
+    """Record source use without retaining the user's query or extracted text."""
+    with _database() as connection:
+        connection.execute(
+            "INSERT INTO retrieval_audit(event_id, timestamp, operation, document_ids, chunk_ids) VALUES (?, ?, ?, ?, ?)",
+            (
+                f"pdf-audit-{uuid4().hex}",
+                datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                operation,
+                json.dumps(document_ids, ensure_ascii=False),
+                json.dumps(chunk_ids or [], ensure_ascii=False),
+            ),
+        )
+
+
+def list_retrieval_audit(limit: int = 100) -> list[dict[str, Any]]:
+    with _database() as connection:
+        rows = connection.execute(
+            "SELECT event_id, timestamp, operation, document_ids, chunk_ids FROM retrieval_audit ORDER BY timestamp DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return [
+        {
+            "eventId": row[0],
+            "timestamp": row[1],
+            "operation": row[2],
+            "documentIds": json.loads(row[3]),
+            "chunkIds": json.loads(row[4]),
+        }
+        for row in rows
+    ]
+
+
+def search_vectors(query: str, limit: int = 10, document_id: str | None = None, profile: str | None = None, document_ids: list[str] | None = None) -> list[dict[str, Any]]:
+    if document_ids is not None and not document_ids:
+        return []
     query_vector = _embed([query])[0]
     clauses: list[str] = []
     values: list[Any] = []
@@ -126,6 +195,9 @@ def search_vectors(query: str, limit: int = 10, document_id: str | None = None, 
     if profile:
         clauses.append("profile = ?")
         values.append(profile)
+    if document_ids is not None:
+        clauses.append(f"document_id IN ({','.join('?' for _ in document_ids)})")
+        values.extend(document_ids)
     where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
     with _database() as connection:
         rows = connection.execute(f"SELECT metadata, embedding FROM chunks{where}", values).fetchall()

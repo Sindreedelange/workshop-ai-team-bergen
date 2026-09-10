@@ -19,13 +19,11 @@ er en regresjonsfixture for denne generelle logikken.
 
 - Runtime: `state/pdf-extractor/documents/<documentId>/`. Her ligger original-PDF,
   `document.json`, kontrollrapport, siderenderinger, `knowledge.md` og `chunks.jsonl`.
-- Godkjente uttrekk: `data/pdf/approved/`. En godkjenning publiserer tre filer:
-  detaljert `<id>.json`, kompakt `<id>.knowledge.md` og RAG-klare
-  `<id>.chunks.jsonl`.
 - Representative test-PDF-er: `data/pdf/fixtures/`
 
-`./start.sh --reset` sikkerhetskopierer runtime-data til `_backup/`. Normal
-ekstraksjon skriver aldri i `data/`.
+`state/` er alltid lokal runtime og blir ikke lagt i Git. `./start.sh --reset`
+sikkerhetskopierer runtime-data til `_backup/`. Normal ekstraksjon skriver aldri
+i `data/`.
 
 `document.json` er kontrollgrunnlaget: rå blokker, koordinater, skrifter,
 konfidens, metode og modellspor. Det er med vilje detaljert. Agenter bør normalt
@@ -36,18 +34,32 @@ ligger ferdig i Docker-imaget. Det finnes ingen plan- eller PDF-spesifikk
 søkerangering. Begge svarene beholder dokument-ID, side og innholdstype, slik at
 et svar kan føres tilbake til kontrollgrunnlaget.
 
-## Kontroll og godkjenning
+Opplasting til `POST /dokumenter` starter uttrekk og indeksering automatisk og
+returnerer både dokument-ID og jobb-ID. Jobben blir ikke
+`completed` før `knowledge.md`, `chunks.jsonl` og vektorene er lagret. Ved en
+endring i embeddingmodell eller chunkformat bygger tjenesten automatisk opp
+manglende eller utdaterte indekser ved oppstart. `POST /sok` gjør aldri skjult
+indekseringsarbeid midt i et lesekall.
 
-Den visuelle rapporten viser én av tre tilstander:
+Alle ferdige uttrekk kan brukes av søk og `process-agent` med en gang. Kildebruken
+logges i vektordatabasen og kan kontrolleres på `GET /revisjon`. Spørsmålstekst
+og dokumentinnhold lagres ikke i
+denne revisjonsloggen. Vektorsøket gjør en enkel, dokumentavgrenset fullskanning;
+det er et bevisst valg for sandkassens datamengde, ikke en ANN-løsning for stor
+produksjonsskala.
 
-- Gult: gjennomgang kreves for juridiske dokumenter og arealplaner, OCR,
+## Kvalitetsflagg
+
+Den visuelle rapporten viser én av to tilstander:
+
+- Gult: kontroll anbefales for juridiske dokumenter og arealplaner, OCR,
   forsøkt bildeanalyse, advarsler eller lav konfidens.
-- Blått: gjennomgang er valgfri for et rent, digitalt generelt dokument.
-- Grønt: et menneske har godkjent uttrekket og publisert kunnskapsfilene.
+- Grønt: ingen kjente uttrekksproblemer.
 
-Et lokalt uttrekk kan brukes med en gang. Godkjenning er nødvendig først når
-innholdet skal bli et varig, versjonert kunnskapsgrunnlag i `data/pdf/approved/`.
-Kontrolløren kan godkjenne direkte i rapporten, uten terminal.
+Flagget stopper ikke bruk. Treffene inneholder status, kvalitetsadvarsler, side og
+kildepeker slik at en agent kan ta forbehold eller kontrollere detaljuttrekket.
+PDF-er som inneholder innbyggeropplysninger skal ikke gjøres til denne delte
+kunnskapsbasen; det krever en egen prosess med samtykke og formålsavgrensning.
 
 ![Arkitektur for PDF-extractor](architecture.svg)
 
@@ -60,16 +72,11 @@ set PYTHONPATH=apps/pdf-extractor
 .venv/Scripts/python -m pdf_extractor extract data/pdf/fixtures/b65270000.pdf --profile arealplan
 ```
 
-Et menneskelig kontrollert uttrekk kan publiseres som seed-data:
-
-```bash
-.venv/Scripts/python -m pdf_extractor publish <documentId> --reviewed
-```
-
-HTTP-flyten er opplasting til `POST /dokumenter`, jobbstart på
-`POST /dokumenter/{id}/uttrekk`, status på `GET /jobber/{id}` og resultat eller
-visuell rapport under dokumentet. Helseendepunktet viser konfigurert
-bildeanalysemodell.
+HTTP-flyten er opplasting til `POST /dokumenter`, status på `GET /jobber/{id}` og
+resultat eller visuell rapport under dokumentet. `POST
+/dokumenter/{id}/uttrekk` finnes bare for eksplisitt reprosessering.
+Helseendepunktet viser konfigurert bildeanalysemodell og status for automatisk
+indeksreparasjon.
 
 ## Modeller
 

@@ -8,7 +8,7 @@ from pathlib import Path
 from .extractor import build_review, extract_pdf, file_sha256, utc_now
 from .knowledge import build_knowledge_chunks, build_knowledge_markdown, chunks_jsonl
 from .models import SourceMetadata
-from .storage import atomic_write, document_dir, publish, read_json, write_json
+from .storage import atomic_write, document_dir, read_json, write_json
 from .vector_store import index_document
 
 
@@ -20,14 +20,7 @@ def main() -> None:
     extract.add_argument("--source-kind", choices=["provided", "provided-reference", "discovered"], default="provided")
     extract.add_argument("--source-url")
     extract.add_argument("--profile", choices=["generic", "legal", "arealplan"], default="generic")
-    publish_parser = commands.add_parser("publish")
-    publish_parser.add_argument("document_id")
-    publish_parser.add_argument("--reviewed", action="store_true", required=True)
     args = parser.parse_args()
-
-    if args.command == "publish":
-        print(publish(args.document_id))
-        return
 
     pdf = args.pdf.resolve()
     digest = file_sha256(pdf)

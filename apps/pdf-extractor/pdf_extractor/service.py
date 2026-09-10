@@ -15,8 +15,8 @@ from pydantic import BaseModel, Field
 from .extractor import build_review, extract_pdf, file_sha256, utc_now
 from .knowledge import build_knowledge_chunks, build_knowledge_markdown, chunks_jsonl
 from .models import ExtractionDocument, Profile, SourceKind, SourceMetadata
-from .storage import STATE_ROOT, atomic_write, document_dir, find_result, list_documents, publish, read_json, write_json
-from .vector_store import MODEL_NAME, index_document, is_current, search_vectors
+from .storage import STATE_ROOT, atomic_write, document_dir, find_result, list_documents, read_json, write_json
+from .vector_store import MODEL_NAME, has_current_index, has_document, index_document, list_retrieval_audit, record_retrieval, search_vectors
 
 
 AI_BASE_URL = os.getenv("AI_BASE_URL", "http://ai-gateway:8082")
@@ -24,6 +24,7 @@ OPENAPI_FILE = Path(__file__).resolve().parents[3] / "openapi" / "pdf-extractor.
 MAX_BYTES = int(os.getenv("PDF_EXTRACTOR_MAX_UPLOAD_BYTES", str(100 * 1024 * 1024)))
 jobs: dict[str, dict[str, Any]] = {}
 queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
+index_repair: dict[str, Any] = {"status": "idle", "pending": 0, "errors": []}
 
 
 class SearchRequest(BaseModel):
@@ -31,33 +32,6 @@ class SearchRequest(BaseModel):
     documentId: str | None = None
     profile: Profile | None = None
     limit: int = Field(default=10, ge=1, le=100)
-
-
-class ApprovalRequest(BaseModel):
-    reviewer: str = Field(min_length=2, max_length=120)
-    note: str | None = Field(default=None, max_length=1000)
-
-
-def review_status(result) -> dict[str, Any]:
-    review = result.review or {}
-    required = bool(result.quality.get("reviewRequired", result.profile in {"legal", "arealplan"} or result.quality.get("warnings")))
-    status = "approved" if review.get("status") == "approved" else "required" if required else "optional"
-    reasons = result.quality.get("reviewReasons", [])
-    if required and not reasons and result.profile in {"legal", "arealplan"}:
-        reasons = ["Juridiske dokumenter og plandokumenter krever menneskelig kontroll før de blir varig kunnskapsgrunnlag."]
-    return {
-        "documentId": result.documentId,
-        "status": status,
-        "required": required,
-        "reasons": reasons,
-        "review": result.review,
-        "approvedPath": f"data/pdf/approved/{result.documentId}.json" if status == "approved" else None,
-        "approvedArtifacts": [
-            f"data/pdf/approved/{result.documentId}.json",
-            f"data/pdf/approved/{result.documentId}.knowledge.md",
-            f"data/pdf/approved/{result.documentId}.chunks.jsonl"
-        ] if status == "approved" else []
-    }
 
 
 def knowledge_artifacts(result: ExtractionDocument) -> tuple[str, list[dict[str, Any]]]:
@@ -93,11 +67,7 @@ async def run_job(job_id: str, document_id: str) -> None:
         result = await extract_pdf(directory / "source.pdf", directory, document_id, source, AI_BASE_URL, metadata.get("profile", "generic"))
         write_json(directory / "document.json", result.model_dump(mode="json"))
         _, chunks = write_knowledge_artifacts(directory, result)
-        try:
-            await asyncio.to_thread(index_document, result, chunks)
-        except Exception as error:
-            result.quality.setdefault("warnings", []).append(f"Vektorindeksering feilet: {error}")
-            write_json(directory / "document.json", result.model_dump(mode="json"))
+        await asyncio.to_thread(index_document, result, chunks)
         atomic_write(directory / "review.html", build_review(result))
         job.update(status="completed", completedAt=utc_now(), warnings=result.quality.get("warnings", []))
     except Exception as error:
@@ -117,6 +87,25 @@ async def worker() -> None:
             queue.task_done()
 
 
+async def repair_indexes() -> None:
+    documents = [document for document in list_documents() if find_result(document["documentId"])]
+    index_repair.update(status="running", pending=len(documents), errors=[])
+    for document in documents:
+        try:
+            result_path = find_result(document["documentId"])
+            if not result_path:
+                continue
+            result = ExtractionDocument.model_validate(read_json(result_path))
+            chunks = build_knowledge_chunks(result)
+            if not has_current_index(result, chunks):
+                await asyncio.to_thread(index_document, result, chunks)
+        except Exception as error:
+            index_repair["errors"].append({"documentId": document["documentId"], "error": str(error)})
+        finally:
+            index_repair["pending"] -= 1
+    index_repair["status"] = "completed" if not index_repair["errors"] else "completed-with-errors"
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     STATE_ROOT.mkdir(parents=True, exist_ok=True)
@@ -131,8 +120,10 @@ async def lifespan(_: FastAPI):
             write_json(path, job)
             queue.put_nowait((job["jobId"], document["documentId"]))
     task = asyncio.create_task(worker())
+    repair_task = asyncio.create_task(repair_indexes())
     yield
     task.cancel()
+    repair_task.cancel()
 
 
 app = FastAPI(title="PDF extractor", version="0.1.0", lifespan=lifespan, redoc_url=None)
@@ -141,7 +132,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET", "P
 
 @app.get("/helse")
 async def health():
-    return {"status": "ok", "tjeneste": "pdf-extractor", "tidspunkt": utc_now(), "koelengde": queue.qsize(), "profiler": ["generic", "legal", "arealplan"], "embeddingModel": MODEL_NAME, "visionModel": os.getenv("OLLAMA_VISION_MODEL"), "visionEnabled": os.getenv("PDF_EXTRACTOR_VISION_ENABLED", "true").lower() == "true"}
+    return {"status": "ok", "tjeneste": "pdf-extractor", "tidspunkt": utc_now(), "koelengde": queue.qsize(), "indexRepair": index_repair, "profiler": ["generic", "legal", "arealplan"], "embeddingModel": MODEL_NAME, "visionModel": os.getenv("OLLAMA_VISION_MODEL"), "visionEnabled": os.getenv("PDF_EXTRACTOR_VISION_ENABLED", "true").lower() == "true"}
 
 
 @app.get("/openapi.yaml")
@@ -219,7 +210,7 @@ async def documents():
     return {"count": len(items), "dokumenter": items}
 
 
-@app.post("/dokumenter", status_code=201)
+@app.post("/dokumenter", status_code=202)
 async def upload_document(
     fil: UploadFile = File(...),
     kildeType: SourceKind = Form("provided"),
@@ -254,7 +245,8 @@ async def upload_document(
     source = SourceMetadata(kind=kildeType, filename=fil.filename or "document.pdf", canonicalUrl=kanoniskUrl, retrievedAt=utc_now(), sha256=digest)
     metadata = {"documentId": document_id, "profile": profil, "source": source.model_dump(mode="json"), "uploadedAt": utc_now(), "size": size}
     write_json(directory / "metadata.json", metadata)
-    return metadata
+    job = await enqueue(document_id)
+    return {**metadata, "jobId": job["jobId"], "extractionStatus": job["status"]}
 
 
 @app.post("/dokumenter/{document_id}/uttrekk", status_code=202)
@@ -288,10 +280,12 @@ async def get_job(job_id: str):
 
 @app.get("/dokumenter/{document_id}/uttrekk")
 async def get_extraction(document_id: str):
-    result = find_result(document_id)
-    if not result:
+    result_path = find_result(document_id)
+    if not result_path:
         raise HTTPException(404, "Dokumentet har ikke et ferdig uttrekk.")
-    return read_json(result)
+    result = ExtractionDocument.model_validate(read_json(result_path))
+    await asyncio.to_thread(record_retrieval, "extraction", [document_id])
+    return result.model_dump(mode="json")
 
 
 @app.get("/dokumenter/{document_id}/kunnskap")
@@ -304,6 +298,8 @@ async def get_knowledge(document_id: str, maxChars: int | None = Query(default=N
     truncated = maxChars is not None and len(markdown) > maxChars
     suffix = "\n\n[Innholdet er forkortet. Bruk /biter eller et større maxChars.]\n"
     content = markdown[:max(0, maxChars - len(suffix))].rstrip() + suffix if truncated and maxChars is not None else markdown
+    await asyncio.to_thread(record_retrieval, "document", [document_id])
+    check_recommended = any(chunk.get("checkRecommended") for chunk in chunks)
     return {
         "documentId": document_id,
         "content": content,
@@ -311,7 +307,11 @@ async def get_knowledge(document_id: str, maxChars: int | None = Query(default=N
         "totalCharacters": len(markdown),
         "chunkCount": len(chunks),
         "truncated": truncated,
-        "approval": review_status(result)
+        "quality": {
+            "checkRecommended": check_recommended,
+            "warnings": result.quality.get("warnings", []),
+            "qualityReasons": result.quality.get("qualityReasons", [])
+        }
     }
 
 
@@ -322,6 +322,7 @@ async def get_knowledge_markdown(document_id: str):
         raise HTTPException(404, "Dokumentet har ikke et ferdig uttrekk.")
     result = ExtractionDocument.model_validate(read_json(result_path))
     markdown, _ = read_knowledge_artifacts(document_id, result_path, result)
+    await asyncio.to_thread(record_retrieval, "document", [document_id])
     return PlainTextResponse(markdown, media_type="text/markdown; charset=utf-8")
 
 
@@ -332,7 +333,8 @@ async def get_chunks(document_id: str):
         raise HTTPException(404, "Dokumentet har ikke et ferdig uttrekk.")
     result = ExtractionDocument.model_validate(read_json(result_path))
     _, chunks = read_knowledge_artifacts(document_id, result_path, result)
-    return {"documentId": document_id, "count": len(chunks), "biter": chunks, "approval": review_status(result)}
+    await asyncio.to_thread(record_retrieval, "chunks", [document_id], [str(chunk.get("chunkId")) for chunk in chunks])
+    return {"documentId": document_id, "count": len(chunks), "biter": chunks, "quality": result.quality}
 
 
 @app.get("/dokumenter/{document_id}/rapport", response_class=HTMLResponse)
@@ -341,33 +343,6 @@ async def get_report(document_id: str):
     if not result_path:
         raise HTTPException(404, "Dokumentet har ikke en ferdig rapport.")
     return HTMLResponse(build_review(ExtractionDocument.model_validate(read_json(result_path))))
-
-
-@app.get("/dokumenter/{document_id}/godkjenning")
-async def get_approval(document_id: str):
-    result_path = find_result(document_id)
-    if not result_path:
-        raise HTTPException(404, "Dokumentet har ikke et ferdig uttrekk.")
-    return review_status(ExtractionDocument.model_validate(read_json(result_path)))
-
-
-@app.post("/dokumenter/{document_id}/godkjenning")
-async def approve_document(document_id: str, request: ApprovalRequest):
-    result_path = document_dir(document_id) / "document.json"
-    if not result_path.exists():
-        raise HTTPException(404, "Bare et lokalt, ferdig uttrekk kan godkjennes.")
-    result = ExtractionDocument.model_validate(read_json(result_path))
-    result.review = {
-        "status": "approved",
-        "reviewer": request.reviewer.strip(),
-        "note": request.note.strip() if request.note else None,
-        "approvedAt": utc_now(),
-        "reasonsAtApproval": result.quality.get("reviewReasons", [])
-    }
-    write_json(result_path, result.model_dump(mode="json"))
-    atomic_write(document_dir(document_id) / "review.html", build_review(result))
-    target = publish(document_id)
-    return {**review_status(result), "published": f"data/pdf/approved/{target.name}", "publishedArtifacts": review_status(result)["approvedArtifacts"]}
 
 
 @app.get("/dokumenter/{document_id}/sider/{page_number}.png")
@@ -380,23 +355,44 @@ async def get_page(document_id: str, page_number: int):
 
 @app.post("/sok")
 async def search(request: SearchRequest):
+    selected: list[tuple[dict[str, Any], ExtractionDocument]] = []
     for item in list_documents():
         if request.documentId and item["documentId"] != request.documentId:
+            continue
+        if request.profile and item.get("profile") != request.profile:
             continue
         path = find_result(item["documentId"])
         if not path:
             continue
         result = ExtractionDocument.model_validate(read_json(path))
-        if request.profile and result.profile != request.profile:
+        selected.append((item, result))
+    if request.documentId and not selected:
+        raise HTTPException(404, "Dokumentet finnes ikke eller har ikke et ferdig uttrekk.")
+    searchable: list[ExtractionDocument] = []
+    index_warnings: list[str] = []
+    for _, result in selected:
+        current = has_document(result.documentId) and has_current_index(result, build_knowledge_chunks(result))
+        if current:
+            searchable.append(result)
             continue
-        chunks = build_knowledge_chunks(result)
-        if not is_current(result, len(chunks)):
-            try:
-                await asyncio.to_thread(index_document, result, chunks)
-            except Exception as error:
-                raise HTTPException(503, f"Vektorindeksen er ikke tilgjengelig: {error}") from error
-    hits = await asyncio.to_thread(search_vectors, request.query, request.limit, request.documentId, request.profile)
-    return {"count": len(hits), "treff": hits}
+        message = f"{result.documentId} har ingen oppdatert vektorindeks."
+        if request.documentId:
+            raise HTTPException(409, f"{message} Vent på uttrekksjobben eller kjør reprosessering.")
+        index_warnings.append(message)
+    allowed_ids = [result.documentId for result in searchable]
+    hits = await asyncio.to_thread(search_vectors, request.query, request.limit, request.documentId, request.profile, allowed_ids)
+    await asyncio.to_thread(
+        record_retrieval,
+        "search",
+        sorted({str(hit.get("documentId")) for hit in hits if hit.get("documentId")}),
+        [str(hit.get("chunkId")) for hit in hits if hit.get("chunkId")],
+    )
+    return {"count": len(hits), "treff": hits, "warnings": index_warnings}
+
+
+@app.get("/revisjon")
+async def retrieval_audit(limit: int = Query(default=100, ge=1, le=1000)):
+    return {"events": await asyncio.to_thread(list_retrieval_audit, limit)}
 
 
 if __name__ == "__main__":

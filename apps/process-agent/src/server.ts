@@ -73,6 +73,23 @@ type Matrikkelgate = {
   antallBoligeiendommer?: number;
 };
 
+/** Et kildeforankret treff fra pdf_search_chunks. */
+type PdfTreff = {
+  chunkId?: string;
+  documentId?: string;
+  title?: string;
+  page?: number;
+  authority?: string;
+  text?: string;
+  score?: number;
+  ruleIds?: string[];
+  knowledgeStatus?: string;
+  checkRecommended?: boolean;
+  qualityWarnings?: string[];
+};
+
+type PdfSoekesvar = { treff?: PdfTreff[] };
+
 /** Svaret fra run_current_action: økten etterpå, og hva steget produserte. */
 type Handlingssvar = { oekt?: Oektsvar; resultat?: Stegresultat };
 
@@ -1182,6 +1199,18 @@ async function maybeAnswerCitizenQuestion(state: Agentsesjon, text: string): Pro
   if (!looksLikeCitizenQuestion(text, collectingAnswer)) return null;
 
   try {
+    // Search results carry their extraction/review status. Documents can be
+    // useful immediately; uncertain extraction remains visibly marked.
+    let dokumentkunnskap: PdfTreff[] = [];
+    try {
+      const pdfSvar = await invokeTool<PdfSoekesvar>("pdf_search_chunks", { query: text, limit: 3 });
+      dokumentkunnskap = Array.isArray(pdfSvar?.treff)
+        ? pdfSvar.treff.filter((treff) => typeof treff?.text === "string").slice(0, 3)
+        : [];
+    } catch {
+      // Public-document grounding is optional and must not break the process.
+    }
+
     const svar = await invokeTool<Sidesvar>("answer_citizen_question", {
       tekst: text,
       sporingsId: state.lastSession?.sporingsId,
@@ -1191,6 +1220,7 @@ async function maybeAnswerCitizenQuestion(state: Agentsesjon, text: string): Pro
         steg: state.lastSession?.aktivtSteg || null,
         flyt: buildFlyt(state),
         resultater: state.lastSession?.resultater || null,
+        dokumentkunnskap,
         samtale: recentHistory(state, 6).map((entry) => ({
           rolle: entry.role === "assistant" ? "assistent" : "innbygger",
           tekst: entry.message
