@@ -16,6 +16,50 @@ Bakgrunn:
 
 Seedfilen er stabil og skal være nok for vanlig lokal utvikling. Ved enkelte oppslag kan mocken hente data fra Geonorge dersom et treff mangler i seeden.
 
+### Reelle teiggrenser for Bergen
+
+`GET /mock/matrikkel/teiger?kommunenummer=4601&gnr=105&bnr=209&fnr=0`
+leser `data/matrikkel_bk_25.json`, et separat GeoJSON-uttrekk med 21 258 teiger.
+Dette er reelle grenser, ikke det syntetiske adresse- og eierregisteret over.
+Bare `matrikkel-mock` leser filen; andre tjenester bruker dette endepunktet.
+Se responsen og parameterne i [OpenAPI-kontrakten](../../openapi/matrikkel-mock.yaml).
+
+- Uttrekket er uttrykkelig bundet til Bergen (4601). Filen har ikke kommunenummer
+  eller eget CRS. Koordinatene tolkes etter GeoJSON-standarden som lengdegrad og
+  breddegrad i EPSG:4326, ikke som projiserte meter.
+- 2025 er året utledet av filnavnet, ikke en måledato eller et løfte om oppdaterte
+  grenser. Kilden har ingen nøyaktighets- eller endringsdato som tjenesten kan
+  rapportere. Det lages ingen slike verdier.
+- `OBJECTID` beholdes som kildeidentitet, aldri som en global teigidentifikator.
+  Alle teiger for samme gårds-, bruks- og festenummer beholdes, med alle seksjoner,
+  polygoner og hull i opprinnelig rekkefølge. `fnr` betyr **festenummer** her.
+  Ingen seksjonsfiltrering støttes i denne første versjonen.
+- Enkelte teiger mangler areal i kilden. Den manglende verdien beholdes; den
+  erstattes ikke med et beregnet areal. Eieropplysninger og ukjente felter tas
+  aldri med i teigresponsen, heller ikke fra en alternativ testfil.
+- Andre kommuner får `ikke_dekket` og tom liste, uten å lese Bergen-filen.
+  En eiendom uten treff i Bergen får `tilgjengelig` og tom liste. Klienter som
+  bruker en offentlig kilde som reserve, kan dermed skille manglende dekning
+  fra kildefeil. Denne ruten gjør ikke selv et eksternt reserveoppslag.
+- Manglende fil, ugyldig JSON eller ugyldige felter og koordinater gir **502**.
+  En gammel indeks eller en tom treffliste skjuler aldri feilen.
+
+Filen lastes først ved et oppslag for Bergen, og indeksen deles mellom samtidige
+kall. Filmetadata kontrolleres ved senere oppslag; endringer utløser ny innlasting.
+En feilet innlasting kan prøves igjen etter at filen er rettet. Innlastingen
+kontrollerer felttyper, endelige koordinater og lukkede ringer, men gjør ikke en
+full topologisk kontroll av hele uttrekket.
+
+`MATRIKKEL_TEIG_DATA_FILE` kan settes av den som starter tjenesten for å bruke en
+annen GeoJSON-fil, for eksempel i tester. Det erstatter bare Bergen-kilden, aldri
+kommuneavgrensningen, og er ikke en parameter innbyggere kan velge. API-et viser
+bare filnavnet, ikke den fulle filstien. Et filnavn uten uttrekksår gir ingen
+årsangivelse. Det finnes ikke noe endepunkt for å laste ned hele filen.
+
+`GET /helse` viser sist kjente tilstand og antall fra teigindeksen. Det laster
+ikke teigfilen og leser ikke filmetadata. Feil i teigkilden hindrer ikke oppstart,
+helsesjekken eller de eksisterende adresse-, gate- og SOAP-oppslagene.
+
 ## Kjør lokalt med Node
 
 ```bash
@@ -72,6 +116,7 @@ docker run --rm -p 8085:8085 workshop-ai/matrikkel-mock:local
 - `GET /mock/matrikkel/eiendommer?gate=Storgata`
 - `GET /mock/matrikkel/eiendom-oppslag?adresse=Storgata%205`
 - `GET /mock/matrikkel/eiendom/matr-storg-003`
+- `GET /mock/matrikkel/teiger?kommunenummer=4601&gnr=105&bnr=209&fnr=0`
 
 Responsene for eiendom inneholder nå også rikere mock-felter som `husnummer`, `husbokstav`, `adressekode`, `postnummer`, `poststed`, `koordinater`, `festenummer` og `undernummer` når data finnes eller kan utledes.
 
@@ -81,6 +126,12 @@ Grunnleggende mocktest:
 
 ```bash
 node scripts/test-matrikkel-mock.ts
+```
+
+Teigtest med isolert mock, små testfiler og kontroll av det ekte uttrekket:
+
+```bash
+node scripts/test-matrikkel-teiger.ts
 ```
 
 Bergen bulk-smoke test:

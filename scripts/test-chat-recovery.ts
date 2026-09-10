@@ -42,6 +42,15 @@ async function client(name: "chat" | "agent", respond: (call: Call) => Response 
   let typing = false;
   const context = createContext({
     console,
+    URLSearchParams,
+    location: { search: "" },
+    sandkasseKonfigurasjon: {
+      backendBaseUrl: "http://localhost:8080",
+      aiBaseUrl: "http://localhost:8082",
+      agentBaseUrl: "http://localhost:8084",
+      idportenBaseUrl: "http://localhost:8086",
+      toolsBaseUrl: "http://localhost:8083"
+    },
     setTimeout: (callback: () => void) => { callback(); return 0; },
     document: { createElement: () => new Element(), createTextNode: () => new Element() },
     renderTopNav: () => {},

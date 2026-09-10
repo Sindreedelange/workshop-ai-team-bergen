@@ -7,6 +7,11 @@ import { isGyldigFoedselsnummer } from "../../shared/foedselsnummer.ts";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { cors, readRequestBody, svarhjelpere } from "../../shared/http.ts";
 import { feilmelding } from "../../shared/errors.ts";
+import { buildGarasjeBegrepssvar, isGarasjeKontekst } from "../../shared/garasje-begreper.ts";
+import {
+  GARASJE_DIALOGFELTER, isGarasjeDialogfeltId, normalizeQuestionFieldAnswer, validateGarasjeDialogSvar
+} from "../../shared/garasje-dialog.ts";
+import type { GarasjeDialogfeltId } from "../../shared/garasje-dialog.ts";
 
 const port = Number(process.env.PORT || 8084);
 const toolsBaseUrl = process.env.TOOLS_BASE_URL || "http://tools-api:8083";
@@ -113,6 +118,7 @@ type Oektsvar = {
   totaltAntallSteg?: number;
   aktivtSteg?: Agentsteg | null;
   status?: string;
+  avslutning?: string;
   avvistMelding?: string;
   resultater?: Record<string, Stegresultat | undefined>;
   [felt: string]: unknown;
@@ -164,6 +170,7 @@ type Agentsesjon = {
 };
 
 const sessions = new Map<string, Agentsesjon>();
+const busySessions = new Set<string>();
 
 // See apps/shared/http.ts for the CORS rationale.
 const { jsonResponse: json, textResponse: sendTekst } = svarhjelpere({
@@ -226,6 +233,9 @@ function stemToken(token: string): string {
 }
 
 function canonicalizeProcessToken(token: string): string {
+  if (token.startsWith("garasj")) {
+    return "garasje";
+  }
   if (token.startsWith("fartsdemp") || token.startsWith("fart") || token.startsWith("dump") || token.startsWith("hump")) {
     return "fartsdemp";
   }
@@ -1044,6 +1054,119 @@ function buildQuestionAnswer(state: Agentsesjon, stepId: string | null, answer: 
   return target ? { [target.id]: answer } : answer;
 }
 
+function matchGarasjeEiendom(state: Agentsesjon, answer: string):
+  { adresse: string; felter: Record<string, string>; melding: string } | { retry: string } | null {
+  const text = normalize(answer).replace(/^(?:jeg velger|jeg vil bruke|velger|bruk) /, "");
+  const eiendommer = (state.processDefinition?.steg || []).flatMap(step => {
+    if (step.type !== "DATA_FETCH" || !isRecord(step.api)
+      || typeof step.api.url !== "string"
+      || step.api.url.split("?")[0] !== "/api/matrikkel/mine-eiendommer") return [];
+    const result = state.lastSession?.resultater?.[step.id];
+    return Array.isArray(result?.eiendommer) ? result.eiendommer.filter(isRecord) : [];
+  });
+  const matches = eiendommer.filter(eiendom => typeof eiendom.adresse === "string"
+    && [eiendom.adresse, ...[eiendom.kommune, eiendom.kommunenummer]
+      .filter(value => typeof value === "string").map(value => `${eiendom.adresse}, ${value}`)]
+      .some(adresse => normalize(adresse) === text));
+  if (matches.length > 1) return {
+    retry: "Adressen passer til flere av dine eiendommer. Skriv adressen med kommunenavn eller kommunenummer, eller velg eiendommen i kartet."
+  };
+  if (matches.length !== 1) return null;
+  const eiendom = matches[0];
+  const fields: Record<string, string> = {};
+  for (const id of ["gnr", "bnr", "kommunenummer"]) {
+    const value = String(eiendom[id] ?? "");
+    const valid = id === "kommunenummer" ? /^\d{4}$/.test(value)
+      : /^\d+$/.test(value) && Number.isSafeInteger(Number(value)) && Number(value) > 0;
+    if (valid && state.lastSession?.aktivtSteg?.felter?.some(field => field.id === id)) {
+      fields[id] = value;
+    }
+  }
+  if (!Object.keys(fields).length) return null;
+  return {
+    adresse: String(eiendom.adresse),
+    felter: fields,
+    melding: `Jeg bruker eiendomsnumrene fra oppslaget for ${eiendom.adresse}. Du må fortsatt bekrefte eiendommen og velge garasjens plassering.`
+  };
+}
+
+function clearQuestionState(state: Agentsesjon): void {
+  state.awaiting = null;
+  state.awaitingStepId = null;
+  state.awaitingValideringTools = [];
+  state.pendingValidatedAnswer = null;
+  state.pendingDeferredStepId = null;
+  state.pendingGateSwitch = null;
+  state.pendingAdresseLookup = null;
+  state.deferredAnswers = {};
+  state.guidedInterviewQueue = [];
+  state.guidedInterviewAnswers = {};
+  state.guidedInterviewCurrentKey = null;
+  state.guidedInterviewStepId = null;
+  state.guidedInterviewSessionStepId = null;
+  state.questionFieldQueue = [];
+  state.questionFieldAnswers = {};
+  state.questionFieldCurrent = null;
+}
+
+function prepareQuestionFields(state: Agentsesjon, step: Agentsteg): void {
+  state.awaiting = "question";
+  state.awaitingStepId = step.id;
+  const fields = (step.felter || []).filter(field => field.obligatorisk);
+  if (fields.length > 1) {
+    state.awaiting = "question_fields";
+    state.questionFieldCurrent = fields[0];
+    state.questionFieldQueue = fields.slice(1);
+    state.questionFieldAnswers = {};
+  }
+}
+
+function updateStructuredQuestionState(state: Agentsesjon, session: Oektsvar): void {
+  state.lastSession = session;
+  const step = session.aktivtSteg;
+  if (session.status !== "AKTIV" || step?.type !== "QUESTION" || step.id !== state.awaitingStepId) {
+    clearQuestionState(state);
+    if (session.status === "AKTIV" && step?.type === "QUESTION") prepareQuestionFields(state, step);
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+async function handleStructuredAnswer(
+  state: Agentsesjon, body: Record<string, unknown>
+): Promise<string[]> {
+  try {
+    if (!isRecord(body.svar) || typeof body.stegId !== "string" || !body.stegId.trim()) {
+      throw new Verktoyfeil("Et strukturert svar krever et svarobjekt og stegId.", 400);
+    }
+    if (!state.oektsId) throw new Verktoyfeil("Velg en prosess før du sender et strukturert svar.", 409);
+    const session = await invokeTool<Oektsvar>("get_session", { oektsId: state.oektsId });
+    updateStructuredQuestionState(state, session);
+    const step = session.aktivtSteg;
+    if (session.status !== "AKTIV") throw new Verktoyfeil("Prosessøkten er avsluttet.", 409);
+    if (step?.type !== "QUESTION" || step.id !== body.stegId || step.visning !== "garasje") {
+      throw new Verktoyfeil("Svaret gjelder ikke det aktive garasjespørsmålet. Last inn steget på nytt.", 409);
+    }
+    await invokeTool("answer_question", { oektsId: state.oektsId, stegId: step.id, svar: body.svar });
+    clearQuestionState(state);
+    await goNextStep(state);
+    return ["Takk, jeg har lagret opplysningene dine."].concat(await advanceAndPrompt(state));
+  } catch (error) {
+    // Refresh without executing actions: an upstream failure may have happened
+    // after the answer or navigation was already saved.
+    if (state.oektsId) {
+      try {
+        updateStructuredQuestionState(state, await invokeTool<Oektsvar>("get_session", { oektsId: state.oektsId }));
+      } catch {
+        clearQuestionState(state);
+      }
+    }
+    throw error;
+  }
+}
+
 function questionFieldPrompt(field: NonNullable<Agentsteg["felter"]>[number]): string {
   if (field.type === "ja-nei") return `${field.label} Svar ja eller nei.`;
   const alternativer = (field.alternativer || []).map((alternativ) =>
@@ -1052,32 +1175,6 @@ function questionFieldPrompt(field: NonNullable<Agentsteg["felter"]>[number]): s
   return alternativer.length > 0
     ? `${field.label} Velg mellom: ${alternativer.join(", ")}.`
     : field.label;
-}
-
-function normalizeQuestionFieldAnswer(
-  field: NonNullable<Agentsteg["felter"]>[number],
-  answer: string
-): { valid: true; value: string } | { valid: false } {
-  if (field.type === "ja-nei") {
-    const folded = normalize(answer);
-    if (["ja", "japp", "yes"].includes(folded)) return { valid: true, value: "ja" };
-    if (["nei", "no"].includes(folded)) return { valid: true, value: "nei" };
-    return { valid: false };
-  }
-  if (field.type !== "valg" || !field.alternativer?.length) {
-    return { valid: true, value: answer };
-  }
-  const folded = normalize(answer);
-  const match = field.alternativer.find((alternativ) => {
-    const value = typeof alternativ === "string" ? alternativ : alternativ.verdi;
-    const label = typeof alternativ === "string" ? alternativ : alternativ.label;
-    return normalize(value) === folded || normalize(label) === folded;
-  });
-  if (!match) return { valid: false };
-  return {
-    valid: true,
-    value: typeof match === "string" ? match : match.verdi
-  };
 }
 
 function findNextFreeTextQuestionStep(state: Agentsesjon, fromStepId: string | null): Agentsteg | null {
@@ -1179,7 +1276,10 @@ async function maybeAnswerCitizenQuestion(state: Agentsesjon, text: string): Pro
   // they can only say yes, no or nothing, and a stray reply is already a dead
   // end today.
   const collectingAnswer = ["question", "question_fields", "guided_interview"].includes(state.awaiting || "");
-  if (!looksLikeCitizenQuestion(text, collectingAnswer)) return null;
+  const garasje = isGarasjeKontekst({ prosess: state.processDefinition, steg: state.lastSession?.aktivtSteg });
+  const clarification = /^(forklar|jeg (forstar|skjonner) ikke|kan du forklare)/.test(normalize(text).replace(/ø/g, "o"));
+  const garageQuestion = garasje && (looksLikeCitizenQuestion(text, false) || clarification);
+  if (!garageQuestion && !looksLikeCitizenQuestion(text, collectingAnswer)) return null;
 
   try {
     const svar = await invokeTool<Sidesvar>("answer_citizen_question", {
@@ -1189,6 +1289,8 @@ async function maybeAnswerCitizenQuestion(state: Agentsesjon, text: string): Pro
         tjeneste: state.processDefinition?.navn || state.selectedProcess?.navn,
         prosess: state.processDefinition || null,
         steg: state.lastSession?.aktivtSteg || null,
+        ...(garasje && state.questionFieldCurrent
+          ? { aktivtFelt: { id: state.questionFieldCurrent.id, label: state.questionFieldCurrent.label } } : {}),
         flyt: buildFlyt(state),
         resultater: state.lastSession?.resultater || null,
         samtale: recentHistory(state, 6).map((entry) => ({
@@ -1200,6 +1302,10 @@ async function maybeAnswerCitizenQuestion(state: Agentsesjon, text: string): Pro
     return svar?.tekst ? { tekst: svar.tekst, grunnlag: svar.grunnlag, sperre: svar.sperre } : null;
   } catch {
     // A failed side question must never break the flow the citizen is in.
+    if (garageQuestion) return {
+      tekst: buildGarasjeBegrepssvar(text, state.questionFieldCurrent?.id)
+        || "Forklaringen er utilgjengelig akkurat nå. Vi blir stående på samme felt; ingen svar er lagret."
+    };
     return null;
   }
 }
@@ -1355,8 +1461,10 @@ async function advanceAndPrompt(state: Agentsesjon): Promise<string[]> {
     state.sporingsId = session.sporingsId ?? null;
 
     if (session.status === "FULLFORT") {
-      state.awaiting = null;
-      messages.push("Prosessen er fullført. Søknaden er sendt inn.");
+      clearQuestionState(state);
+      messages.push(session.avslutning === "veiledning"
+        ? "Veiledningen er fullført. Ingen søknad er sendt inn."
+        : "Prosessen er fullført. Søknaden er sendt inn.");
       return messages;
     }
 
@@ -1395,6 +1503,26 @@ async function advanceAndPrompt(state: Agentsesjon): Promise<string[]> {
         } else {
           messages.push("Jeg har slått opp gaten i matrikkelen.");
         }
+      } else if (isGarasjeKontekst({ prosess: state.processDefinition, tjeneste: state.selectedProcess?.navn })) {
+        messages.push(data?.melding || "Jeg har hentet opplysningene som trengs i dette steget.");
+        if (Array.isArray(data?.eiendommer)) {
+          const eiendommer = data.eiendommer.filter(isRecord);
+          if (eiendommer.length) messages.push([
+            data.syntetisk ? "Dine syntetiske eiendommer:" : "Eiendommer fra oppslaget:",
+            ...eiendommer.map(e => [
+              e.adresse, e.matrikkelId ? `Matrikkel-ID: ${e.matrikkelId}` : null, e.kommune
+            ].filter(value => typeof value === "string").join(", "))
+          ].join("\n"));
+        }
+        const vurdering = isRecord(data?.vurdering) ? data.vurdering : data;
+        if (Array.isArray(vurdering?.sjekker)) {
+          for (const sjekk of vurdering.sjekker.filter(isRecord)) {
+            messages.push([
+              `${sjekk.navn}: ${sjekk.status}.`, sjekk.forklaring,
+              typeof sjekk.kilde === "string" ? `Kilde: ${sjekk.kilde}` : null
+            ].filter(value => typeof value === "string").join(" "));
+          }
+        }
       } else {
         messages.push("Jeg har hentet opplysningene som trengs i dette steget.");
       }
@@ -1430,17 +1558,16 @@ async function advanceAndPrompt(state: Agentsesjon): Promise<string[]> {
     }
 
     if (step.type === "QUESTION") {
-      state.awaiting = "question";
-      state.awaitingStepId = step.id;
-      const { kontekst, validering, warnings } = await discoverStepTools(step);
+      prepareQuestionFields(state, step);
+      // The embedded form uses the preceding property lookup and backend rules,
+      // not street-name discovery intended for the traffic-calming interview.
+      const { kontekst, validering, warnings } = step.visning === "garasje"
+        ? { kontekst: [], validering: [], warnings: [] }
+        : await discoverStepTools(step);
       state.awaitingValideringTools = validering.map((v) => v.name).filter((n): n is string => Boolean(n));
       messages.push(...warnings);
       const requiredFields = (step.felter || []).filter((field) => field.obligatorisk);
       if (requiredFields.length > 1) {
-        state.awaiting = "question_fields";
-        state.questionFieldCurrent = requiredFields[0];
-        state.questionFieldQueue = requiredFields.slice(1);
-        state.questionFieldAnswers = {};
         if (step.tekst) messages.push(step.tekst);
         messages.push(questionFieldPrompt(requiredFields[0]));
         return messages;
@@ -1608,15 +1735,26 @@ async function handleMessage(state: Agentsesjon, message: string): Promise<strin
       state.awaiting = "question";
       return ["Jeg mistet hvilket felt vi var på. Kan du svare på spørsmålet på nytt?"];
     }
-    const normalized = normalizeQuestionFieldAnswer(current, text);
+    const normalized = normalizeQuestionFieldAnswer(current, text, state.lastSession?.aktivtSteg?.visning === "garasje");
     if (!normalized.valid) {
-      return [`Jeg fikk ikke koblet svaret til et gyldig valg. ${questionFieldPrompt(current)}`];
+      return [normalized.retryMessage || `Jeg fikk ikke koblet svaret til et gyldig valg. ${questionFieldPrompt(current)}`];
     }
-    state.questionFieldAnswers[current.id] = normalized.value;
-    const next = state.questionFieldQueue.shift();
+    const selectedEiendom = current.id === "adresse" && state.lastSession?.aktivtSteg?.visning === "garasje"
+      ? matchGarasjeEiendom(state, normalized.value) : null;
+    if (selectedEiendom && "retry" in selectedEiendom) return [selectedEiendom.retry, questionFieldPrompt(current)];
+    const acknowledgements: string[] = [];
+    if (selectedEiendom) {
+      Object.assign(state.questionFieldAnswers, selectedEiendom.felter);
+      state.questionFieldAnswers[current.id] = selectedEiendom.adresse;
+      acknowledgements.push(selectedEiendom.melding);
+    } else {
+      state.questionFieldAnswers[current.id] = normalized.value;
+    }
+    let next = state.questionFieldQueue.shift();
+    while (next && Object.hasOwn(state.questionFieldAnswers, next.id)) next = state.questionFieldQueue.shift();
     if (next) {
       state.questionFieldCurrent = next;
-      return [questionFieldPrompt(next)];
+      return [...acknowledgements, questionFieldPrompt(next)];
     }
 
     await invokeTool("answer_question", {
@@ -1719,8 +1857,8 @@ async function handleMessage(state: Agentsesjon, message: string): Promise<strin
     const fields = step?.felter || [];
     const field = fields.find((f) => f.obligatorisk) || fields[0];
     if (field && normalizedAnswer.answer !== null) {
-      const fieldAnswer = normalizeQuestionFieldAnswer(field, normalizedAnswer.answer);
-      if (!fieldAnswer.valid) return [`Jeg fikk ikke koblet svaret til et gyldig valg. ${questionFieldPrompt(field)}`];
+      const fieldAnswer = normalizeQuestionFieldAnswer(field, normalizedAnswer.answer, step?.visning === "garasje");
+      if (!fieldAnswer.valid) return [fieldAnswer.retryMessage || `Jeg fikk ikke koblet svaret til et gyldig valg. ${questionFieldPrompt(field)}`];
       normalizedAnswer.answer = fieldAnswer.value;
     }
 
@@ -2106,6 +2244,87 @@ async function createAgentSession(body: { personId?: string }) {
   };
 }
 
+type GarasjeDialogRequest = {
+  tekst: string;
+  feltId: GarasjeDialogfeltId;
+  sporingsId?: string;
+  kontekst?: {
+    samtale?: { rolle: "innbygger" | "assistent"; tekst: string }[];
+    resultater?: Record<string, unknown>;
+  };
+};
+
+function validateGarasjeDialogRequest(body: unknown): GarasjeDialogRequest {
+  if (!isRecord(body) || Object.keys(body).some(key => !["tekst", "feltId", "kontekst", "sporingsId"].includes(key))
+    || typeof body.tekst !== "string" || !body.tekst.trim() || body.tekst.length > 500
+    || !isGarasjeDialogfeltId(body.feltId)) {
+    throw new Verktoyfeil("Oppgi et kjent garasjefelt og en tekst på 1 til 500 tegn.", 400);
+  }
+  if (body.sporingsId !== undefined && (typeof body.sporingsId !== "string"
+    || !/^[a-zA-Z0-9_-]{1,100}$/.test(body.sporingsId))) {
+    throw new Verktoyfeil("sporingsId må være 1 til 100 bokstaver, tall, bindestreker eller understreker.", 400);
+  }
+  if (body.kontekst !== undefined) {
+    const context = body.kontekst;
+    if (!isRecord(context) || Object.keys(context).some(key => !["samtale", "resultater"].includes(key))
+      || JSON.stringify(context).length > 30000
+      || (context.resultater !== undefined && !isRecord(context.resultater))) {
+      throw new Verktoyfeil("Konteksten kan bare inneholde samtale og offentlige kartresultater, inntil 30000 tegn.", 400);
+    }
+    if (context.samtale !== undefined && (!Array.isArray(context.samtale) || context.samtale.length > 6
+      || context.samtale.some(turn => !isRecord(turn) || Object.keys(turn).some(key => !["rolle", "tekst"].includes(key))
+        || !["innbygger", "assistent"].includes(String(turn.rolle))
+        || typeof turn.tekst !== "string" || turn.tekst.length > 2000))) {
+      throw new Verktoyfeil("Samtalen kan ha inntil seks meldinger med rolle og tekst på inntil 2000 tegn.", 400);
+    }
+  }
+  return body as GarasjeDialogRequest;
+}
+
+async function handleGarasjeDialog(body: GarasjeDialogRequest) {
+  const field = GARASJE_DIALOGFELTER.find(field => field.id === body.feltId)!;
+  const folded = normalize(body.tekst).replace(/ø/g, "o");
+  const clarification = /^(forklar|hjelp|kan du|jeg (forstar|skjonner) ikke|(?:jeg )?vet ikke (hva|hvordan|hvor|hvilk)|er|har|skal|ma|bor|betyr|regnes|teller)\b/.test(folded);
+  if (looksLikeCitizenQuestion(body.tekst) || clarification) {
+    try {
+      const result = await invokeTool<unknown>("answer_citizen_question", {
+        tekst: body.tekst.trim(),
+        sporingsId: body.sporingsId,
+        kontekst: {
+          tjeneste: "Garasjesjekken",
+          prosessId: "garasjesjekk",
+          steg: { id: "garasje-prosjekt", type: "QUESTION", visning: "garasje", tittel: "Opplysninger om garasjen" },
+          aktivtFelt: { id: field.id, label: field.label },
+          flyt: { status: "UTKAST", soknadSendt: false },
+          // The gateway projects public map facts and drops raw property data.
+          resultater: body.kontekst?.resultater || {},
+          samtale: body.kontekst?.samtale?.map(turn => ({ rolle: turn.rolle, tekst: turn.tekst.slice(0, 400) })) || []
+        }
+      });
+      if (!isRecord(result) || typeof result.tekst !== "string" || !result.tekst.trim()) {
+        throw new Error("Forklaringstjenesten svarte uten tekst.");
+      }
+      return {
+        type: "sporsmaal", tekst: result.tekst,
+        ...(typeof result.modell === "string" ? { modell: result.modell } : {}),
+        ...(typeof result.advarsel === "string" ? { advarsel: result.advarsel } : {}),
+        ...(result.grunnlag !== undefined ? { grunnlag: result.grunnlag } : {})
+      };
+    } catch {
+      return {
+        type: "sporsmaal",
+        tekst: buildGarasjeBegrepssvar(body.tekst, field.id) || "Forklaringen er utilgjengelig akkurat nå. Prøv igjen.",
+        advarsel: "Forklaringstjenesten er utilgjengelig. Dette er hjelpetekst, ikke et KI-svar. Ingen opplysninger er endret."
+      };
+    }
+  }
+  const result = validateGarasjeDialogSvar(body.feltId, body.tekst);
+  if (!result.valid) return { type: "ugyldig", tekst: result.retryMessage };
+  const value = result.value === null ? "vet ikke" : typeof result.value === "boolean"
+    ? result.value ? "ja" : "nei" : String(result.value).replace(".", ",");
+  return { type: "svar", tekst: `Jeg tolker svaret som ${value}. Velg «Bruk svaret» for å legge det inn.`, svar: result.value };
+}
+
 const server = createServer(async (request: IncomingMessage, response: ServerResponse) => {
   const url = new URL(request.url!, `http://${request.headers.host}`);
 
@@ -2133,6 +2352,18 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
     // Den samme spesifikasjonen, lest. Se kommentaren i tools-api.
     if (request.method === "GET" && url.pathname === "/openapi-ruter.json") {
       json(response, 200, await routeOverview(openapiFile));
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/agent/garasje/dialog") {
+      let body: unknown;
+      try {
+        body = await readRequestBody(request);
+      } catch (error) {
+        if (error instanceof SyntaxError) throw new Verktoyfeil("Meldingen må være gyldig JSON.", 400);
+        throw error;
+      }
+      json(response, 200, await handleGarasjeDialog(validateGarasjeDialogRequest(body)));
       return;
     }
 
@@ -2171,30 +2402,58 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
         return;
       }
 
-      const body = await readRequestBody(request) as { message?: string };
-      const userMessage = String(body.message || "");
-      session.history.push({ role: "user", message: userMessage, tidspunkt: new Date().toISOString() });
-
-      const replies = await svarPaaMelding(session, userMessage);
-      for (const message of replies) {
-        session.history.push({ role: "assistant", message, tidspunkt: new Date().toISOString() });
+      if (busySessions.has(session.sessionId)) {
+        json(response, 409, { feil: "Agentøkten behandler allerede en melding. Prøv igjen når den er ferdig." });
+        return;
       }
-      session.updated = new Date().toISOString();
+      busySessions.add(session.sessionId);
+      try {
+        let body: unknown;
+        try {
+          body = await readRequestBody(request);
+        } catch (error) {
+          if (error instanceof SyntaxError) throw new Verktoyfeil("Meldingen må være gyldig JSON.", 400);
+          throw error;
+        }
+        if (!isRecord(body) || (body.message !== undefined && typeof body.message !== "string")) {
+          throw new Verktoyfeil("Meldingen må være et objekt med tekst eller et strukturert svar.", 400);
+        }
+        const structured = Object.hasOwn(body, "svar");
+        if (!structured && Object.hasOwn(body, "stegId")) {
+          throw new Verktoyfeil("stegId krever et strukturert svar.", 400);
+        }
+        const userMessage = String(body.message || (structured ? "Opplysninger fra garasjeskjemaet." : ""));
+        session.history.push({ role: "user", message: userMessage, tidspunkt: new Date().toISOString() });
 
-      json(response, 200, {
-        sessionId: session.sessionId,
-        replies,
-        awaiting: session.awaiting,
-        selectedProcess: session.selectedProcess,
-        pendingProcessCandidates: session.pendingProcessCandidates,
-        oektsId: session.oektsId,
-        sporingsId: session.sporingsId
-      });
+        const replies = structured
+          ? await handleStructuredAnswer(session, body)
+          : await svarPaaMelding(session, userMessage);
+        for (const message of replies) {
+          session.history.push({ role: "assistant", message, tidspunkt: new Date().toISOString() });
+        }
+        session.updated = new Date().toISOString();
+
+        json(response, 200, {
+          sessionId: session.sessionId,
+          replies,
+          awaiting: session.awaiting,
+          selectedProcess: session.selectedProcess,
+          pendingProcessCandidates: session.pendingProcessCandidates,
+          oektsId: session.oektsId,
+          sporingsId: session.sporingsId
+        });
+      } finally {
+        busySessions.delete(session.sessionId);
+      }
       return;
     }
 
     json(response, 404, { feil: "Fant ikke endepunkt." });
   } catch (error) {
+    if (error instanceof Verktoyfeil && error.status >= 400 && error.status < 500) {
+      json(response, error.status, { feil: error.message });
+      return;
+    }
     json(response, 500, { feil: "Intern feil i process-agent.", detalj: feilmelding(error) });
   }
 });

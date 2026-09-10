@@ -13,6 +13,7 @@ import { buildFartsdempendeOppsummering } from "./fartsdempende-oppsummering.ts"
 import type { Sporsmaalskontekst } from "./sporsmaalsperrer.ts";
 import {
   buildGrunnlag,
+  buildGarasjeVeiledningssvar,
   buildPersonvernSvar,
   buildTryggSvar,
   isPersonvernSporsmaal,
@@ -1003,6 +1004,9 @@ function stemProcessToken(token: string): string {
 }
 
 function canonicalProcessToken(token: string): string {
+  if (token.startsWith("garasj")) {
+    return "garasje";
+  }
   if (token.startsWith("fartsdemp") || token.startsWith("fart") || token.startsWith("dump") || token.startsWith("hump")) {
     return "fartsdemp";
   }
@@ -2088,8 +2092,9 @@ async function answerCitizenQuestion(body: AiKropp) {
     );
   }
 
+  const fallback = buildGarasjeVeiledningssvar(body.tekst, kontekst) || buildTryggSvar(kontekst);
   if (aiProvider !== "ollama" && aiProvider !== "openrouter" && aiProvider !== "telenor-ai-factory" && aiProvider !== "bedrock") {
-    return { ...base, tekst: buildTryggSvar(kontekst), modell: "mock-ai-gateway" };
+    return { ...base, tekst: fallback, modell: "mock-ai-gateway" };
   }
 
   let llm;
@@ -2104,7 +2109,7 @@ async function answerCitizenQuestion(body: AiKropp) {
   } catch (error) {
     return {
       ...base,
-      tekst: buildTryggSvar(kontekst),
+      tekst: fallback,
       modell: `${aiProvider}-fallback`,
       advarsel: `Provider ${aiProvider} feilet: ${feilmelding(error)}`
     };

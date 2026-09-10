@@ -415,7 +415,8 @@
         "kommunenummer": "4601",
         "kommune": "BERGEN",
         "hentet": "2026-08-06T11:24:05.005Z",
-        "antallGater": 226
+        "antallGater": 228,
+        "merknad": "Litle Milde 65 og Kråkenestoppen 60 er lagt til som workshopcaser med offentlig adressegrunnlag. Bare disse adressene er tatt med fra de to gatene. Personer, eierskap og bruksenhetstype er syntetiske, ikke opplysninger om faktiske beboere, eiere eller godkjent bruk."
       },
       {
         "kommunenummer": "4612",
@@ -408636,6 +408637,72 @@
       ],
       "antallEiendommer": 23,
       "antallBoligeiendommer": 23
+    },
+    {
+      "gateId": "gate-litlemilde-bergen",
+      "adressenavn": "Litle Milde",
+      "kommunenummer": "4601",
+      "kommune": "BERGEN",
+      "postnummer": "5259",
+      "poststed": "HJELLESTAD",
+      "eiendommer": [
+        {
+          "matrikkelId": "matr-geo-4601-33832-65",
+          "gnr": 105,
+          "bnr": 209,
+          "festenummer": 0,
+          "undernummer": 0,
+          "adressekode": 33832,
+          "husnummer": 65,
+          "husbokstav": null,
+          "adresse": "Litle Milde 65",
+          "postnummer": "5259",
+          "poststed": "HJELLESTAD",
+          "adressetilleggsnavn": null,
+          "objtype": "Vegadresse",
+          "koordinater": {
+            "lat": 60.2536577976675,
+            "lon": 5.255241147052527,
+            "epsg": "EPSG:4258"
+          },
+          "bruksenhetstype": "bolig"
+        }
+      ],
+      "antallEiendommer": 1,
+      "antallBoligeiendommer": 1
+    },
+    {
+      "gateId": "gate-krakenestoppen-bergen",
+      "adressenavn": "Kråkenestoppen",
+      "kommunenummer": "4601",
+      "kommune": "BERGEN",
+      "postnummer": "5153",
+      "poststed": "BØNES",
+      "eiendommer": [
+        {
+          "matrikkelId": "matr-geo-4601-33957-60",
+          "gnr": 20,
+          "bnr": 1413,
+          "festenummer": 0,
+          "undernummer": 0,
+          "adressekode": 33957,
+          "husnummer": 60,
+          "husbokstav": null,
+          "adresse": "Kråkenestoppen 60",
+          "postnummer": "5153",
+          "poststed": "BØNES",
+          "adressetilleggsnavn": null,
+          "objtype": "Vegadresse",
+          "koordinater": {
+            "lat": 60.33304009061054,
+            "lon": 5.315468234797857,
+            "epsg": "EPSG:4258"
+          },
+          "bruksenhetstype": "bolig"
+        }
+      ],
+      "antallEiendommer": 1,
+      "antallBoligeiendommer": 1
     }
   ]
 }
