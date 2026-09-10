@@ -1,0 +1,20 @@
+{
+  "documents": [
+    {
+      "filename": "b65270000.pdf",
+      "provenance": "provided",
+      "profile": "arealplan",
+      "retrievedAt": "2026-09-10",
+      "sha256": "61d91f2c6dd247bbc8dd9ef9026b726cf842a9d56f64708d34eb9fc72ce9b97f",
+      "description": "Kommuneplanens arealdel 2018-2030, bestemmelser og retningslinjer."
+    }
+  ],
+  "references": [
+    {
+      "url": "https://www.dibk.no/verktoy-og-veivisere/bygg-uten-a-soke-garasje",
+      "provenance": "provided-reference",
+      "retrievedAt": "2026-09-10",
+      "description": "Temaer for innbyggerveiledning; ikke en kommunal planbestemmelse."
+    }
+  ]
+}

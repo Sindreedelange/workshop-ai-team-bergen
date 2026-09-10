@@ -84,3 +84,25 @@ export function listGarasjeSonetyper() {
     };
   });
 }
+
+/**
+ * Sonen for et kodepar i KPA2018, uten å gå veien om kommunens tegnforklaring.
+ *
+ * `classifyArealsone` over krever at kildens sonenavn og lag-URL stemmer, fordi
+ * den leser et *live* punktoppslag der navnet kan ha endret seg under føttene på
+ * oss. Det lokale uttrekket har ingen tegnforklaring å sammenligne med, bare
+ * kodeparet - og kodeparet er nøyaktig det `AREALSONER` er nøklet på.
+ *
+ * Poenget med å ha den her og ikke la leseren bruke kildens egen BESKRIVELSE:
+ * ellers svarer den samme `GarasjeGrunnlag` på det samme spørsmålet to ganger,
+ * én gang fra et kontrollert register og én gang fra fritekst i en fil - og
+ * fritekstene inneholder blant annet «Naturomåde».
+ */
+export function findArealsone(
+  kode: number, arealstatus: number, planId: string, kommunenummer: string
+): Arealsone | undefined {
+  const matches = AREALSONER.filter(sone =>
+    sone.KPAREALFORMAL === kode && sone.AREALST === arealstatus
+    && sone.kilde.planId === planId && sone.kilde.kommunenummer === kommunenummer);
+  return matches.length === 1 ? matches[0] : undefined;
+}

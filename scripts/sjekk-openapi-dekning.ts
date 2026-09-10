@@ -470,6 +470,21 @@ const tjenester: Tjeneste[] = [
     kilde: "apps/tools-api/src/server.ts"
   },
   {
+    navn: "pdf-extractor",
+    spesifikasjon: "openapi/pdf-extractor.yaml",
+    ruter: async () => [
+      { metode: "GET", sti: "/helse" }, { metode: "GET", sti: "/docs" }, { metode: "GET", sti: "/openapi.yaml" }, { metode: "GET", sti: "/openapi.json" }, { metode: "GET", sti: "/openapi-ruter.json" }, { metode: "GET", sti: "/dokumenter" },
+      { metode: "POST", sti: "/dokumenter" }, { metode: "POST", sti: "/dokumenter/{documentId}/uttrekk" },
+      { metode: "GET", sti: "/jobber/{jobId}" }, { metode: "GET", sti: "/dokumenter/{documentId}/uttrekk" },
+      { metode: "GET", sti: "/dokumenter/{documentId}/kunnskap" },
+      { metode: "GET", sti: "/dokumenter/{documentId}/kunnskap.md" },
+      { metode: "GET", sti: "/dokumenter/{documentId}/biter" },
+      { metode: "GET", sti: "/dokumenter/{documentId}/rapport" },
+      { metode: "GET", sti: "/dokumenter/{documentId}/sider/{pageNumber}.png" }, { metode: "POST", sti: "/sok" },
+      { metode: "GET", sti: "/revisjon" }
+    ]
+  },
+  {
     navn: "process-agent",
     spesifikasjon: "openapi/process-agent.yaml",
     kilde: "apps/process-agent/src/server.ts"
@@ -478,6 +493,25 @@ const tjenester: Tjeneste[] = [
     navn: "matrikkel-mock",
     spesifikasjon: "openapi/matrikkel-mock.yaml",
     kilde: "apps/matrikkel-mock/src/server.ts"
+  },
+  {
+    navn: "plan-mock",
+    spesifikasjon: "openapi/plan-mock.yaml",
+    // Systemrutene. En helsesjekk som krever legitimasjon kan ikke si fra at
+    // tjenesten er syk, og dokumentasjon er ikke data. Her står dessuten alle
+    // ruter åpne, av grunnen som står øverst i spesifikasjonen.
+    aapneRuter: ["/helse", "/docs", "/openapi.yaml", "/openapi-ruter.json",
+      "/mock/plan/hensynssoner", "/mock/plan/arealformaal"],
+    kilde: "apps/plan-mock/src/server.ts",
+    // Datasett-id-ene er kodeverket her: de står i spesifikasjonens enum og i
+    // apps/shared/hensynssoner.ts. Hvilken fil hver av dem har er plan-mockens
+    // egen sak og står i apps/plan-mock/src/datasett.ts.
+    kodeverk: [
+      {
+        skjema: "Plandatasett",
+        verdier: async () => (await import("../apps/shared/hensynssoner.ts")).DATASETTIDER
+      }
+    ]
   },
   {
     navn: "pasientjournal-mock",
@@ -719,7 +753,7 @@ for (const tjeneste of tjenester) {
   }
 
   // 7. Kodeverk spesifikasjonen gjentar.
-  const tekst = await readFile(path.join(repoRoot, tjeneste.spesifikasjon), "utf8");
+  const tekst = (await readFile(path.join(repoRoot, tjeneste.spesifikasjon), "utf8")).replace(/\r\n/g, "\n");
   if (tjeneste.navn === "tools-api") {
     const response = skjemablokk(tekst, "InvokeToolResponse");
     // All specialised object results also match the unrestricted object branch.

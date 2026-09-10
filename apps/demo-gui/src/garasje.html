@@ -3,11 +3,12 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Garasjesjekken</title>
+    <title>Kan du bygge uten å søke?</title>
     <script src="/client/garasje-tema.ts"></script>
     <link rel="stylesheet" href="https://static.fiks.ks.no/googlefonts/googleapis/css2?family=Inter:wght@400;500;600;700&display=swap" />
     <link rel="stylesheet" href="/assets/ds-base.css" />
     <link rel="stylesheet" href="/assets/ds-ksdigital.css" />
+    <link rel="stylesheet" href="/assets/ds-morketema.css" />
     <style>
       @layer side;
       @layer side {
@@ -49,6 +50,17 @@
         .neighbour { fill: none; stroke: var(--ds-color-neutral-border-strong); stroke-width: 2; stroke-dasharray: 6 4; }
         .neighbour-label { fill: var(--ds-color-neutral-text-default); stroke: var(--ds-color-background-default); stroke-width: 3; paint-order: stroke; font-size: var(--ds-font-size-3); pointer-events: none; }
         .building { fill: var(--ds-color-neutral-surface-active); stroke: var(--ds-color-neutral-border-strong); stroke-width: 1; }
+        .building-neighbour { fill: var(--ds-color-neutral-surface-tinted); stroke: var(--ds-color-neutral-border-strong); stroke-width: 1; stroke-dasharray: 4 3; opacity: 0.7; }
+        /* Planflatene ligger under teiglaget, så de aldri skjuler eiendomsgrensen.
+           Fyllet er gjennomsiktig fordi bakgrunnskartet skal leses gjennom det. */
+        .zone { stroke-width: 2; }
+        .zone-arealformaal { fill: var(--ds-color-info-surface-default); fill-opacity: 0.28; stroke: var(--ds-color-info-border-default); stroke-dasharray: 2 3; }
+        .zone-angitthensyn { fill: var(--ds-color-success-surface-default); fill-opacity: 0.3; stroke: var(--ds-color-success-border-strong); stroke-dasharray: 8 4; }
+        .zone-stoy { fill: var(--ds-color-warning-surface-default); fill-opacity: 0.38; stroke: var(--ds-color-warning-border-strong); stroke-dasharray: 8 4; }
+        .zone-fare { fill: var(--ds-color-danger-surface-default); fill-opacity: 0.38; stroke: var(--ds-color-danger-border-strong); stroke-dasharray: 8 4; }
+        .map-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--ds-size-2) var(--ds-size-4); }
+        .map-legend li { display: flex; align-items: center; gap: var(--ds-size-2); }
+        .map-legend svg { flex: none; }
         .marker { fill: var(--ds-color-base-default); stroke: var(--ds-color-base-contrast-default); stroke-width: 3; }
         .map-label { fill: var(--ds-color-text-default); font-size: var(--ds-font-size-3); }
         .check-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--ds-size-4); }
@@ -81,9 +93,9 @@
       </header>
       <main class="stack">
         <header class="hero">
-          <p class="ds-paragraph eyebrow">GARASJESJEKKEN · DIN EIENDOM</p>
-          <h1 class="ds-heading" data-size="2xl">Trenger garasjen en søknad?</h1>
-          <p class="ds-paragraph" data-size="lg">Vi henter adresse, eiendom og arealplaner. Du forteller bare om garasjen du vil bygge.</p>
+          <p class="ds-paragraph eyebrow">TILTAKSSJEKK · DIN EIENDOM</p>
+          <h1 class="ds-heading" data-size="2xl">Kan du bygge uten å søke?</h1>
+          <p class="ds-paragraph" data-size="lg">Vi henter adresse, eiendom og arealplaner. Du forteller om tiltaket du planlegger.</p>
         </header>
         <div class="ds-alert" data-color="info">
           <p class="ds-paragraph"><strong>Testpersoner og eierskap er syntetiske. Adresser, kart og planforhold er ekte.</strong> Offentlige oppslag får ikke personidentitet eller eierdata. Dette er veiledning, ikke et kommunalt vedtak. Manglende eller uavklarte opplysninger gir aldri et automatisk ja.</p>
@@ -123,37 +135,59 @@
           <div id="property-workspace" class="stack" hidden>
             <section id="placement-summary" class="panel stack" aria-labelledby="placement-summary-heading" hidden>
               <h2 id="placement-summary-heading" class="ds-heading" data-size="md">2. Plassering på tomten</h2>
-              <p class="ds-paragraph">Plasseringen er bekreftet. Du kan endre den uten å miste svarene om garasjen.</p>
+              <p class="ds-paragraph">Plasseringen er bekreftet. Du kan endre den uten å miste svarene om tiltaket.</p>
               <div><button id="edit-placement" class="ds-button" data-variant="secondary" type="button">Endre plassering</button></div>
             </section>
             <div id="placement-step" class="stack">
+              <div id="measure-plan-notices" class="stack" aria-live="polite"></div>
               <section class="panel stack" aria-labelledby="map-heading">
                 <h2 id="map-heading" class="ds-heading" data-size="md" tabindex="-1">2. Hvor vil du bygge?</h2>
-                <p id="map-help" class="ds-paragraph" data-size="sm">Heltrukken rød strek viser valgt tomt. Stiplede grenser viser nabotomter i kartutsnittet. Klikk eller dra markøren for å plassere garasjen, eller bruk retningsknappene under.</p>
-                <svg id="placement-map" class="map" data-color-scheme="light" viewBox="0 0 640 480" role="img" aria-label="Kart over valgt eiendom med foreslått plassering">
+                <p id="map-help" class="ds-paragraph" data-size="sm">Heltrukken rød strek viser valgt tomt. Stiplede grenser viser nabotomter i kartutsnittet. Fargede flater viser hensynssoner og arealformål fra kommuneplanen. Klikk eller dra markøren for å plassere tiltaket. Du kan også fokusere kartet og flytte markøren med piltastene.</p>
+                <svg id="placement-map" class="map" data-color-scheme="light" viewBox="0 0 640 480" role="img" tabindex="0" aria-describedby="map-help" aria-label="Kart over valgt eiendom med foreslått plassering">
                   <image id="map-image" width="640" height="480" />
                   <g id="map-neighbours"></g>
+                  <g id="map-zones"></g>
+                  <g id="map-buildings-neighbour"></g>
                   <g id="map-buildings"></g>
                   <g id="map-parcels"></g>
+                  <g id="map-nearest-boundary"></g>
                   <g id="map-neighbour-labels"></g>
                   <rect id="map-marker" class="marker" x="311" y="231" width="18" height="18" />
                   <text x="12" y="24" class="map-label">N ↑</text>
                 </svg>
+                <div class="ds-field">
+                  <label for="zone-filter" class="ds-label">Vis hensynssoner og arealformål</label>
+                  <select id="zone-filter" class="ds-input" aria-label="Vis hensynssoner og arealformål">
+                    <option value="all">Alle soner og arealformål</option>
+                  </select>
+                  <p class="ds-paragraph" data-size="sm">Valget endrer bare kartvisningen, ikke hvilke soner som kontrolleres.</p>
+                </div>
+                <ul class="map-legend ds-paragraph" data-size="sm" aria-label="Tegnforklaring for kartet">
+                  <li><svg width="18" height="12" aria-hidden="true" viewBox="0 0 18 12" data-color-scheme="light"><rect class="parcel" x="1.5" y="1.5" width="15" height="9" /></svg>Valgt tomt</li>
+                  <li><svg width="18" height="12" aria-hidden="true" viewBox="0 0 18 12" data-color-scheme="light"><rect class="neighbour" x="1" y="1" width="16" height="10" /></svg>Nabotomt</li>
+                  <li><svg width="18" height="12" aria-hidden="true" viewBox="0 0 18 12" data-color-scheme="light"><rect class="building" x="0.5" y="0.5" width="17" height="11" /></svg>Bygg på din tomt</li>
+                  <li><svg width="18" height="12" aria-hidden="true" viewBox="0 0 18 12" data-color-scheme="light"><rect class="building-neighbour" x="0.5" y="0.5" width="17" height="11" /></svg>Bygg på nabotomt</li>
+                  <li><svg width="18" height="12" aria-hidden="true" viewBox="0 0 18 12" data-color-scheme="light"><rect class="marker" x="5" y="2" width="8" height="8" /></svg>Valgt plassering</li>
+                  <li><svg width="18" height="12" aria-hidden="true" viewBox="0 0 18 12" data-color-scheme="light"><rect class="zone zone-stoy" x="1" y="1" width="16" height="10" /></svg>Gul støysone</li>
+                  <li><svg width="18" height="12" aria-hidden="true" viewBox="0 0 18 12" data-color-scheme="light"><rect class="zone zone-fare" x="1" y="1" width="16" height="10" /></svg>Faresone</li>
+                  <li><svg width="18" height="12" aria-hidden="true" viewBox="0 0 18 12" data-color-scheme="light"><rect class="zone zone-angitthensyn" x="1" y="1" width="16" height="10" /></svg>Angitt hensyn</li>
+                  <li><svg width="18" height="12" aria-hidden="true" viewBox="0 0 18 12" data-color-scheme="light"><rect class="zone zone-arealformaal" x="1" y="1" width="16" height="10" /></svg>Arealformål</li>
+                </ul>
+                <p id="zone-status" class="ds-paragraph" data-size="sm" aria-live="polite"></p>
+                <p id="building-status" class="ds-paragraph" data-size="sm" aria-live="polite"></p>
                 <p id="neighbour-status" class="ds-paragraph" data-size="sm" aria-live="polite"></p>
                 <details class="ds-details">
                   <summary>Datakilde for nabogrenser</summary>
                   <div id="neighbour-details" class="stack"></div>
                 </details>
-                <div id="map-controls" class="actions" role="group" aria-label="Flytt foreslått plassering omtrent to meter">
-                  <button type="button" class="ds-button" data-variant="secondary" data-size="sm" id="move-north">Nord ↑</button>
-                  <button type="button" class="ds-button" data-variant="secondary" data-size="sm" id="move-south">Sør ↓</button>
-                  <button type="button" class="ds-button" data-variant="secondary" data-size="sm" id="move-west">Vest ←</button>
-                  <button type="button" class="ds-button" data-variant="secondary" data-size="sm" id="move-east">Øst →</button>
+                <div id="map-controls" class="actions" role="group" aria-label="Plassering i kartet">
                   <button type="button" class="ds-button" data-variant="tertiary" data-size="sm" id="reset-placement">Til adressepunktet</button>
                 </div>
                 <p id="placement-note" class="ds-paragraph" data-size="sm" aria-live="polite"></p>
+                <p id="placement-validity" class="ds-paragraph" role="status"></p>
+                <p id="boundary-distance" class="ds-paragraph" data-size="sm" aria-live="polite"></p>
                 <button id="refresh-placement" class="ds-button" type="button">Bekreft plassering og fortsett</button>
-                <p class="ds-paragraph muted" data-size="sm">© Bergen kommune. Skissen er ikke en situasjonsplan. Markøren angir ett punkt, ikke hele garasjen. Avstander og høyder må måles for det faktiske bygget.</p>
+                <p class="ds-paragraph muted" data-size="sm">© Bergen kommune. Skissen er ikke en situasjonsplan. Markøren angir ett punkt, ikke hele tiltaket. Avstander og høyder må måles for det faktiske bygget.</p>
               </section>
               <details class="ds-details">
                 <summary>Dette har vi hentet</summary>
@@ -167,7 +201,7 @@
               </details>
             </div>
             <section id="garage-step" class="panel stack" aria-labelledby="garage-heading" hidden>
-              <h2 id="garage-heading" class="ds-heading" data-size="md" tabindex="-1">3. Fortell om garasjen</h2>
+              <h2 id="garage-heading" class="ds-heading" data-size="md" tabindex="-1">3. Fortell om tiltaket</h2>
               <p class="ds-paragraph" data-size="sm">Velg hvordan du vil svare. Du kan bytte underveis uten å miste opplysninger. Det som allerede finnes i registrene, henter vi for deg.</p>
               <form id="garage-form" class="stack" novalidate hidden>
                 <div class="actions mode-options" role="group" aria-label="Velg utfyllingsmåte">
@@ -186,23 +220,35 @@
                 </div>
                 <div id="agent-interview" class="stack">
                   <p class="ds-paragraph" data-size="sm">Her kan du både svare og be om hjelp. KI forklarer fagord, men avgjør ikke om du får bygge. Spørsmål endrer ikke svarene dine.</p>
-                  <div id="dialog-log" class="dialog-log" role="log" aria-live="polite" aria-label="Samtale om garasjen"></div>
+                  <div id="dialog-log" hidden></div>
+                  <div id="dialog-group" class="actions mode-options" role="group" aria-label="Mål som hører sammen" hidden></div>
                   <p id="dialog-question" class="ds-paragraph"></p>
-                  <div class="ds-field">
-                    <label id="dialog-input-label" for="dialog-input" class="ds-label">Svar eller still et spørsmål</label>
-                    <textarea id="dialog-input" class="ds-input" rows="3" maxlength="500" placeholder="For eksempel: 35 kvadratmeter. Du kan også spørre hva et begrep betyr."></textarea>
-                  </div>
+                  <p id="dialog-answer" class="ds-paragraph dialog-message" aria-live="polite" hidden></p>
+                  <div id="dialog-sources" class="stack" aria-label="Dokumentkilder for forklaringen" aria-live="polite" hidden></div>
+                  <div id="dialog-choices" class="actions" role="group" aria-label="Velg svar" hidden></div>
                   <div class="actions">
+                    <button id="dialog-help" type="button" class="ds-button" data-variant="secondary">Jeg lurer på noe</button>
+                    <button id="dialog-resume" type="button" class="ds-button" data-variant="secondary" hidden>Tilbake til svaret</button>
+                  </div>
+                  <div id="dialog-editor" class="ds-field">
+                    <label id="dialog-input-label" for="dialog-input" class="ds-label">Svar eller still et spørsmål</label>
+                    <textarea id="dialog-input" class="ds-input" rows="3" maxlength="500"></textarea>
+                  </div>
+                  <div id="dialog-input-controls" class="actions">
                     <button id="dialog-send" type="button" class="ds-button">Send til AI-agenten</button>
-                    <button id="dialog-previous" type="button" class="ds-button" data-variant="secondary">Forrige spørsmål</button>
                   </div>
                   <p id="dialog-pending" class="ds-paragraph" aria-live="polite"></p>
                   <div id="dialog-proposal" class="ds-alert" data-color="info" hidden>
                     <p id="dialog-proposal-text" class="ds-paragraph"></p>
                     <div class="actions">
-                      <button id="dialog-accept" type="button" class="ds-button">Bruk svaret</button>
+                      <button id="dialog-accept" type="button" class="ds-button">Bekreft svar</button>
+                      <button id="dialog-more" type="button" class="ds-button" data-variant="secondary">Jeg har flere spørsmål</button>
                       <button id="dialog-reject" type="button" class="ds-button" data-variant="secondary">Endre svaret</button>
                     </div>
+                  </div>
+                  <div id="dialog-navigation" class="actions">
+                    <button id="dialog-previous" type="button" class="ds-button" data-variant="secondary">Forrige spørsmål</button>
+                    <button id="dialog-next" type="button" class="ds-button">Neste spørsmål</button>
                   </div>
                 </div>
                 <section id="interview-review" class="stack" aria-labelledby="review-heading" hidden>
@@ -223,12 +269,12 @@
             <div class="actions">
               <button id="download" class="ds-button" data-variant="secondary">Last ned vurdering og kilder</button>
               <button id="print" class="ds-button" data-variant="tertiary">Skriv ut</button>
-              <a class="ds-link" href="https://www.dibk.no/verktoy-og-veivisere/bygg-uten-a-soke-garasje" target="_blank" rel="noopener noreferrer">DiBKs veiviser</a>
+              <a class="ds-link" href="https://www.dibk.no/bygge-eller-endre" target="_blank" rel="noopener noreferrer">DiBK: Bygge eller endre</a>
             </div>
           </section>
         </div>
       </main>
-      <footer class="ds-paragraph muted" data-size="sm">Garasjesjekken · Bergen er første kommune med tilkoblet plangrunnlag. Manglende opplysninger er aldri et automatisk ja.</footer>
+      <footer class="ds-paragraph muted" data-size="sm">Kan du bygge uten å søke? · Bergen er første kommune med tilkoblet plangrunnlag. Manglende opplysninger er aldri et automatisk ja.</footer>
     </div>
     <script src="/klient-konfigurasjon"></script>
     <script src="/delt/felles.ts"></script>

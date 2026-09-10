@@ -1,4 +1,14 @@
 import { HttpError } from "./errors.ts";
+import { isByggetiltakstype, type Byggetiltakstype } from "../../shared/byggetiltak.ts";
+
+export function readGarasjeTiltakstype(sok: URLSearchParams): Byggetiltakstype | undefined {
+  const values = sok.getAll("tiltakstype");
+  if (values.length === 0) return undefined;
+  if (values.length !== 1 || !isByggetiltakstype(values[0])) {
+    throw new HttpError("tiltakstype må være én dokumentert tiltakstype, eller ukjent.", 400);
+  }
+  return values[0];
+}
 
 export function readGarasjeKommune(sok: URLSearchParams): string | undefined {
   const kommune = sok.get("kommunenummer");
@@ -34,7 +44,8 @@ export function readGarasjeRequest(sok: URLSearchParams) {
     lon: readNumber(sok, "lon", -180, 180)
   };
   const kommunenummer = readGarasjeKommune(sok);
-  return { adresse, gnr, bnr, plassering, ...(kommunenummer ? { kommunenummer } : {}) };
+  const tiltakstype = readGarasjeTiltakstype(sok);
+  return { adresse, gnr, bnr, plassering, ...(kommunenummer ? { kommunenummer } : {}), ...(tiltakstype ? { tiltakstype } : {}) };
 }
 
 function readNumber(sok: URLSearchParams, felt: string, min: number, max: number, integer = false): number {

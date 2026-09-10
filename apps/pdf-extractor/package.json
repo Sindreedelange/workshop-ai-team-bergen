@@ -1,0 +1,6 @@
+{
+  "name": "@workshop-ai/pdf-extractor",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Evidence-preserving extraction for general, legal and planning PDFs."
+}

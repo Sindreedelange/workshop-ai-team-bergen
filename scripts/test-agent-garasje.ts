@@ -7,6 +7,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as wait } from "node:timers/promises";
 import { readRequestBody, svarhjelpere } from "../apps/shared/http.ts";
+import { BYGGETILTAK_KATALOG, TILTAKSSJEKK_NAVN } from "../apps/shared/byggetiltak.ts";
+import { selectGarasjeProsessfelter } from "../apps/shared/garasje-dialog.ts";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const toolsPort = Number(process.env.AGENT_GARASJE_TOOLS_PORT || 21983);
@@ -32,7 +34,8 @@ const svar = {
 };
 const definitions = JSON.parse(await readFile(path.join(root, "data/prosessdefinisjoner.json"), "utf8"));
 const garasje = definitions.prosesser.find((definition: { id: string }) => definition.id === "garasjesjekk");
-assert.ok(garasje, "Garasjesjekken må finnes i den felles prosesskatalogen.");
+assert.ok(garasje, "Tiltakssjekken må finnes i den felles prosesskatalogen.");
+assert.equal(garasje.navn, TILTAKSSJEKK_NAVN, "Katalogen skal vise det nye navnet uten å endre prosess-ID.");
 assert.equal(garasje.avslutning, "veiledning");
 const steps: {
   id: string; type: string; visning?: string; tekst?: string;
@@ -40,8 +43,18 @@ const steps: {
 }[] = garasje.steg;
 assert.deepEqual(steps.map(step => step.type), ["INFO", "DATA_FETCH", "QUESTION", "DATA_FETCH"]);
 assert.equal(steps[2].visning, "garasje");
-assert.deepEqual(steps[2].felter!.map(field => field.id).sort(), Object.keys(svar).sort());
-const requiredFields = steps[2].felter!.filter(field => field.obligatorisk);
+assert.deepEqual(steps[2].felter!.map(field => field.id).sort(), [...new Set([
+  ...Object.keys(svar), "tiltakstype", "tiltaksbeskrivelse", "tiltakstypeBekreftet",
+  ...BYGGETILTAK_KATALOG.flatMap(entry => entry.sporsmaal.map(field => field.id)),
+])].sort());
+const requiredFields = selectGarasjeProsessfelter(steps[2].felter!, "garasje");
+assert.deepEqual(requiredFields.map(field => field.id).sort(), Object.keys(svar).filter(id => id !== "kommunenummer").sort(),
+  "Eldre dialog uten tiltakstype skal fortsatt spørre om alle garasjeopplysningene.");
+const fenceFields = selectGarasjeProsessfelter(steps[2].felter!, "garasje", "gjerde");
+assert.deepEqual(fenceFields.filter(field => !field.obligatorisk).map(field => field.id).sort(),
+  ["hoyde", "motVeg", "friSikt", "aapenLett"].sort());
+assert(!fenceFields.some(field => ["bra", "bya", "etasjer", "monehoyde", "gesimshoyde"].includes(field.id)),
+  "Gjerder skal ikke arve garasjens mål.");
 const ordinarySteps = [
   { id: "intro", type: "INFO", tekst: "En vanlig søknad." },
   { id: "navn", type: "QUESTION", tekst: "Hva heter prosjektet?", felter: [{ id: "navn", label: "Navn", obligatorisk: true, type: "tekst" }] },
@@ -50,7 +63,7 @@ const ordinarySteps = [
 const processes = [
   { id: "vanlig-soknad", navn: "Vanlig søknad" },
   { id: "fartsdempende-tiltak", navn: "Fartsdempende tiltak" },
-  { id: "garasjesjekk", navn: "Garasjesjekken" }
+  { id: "garasjesjekk", navn: garasje.navn }
 ];
 const vurdering = {
   melding: "Planforhold må avklares. Dette er ikke et vedtak.",
@@ -285,8 +298,9 @@ try {
     assert.doesNotMatch(tool.inputSchema.properties.kontekst.description, /garasj/i);
     assert.match(tool.description, /free-standing question/);
   });
-  await check("navn, id, skrivefeil og naturlig språk velger garasje uten modell", async () => {
-    for (const text of ["Garasjesjekken", "garasjesjekk", "garasjekk", "garasje", "Jeg vil bygge en garasje"]) {
+  await check("nytt navn, gamle navn, id og naturlig språk velger tiltakssjekken uten modell", async () => {
+    for (const text of [TILTAKSSJEKK_NAVN, "Tiltakssjekken", "tiltakssjekk", "Byggesjekken",
+      "Garasjesjekken", "garasjesjekk", "garasjekk", "garasje", "Jeg vil bygge en garasje"]) {
       const { result } = await start(text);
       assert.equal(result.selectedProcess.id, "garasjesjekk");
       assert.equal(result.awaiting, "question_fields");
@@ -333,7 +347,7 @@ try {
     const result = await request(aiUrl, "/ai/sporsmaal", {
       tekst: "Hva er forskjellen på gesimshøyde og mønehøyde?", sprak: "nb", sporingsId: "iframe-hjelp",
       kontekst: {
-        tjeneste: "Garasjesjekken", prosessId: "garasjesjekk",
+        tjeneste: TILTAKSSJEKK_NAVN, prosessId: "garasjesjekk",
         steg: { id: "garasje-prosjekt", type: "QUESTION", tittel: "Forklar begreper og hvordan man måler garasjen" },
         flyt: { status: "AKTIV", soknadSendt: false }, resultater: {}, samtale: []
       }

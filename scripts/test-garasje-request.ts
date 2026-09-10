@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readGarasjeKommune, readGarasjeRequest, readGarasjeSearch, readGarasjeTiltakJson } from "../apps/sandbox-backend/src/garasje-request.ts";
+import { readGarasjeKommune, readGarasjeRequest, readGarasjeSearch, readGarasjeTiltakJson, readGarasjeTiltakstype } from "../apps/sandbox-backend/src/garasje-request.ts";
 import { HttpError } from "../apps/sandbox-backend/src/errors.ts";
 
 const base = { adresse: "Litle Milde 65", gnr: "105", bnr: "209" };
@@ -21,6 +21,13 @@ for (const extra of invalidQueries) {
   assert.throws(() => readGarasjeRequest(query(extra)), badRequest);
 }
 assert.equal(readGarasjeKommune(new URLSearchParams()), undefined);
+assert.equal(readGarasjeTiltakstype(new URLSearchParams()), undefined);
+assert.equal(readGarasjeRequest(query({ tiltakstype: "gjerde" })).tiltakstype, "gjerde");
+assert.equal(readGarasjeTiltakstype(new URLSearchParams({ tiltakstype: "ukjent" })), "ukjent");
+for (const value of ["", "garasje", "oppdiktet"]) {
+  assert.throws(() => readGarasjeRequest(query({ tiltakstype: value })), badRequest);
+}
+assert.throws(() => readGarasjeTiltakstype(new URLSearchParams("tiltakstype=gjerde&tiltakstype=fasade")), badRequest);
 assert.equal(readGarasjeRequest(query({ kommunenummer: "0301", lat: "59.91", lon: "10.75" })).kommunenummer, "0301");
 for (const felt of ["adresse", "gnr", "bnr"]) {
   const sok = query();

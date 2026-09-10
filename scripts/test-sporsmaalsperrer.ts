@@ -9,6 +9,7 @@
 
 import { readFile } from "node:fs/promises";
 import { GARASJE_BEGREPER, buildGarasjeBegrepssvar, findGarasjeBegreper } from "../apps/shared/garasje-begreper.ts";
+import { TILTAKSSJEKK_NAVN } from "../apps/shared/byggetiltak.ts";
 import {
   buildGrunnlagsIndeks,
   buildPersonvernSvar,
@@ -251,6 +252,19 @@ const raa = {
     },
     "sjekk-rett": { godkjent: true, melding: "Du har rett til redusert betaling." }
   },
+  dokumentkunnskap: [{
+    chunkId: "pdf-1-side-2",
+    documentId: "pdf-1",
+    title: "Forskrift om eksempel",
+    page: 2,
+    authority: "binding",
+    text: "§ 4 Tiltaket skal plasseres minst 4 meter fra grensen.",
+    score: 0.91,
+    checkRecommended: true,
+    qualityWarnings: ["Kolonnerekkefølgen bør kontrolleres."],
+    ruleIds: ["§ 4"],
+    ukjent: "skal bort"
+  }],
   samtale: Array.from({ length: 20 }, (_, i) => ({ rolle: "innbygger", tekst: `tur ${i}` }))
 };
 
@@ -273,6 +287,8 @@ check("utfallet beholdes", rent.resultater?.["sjekk-rett"]?.godkjent === true);
 check("satser beholdes", (rent.satser?.ordninger as unknown[] | undefined)?.length === 2);
 check("ukjente stegfelter fjernes", rent.steg?.internt === undefined);
 check("samtalehistorikk kappes til seks turer", (rent.samtale as unknown[] | undefined)?.length === 6);
+check("kildeforankret dokumentkunnskap beholdes", rent.dokumentkunnskap?.[0]?.documentId === "pdf-1");
+check("ukjente dokumentfelter fjernes", !("ukjent" in (rent.dokumentkunnskap?.[0] || {})));
 check(
   "steg uten utfall droppes helt",
   rent.resultater?.["hent-inntekt"] === undefined,
@@ -284,6 +300,7 @@ check(
 const grunnlag = buildGrunnlag(rent);
 check("grunnlaget er et objekt med kilder", Array.isArray(grunnlag.kilder) && grunnlag.kilder.length > 0);
 check("satser navngis med dato", grunnlag.kilder.some((kilde) => kilde.includes("2026-08-01")));
+check("PDF-kilden navngis med side og kvalitetsflagg", grunnlag.kilder.includes("Forskrift om eksempel, side 2 - kontroll anbefales"));
 
 /* ── The provider signatures ──────────────────────────────────────────────── */
 //
@@ -330,7 +347,9 @@ check("satser navngis med dato", grunnlag.kilder.some((kilde) => kilde.includes(
     passedToOllama,
     "kallstedet i callModel utelater systemMessage"
   );
-  const passedToAiFactory = /callAiFactory\(prompt, temperature, systemMessage, signal\)/.test(source);
+  // Reasoning-flagget kom som en femte parameter etter denne sjekken. Den skal
+  // fortsatt feste at systemMessage er med, ikke at listen har nøyaktig fire ledd.
+  const passedToAiFactory = /callAiFactory\(prompt, temperature, systemMessage, signal(?:, [^)]+)?\)/.test(source);
   check(
     "callModel sender systemMessage til Telenor AI Factory",
     passedToAiFactory,
@@ -377,6 +396,16 @@ const garasje = sanitizeSporsmaalKontekst({
   aktivtFelt: { id: "gesimshoyde", label: "Du kan bygge uten søknad" },
   garasjeBegreper: [{ id: "gesimshoyde", forklaring: "Gesimsen er alltid takrennen." }]
 });
+for (const navn of [TILTAKSSJEKK_NAVN, "Kan du bygge uten å søke", "Tiltakssjekken", "tiltakssjekk",
+  "Byggesjekken", "Garasjesjekken", "garasjesjekk"]) {
+  const renamed = sanitizeSporsmaalKontekst({ tjeneste: navn });
+  check(`nytt og gammelt navn gir samme faggrunnlag: ${navn}`, renamed.garasjeKunnskap?.begreper === GARASJE_BEGREPER);
+  check(`navnevalg opphever ikke beslutningssperren: ${navn}`,
+    validateAnswer("Du kan bygge uten søknad.", renamed).sperre === "beslutning");
+}
+check("navnelikhet gjør ikke en annen tjeneste til tiltakssjekken", sanitizeSporsmaalKontekst({
+  tjeneste: "En annen tiltakssjekk for skolesøknader", prosess: { id: "annen-prosess" }
+}).garasjeKunnskap === undefined);
 check("garasjeordlisten kommer fra vår kilde, ikke kalleren", garasje.garasjeKunnskap?.begreper === GARASJE_BEGREPER);
 check("iframe trenger ikke sende ordlisten selv", sanitizeSporsmaalKontekst({
   tjeneste: "Garasjesjekken", prosessId: "garasjesjekk",
@@ -386,6 +415,15 @@ check("prosess-id alene er nok til garasjegrunnlag", sanitizeSporsmaalKontekst({
   prosessId: "garasjesjekk"
 }).garasjeKunnskap?.begreper === GARASJE_BEGREPER);
 check("aktivt felt bruker også vår forklaring", garasje.aktivtFelt?.label === "Gesimshøyde");
+const fenceContext = sanitizeSporsmaalKontekst({
+  prosessId: "garasjesjekk", prosjekt: { tiltakstype: "gjerde", hoyde: 1.5 },
+  aktivtFelt: { id: "hoyde", label: "Falsk grense på fire meter." }
+});
+check("gjerdefeltet hentes fra tiltakskatalogen", fenceContext.aktivtFelt?.label.includes("Gjerdets samlede høyde"));
+check("gjerdespørsmål får ikke garasjens høydegrenser", !buildGarasjeVeiledningssvar("Hva er maksimal høyde?", fenceContext)?.includes("høyst 4"));
+check("gjerdespørsmål viser riktig tiltakstype", fenceContext.garasjeKunnskap?.tiltak?.id === "gjerde");
+check("modellgrunnlaget for gjerde inneholder ingen garasjegrenser", fenceContext.garasjeKunnskap?.nasjonaleKrav === null);
+check("garasjens fire meter er ikke dokumentasjon for gjerdehøyde", !validateAnswer("Høydegrensen er 4 meter.", fenceContext).ok);
 check("ordlisten følger ikke med andre prosesser", sanitizeSporsmaalKontekst(kontekst).garasjeKunnskap === undefined);
 check("en annen tjeneste som nevner garasje får ikke særbehandling", sanitizeSporsmaalKontekst({
   tjeneste: "Fritidsaktiviteter i garasjen", prosess: { id: "annen-prosess", steg: [] }
@@ -461,7 +499,7 @@ for (const removed of ["ringer", "geometry", "coordinates", "12818800078", "Priv
 }
 check("råresultatene følger ikke med ved siden av garasjegrunnlaget", kompaktGarasje.resultater === undefined);
 check("kompakt kartareal beholdes", kompaktGarasje.garasjeKunnskap?.arealFraKart.tomtearealM2 === 900);
-check("nasjonale grenser kan ikke overstyres", kompaktGarasje.garasjeKunnskap?.nasjonaleKrav.tallkrav.bra.verdi === 50);
+check("nasjonale grenser kan ikke overstyres", kompaktGarasje.garasjeKunnskap?.nasjonaleKrav?.tallkrav.bra.verdi === 50);
 check("PDF-lenken gjør ikke planen kontrollert", kompaktGarasje.garasjeKunnskap?.planbestemmelserKontrollert === false);
 const vanligKontekst = {
   tjeneste: "TT-kort",

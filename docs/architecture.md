@@ -74,9 +74,17 @@ Disse finnes for å senke terskelen og spare tid, ikke for å definere én rikti
 6. `sandbox-backend` henter matrikkeldata fra `matrikkel-mock` over HTTP (`MATRIKKEL_BASE_URL`, se `apps/sandbox-backend/src/matrikkel.ts`) og eksponerer dem via `GET /api/matrikkel/gater` og `SJEKK`-steg. Mocken er eneste leser av seeden, og eneste vei til SOAP-flaten
 7. `sandbox-backend` henter legeerklæringen fra `pasientjournal-mock` over HTTP (`PASIENTJOURNAL_BASE_URL`), bak samtykkeporten. Mocken er eneste leser av `data/legeerklaeringer.json`, og integrasjonen finnes ikke i virkeligheten - se `apps/pasientjournal-mock/README.md`
 8. `sandbox-backend` leser politiattesten fra `politiattest-mock` over HTTP (`POLITIATTEST_BASE_URL`), bak samtykkeporten, og minimerer svaret før noe annet ser det: type, dato og antall anmerkninger, aldri hva de gjelder. Mocken er eneste leser av `data/politiattester.json`, og integrasjonen finnes ikke i virkeligheten - se `apps/politiattest-mock/README.md`
-9. `tools-api` eksponerer verktøy mot backend, ai-gateway og matrikkel-mock
-10. `process-agent` bruker `tools-api` for all tilstand og data; oppdager relevante verktøy dynamisk per steg via `suggest_step_tools`
-11. alle relevante hendelser sendes til revisjonslogg
+9. `pdf-extractor` trekker ut kildeforankrede blokker fra generelle, juridiske og planfaglige PDF-er og bruker `ai-gateway` valgfritt for normalisering og bildeanalyse
+10. `tools-api` eksponerer verktøy mot backend, ai-gateway, matrikkel-mock og pdf-extractor
+11. `process-agent` bruker `tools-api` for all tilstand og data; oppdager relevante verktøy dynamisk per steg via `suggest_step_tools`
+12. alle relevante hendelser sendes til revisjonslogg
+
+[Tiltakssjekken «Kan du bygge uten å søke?»](garasjesjekk.md) setter flere av
+disse delene sammen: valgt tiltakstype styrer spørsmålene, backend henter kart og
+planforhold, og agenten finner relevante PDF-utdrag gjennom verktøyene.
+Backend vurderer reglene, mens KI forklarer grunnlaget med kildehenvisninger.
+Casen er en referanse for søknadsavklaring, ikke en universell søknadsmotor eller
+automatisk byggetillatelse. Den avsluttes uten innsending.
 
 Tegnet opp, med samtykkeporten markert:
 
@@ -92,11 +100,13 @@ flowchart LR
     SB["sandbox-backend"]
     TA["tools-api"]
     AG["ai-gateway"]
+    PE["pdf-extractor"]
   end
 
   subgraph mocker["Mockede integrasjoner"]
     FS["fiks-simulator"]
     MM["matrikkel-mock"]
+    PM["plan-mock"]
     PJ["pasientjournal-mock"]
     PA["politiattest-mock"]
     DM["digdir-mock"]
@@ -108,8 +118,11 @@ flowchart LR
   TA --> SB
   TA --> AG
   TA --> MM
+  TA --> PE
+  PE --> AG
   SB --> AG
   SB --> MM
+  SB --> PM
   SB -->|"samtykke og beregning"| FS
   SB -->|"bak samtykkeporten"| PJ
   SB -->|"bak samtykkeporten"| PA
@@ -151,7 +164,7 @@ Det betyr at:
 
 ## Status og kjente avvik
 
-Alle elleve tjenestene er implementert og kjører. Samtykkesperre, revisjonslogg,
+Alle tretten tjenestene er implementert og kjører. Samtykkesperre, revisjonslogg,
 deterministisk vilkårsvurdering og sju demo-case er på plass. Det som følger er
 avvik mellom hvordan sandkassen presenterer seg og hva den faktisk gjør - verdt å
 kjenne til før du bygger på den.

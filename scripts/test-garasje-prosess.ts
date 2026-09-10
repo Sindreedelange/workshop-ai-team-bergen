@@ -14,6 +14,7 @@ process.env.AUTH_ENFORCE = "true";
 process.env.DIGDIR_BASE_URL = "http://garasje-prosess-digdir.test";
 process.env.DIGDIR_ISSUER = process.env.DIGDIR_BASE_URL;
 process.env.MATRIKKEL_BASE_URL = "http://garasje-prosess-matrikkel.test";
+process.env.PLAN_BASE_URL = "http://garasje-prosess-plan.test";
 const { publicKey, privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const kid = "garasje-prosess-test";
 const jwk = { ...publicKey.export({ format: "jwk" }), kid, alg: "RS256", use: "sig" };
@@ -44,6 +45,20 @@ globalThis.fetch = async (input, options) => {
   if (url.hostname === "garasje-prosess-digdir.test") {
     assert.equal(url.pathname, "/jwks");
     return Response.json({ keys: [jwk] });
+  }
+  // Ingen kommuneplandekning i denne fixturen, som for teigene over. Uten en egen
+  // gren her ville planoppslaget falt gjennom til ArcGIS-grenen nederst, fått et
+  // lagmetadatasvar og blitt en kildefeil ingen la merke til.
+  if (url.hostname === "garasje-prosess-plan.test") {
+    assert(url.pathname.startsWith("/mock/plan/"), url.pathname);
+    return Response.json({
+      kommunenummer: url.searchParams.get("kommunenummer"), kildestatus: "ikke_dekket",
+      kilde: {
+        navn: "Bergen kommuneplan 2018", planId: null, versjon: null, filer: [],
+        uttrekksaar: null, koordinatsystem: "EPSG:4326", syntetisk: false,
+      },
+      type: "FeatureCollection", klippetTilUtsnitt: true, features: []
+    });
   }
   if (url.hostname === "garasje-prosess-matrikkel.test") {
     if (url.pathname === "/mock/matrikkel/teiger" || url.pathname === "/mock/matrikkel/naboteiger") {
@@ -190,7 +205,7 @@ try {
   assert.equal(definitions[1]?.id, "sfo-moderasjon", "Eksisterende menyrekkefølge må beholdes");
   const definition = definitions.find(p => p.id === "garasjesjekk");
   assert(definition);
-  assert.equal(definition.navn, "Garasjesjekken");
+  assert.equal(definition.navn, "Kan du bygge uten å søke?");
   assert.equal(definition.redigering.status, "publisert");
   assert.deepEqual(definition.steg.map(s => s.type), ["INFO", "DATA_FETCH", "QUESTION", "DATA_FETCH"]);
   const question = definition.steg[2];

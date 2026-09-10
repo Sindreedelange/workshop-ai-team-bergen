@@ -20,20 +20,40 @@ Kjørende markup for hver komponent: `apps/demo-gui/src/ds-eksempel.html`, serve
 
 ## Oppsett
 
-Tre stilark og ett attributt på `<html>`:
+Fire stilark og ett attributt på `<html>`:
 
 ```html
-<html lang="nb" data-color-scheme="light">
+<html lang="nb" data-color-scheme="auto">
   <head>
     <link rel="stylesheet" href="https://static.fiks.ks.no/googlefonts/googleapis/css2?family=Inter:wght@400;500;600;700&display=swap" />
     <link rel="stylesheet" href="/assets/ds-base.css" />
     <link rel="stylesheet" href="/assets/ds-ksdigital.css" />
+    <link rel="stylesheet" href="/assets/ds-morketema.css" />
   </head>
 ```
+
+De to første er vendoret uendret fra temapakken. `ds-morketema.css` er vår egen og retter
+fargene temaet regner feil i mørk modus.
 
 API-et er klasser og attributter på vanlig HTML:
 `<button class="ds-button" data-variant="secondary">`. `data-size` og `data-color` arves
 nedover i treet; `data-variant` gjør ikke.
+
+## Fargemodus
+
+- `data-color-scheme` har tre verdier: `light`, `dark` og `auto`. `light` ligger på
+  `:root`, så det er standard uten attributtet, og **`auto` er den eneste som følger
+  systeminnstillingen**. Bruk `auto` som utgangspunkt.
+- Lagres et valg, må det legges på `<html>` av et blokkerende skript i `<head>`, ellers
+  tegnes siden i feil tema først. Mønsteret står i `docs/designsystem.md`.
+- **`data-color-scheme` nullstiller `data-color`.** Begge hører på samme element, ellers
+  faller fargen tilbake til `accent`.
+- Primærknappen er blå i mørk modus fordi `ds-morketema.css` retter den. Uten den rettingen
+  snur temaet KS-marineblå til grått. Trenger du en annen farge, bruk en familie som
+  finnes - `support1`, `info`, `danger` - ikke en egen hex. `brand1`, `brand2` og `brand3`
+  finnes hos Digdir, men ikke i KS-temaet.
+- Fargene, kontrastkravene og hvorfor `warning` og `support2` ikke skal brukes på knapper
+  i mørk modus: `docs/designsystem.md`, seksjonen «Fargemodus».
 
 ## Aldri
 
@@ -48,9 +68,11 @@ nedover i treet; `data-variant` gjør ikke.
 4. **Aldri finn opp klassenavn.** Sannheten er
    `grep -o '\.ds-[a-z-]*' apps/shared/ds-base.css | sort -u`.
 5. **Aldri egne hex-farger eller px-avstander.** Bruk `--ds-*`-tokens, ellers brekker
-   mørk modus.
+   mørk modus. Det ene unntaket er `apps/shared/ds-morketema.css`, og hver verdi der er
+   begrunnet med et målt kontrastforhold.
 6. **Aldri rediger `apps/shared/ds-base.css` eller `ds-ksdigital.css`.** De er hentet
-   uendret fra pakken og overskrives av `pnpm ds:hent`.
+   uendret fra pakken og overskrives av `pnpm ds:hent`. Skal en farge rettes, hører den i
+   `ds-morketema.css`.
 
 ## Husk
 
@@ -62,3 +84,5 @@ nedover i treet; `data-variant` gjør ikke.
 - Bygg DOM med `createElement` + `textContent`, aldri `innerHTML`.
 - `<html lang="nb">`, `aria-live` på svar som strømmer inn, `aria-invalid` på felt med
   feil. Designsystemet gir tilgjengelige komponenter, ikke tilgjengelig struktur.
+- Kontrast: 4,5:1 for tekst, 3:1 for kanten på en komponent og for fokusringen. Aldri farge
+  som eneste bærer av mening - en solknapp som veksler tema er ikke nok.

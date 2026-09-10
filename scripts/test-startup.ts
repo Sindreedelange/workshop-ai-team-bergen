@@ -9,17 +9,21 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const bashCommand = process.platform === "win32" && existsSync("C:/Program Files/Git/bin/bash.exe")
+  ? "C:/Program Files/Git/bin/bash.exe"
+  : "bash";
 const bash = readFileSync(path.join(root, "start.sh"), "utf8");
 const batch = readFileSync(path.join(root, "start.bat"), "utf8");
-const compose = readFileSync(path.join(root, "docker-compose.yml"), "utf8");
-const services = [...compose.matchAll(/^  ([\w-]+):\n(?:(?!^  \S)[\s\S])*?^    command: \["\/bin\/sh", "scripts\/dev.sh",/gm)]
+const compose = readFileSync(path.join(root, "docker-compose.yml"), "utf8").replace(/\r\n/g, "\n");
+const services = [...compose.matchAll(/^  ([\w-]+):\n((?:(?!^  \S)[\s\S])*)/gm)]
+  .filter(match => /http:\/\/localhost:\d+\/helse/.test(match[2]))
   .map(match => match[1]).sort();
-const shellServices = bash.match(/^NODE_SERVICES=\(([^)]+)\)/m)![1].split(" ").sort();
+const shellServices = bash.match(/^APP_SERVICES=\(([^)]+)\)/m)![1].split(" ").sort();
 const batchServices = batch.match(/^set SERVICES=(.+)\r?$/m)![1].trim().split(" ").sort();
-assert.ok(services.length > 0, "Fant ingen Node-tjenester i Compose");
-assert.deepEqual(shellServices, services, "start.sh må starte alle Node-tjenestene");
-assert.deepEqual(batchServices, services, "start.bat må starte alle Node-tjenestene");
-const ports = [...compose.matchAll(/fetch\('http:\/\/localhost:(\d+)\/helse'/g)].map(match => match[1]).sort();
+assert.ok(services.length > 0, "Fant ingen applikasjonstjenester i Compose");
+assert.deepEqual(shellServices, services, "start.sh må starte alle applikasjonstjenestene");
+assert.deepEqual(batchServices, services, "start.bat må starte alle applikasjonstjenestene");
+const ports = [...compose.matchAll(/http:\/\/localhost:(\d+)\/helse/g)].map(match => match[1]).sort();
 assert.deepEqual(bash.match(/^SERVICE_PORTS=\(([^)]+)\)/m)![1].split(" ").sort(), ports);
 assert.deepEqual(batch.match(/^set SERVICE_PORTS=(.+)\r?$/m)![1].trim().split(" ").sort(), ports);
 assert.ok(!/[^\x00-\x7f]/.test(batch), "start.bat skal være ASCII");
@@ -35,8 +39,8 @@ assert.match(batch, /\$ErrorActionPreference = 'Stop'/);
 assert.match(batch, /Get-ChildItem -LiteralPath state -Force/);
 assert.ok(!batch.includes("NO_CURL"), "Mangler curl, skal oppstart feile");
 
-for (const [shell, file] of [["bash", "start.sh"], ["sh", "scripts/dev.sh"]]) {
-  const result = spawnSync(shell, ["-n", path.join(root, file)], { encoding: "utf8" });
+for (const file of ["start.sh", "scripts/dev.sh"]) {
+  const result = spawnSync(bashCommand, ["-n", path.join(root, file)], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
 }
 
@@ -77,8 +81,9 @@ if (command === "docker") {
 }
 if (command === "curl") {
   const url = args.find(arg => arg.startsWith("http"));
+  if (url?.includes("[::1]")) process.exit(fail === "ipv6" ? 0 : 7);
   if (url.includes("/api/tags")) {
-    console.log(JSON.stringify({ models: existsSync("model-present") ? [{name:"qwen2.5:0.5b"}] : [] }));
+    console.log(JSON.stringify({ models: existsSync("model-present") ? [{name:"qwen2.5:0.5b"},{name:"qwen3-vl:2b"},{name:"qwen3-vl:4b"},{name:"qwen3-vl:8b"}] : [] }));
   } else if (url.includes("/ai/klarsprak")) {
     console.log('{"modell":"qwen2.5:0.5b"}');
   } else {
@@ -93,6 +98,8 @@ if (command === "curl") {
 if (command === "uname") { console.log(process.env.FIXTURE_PLATFORM || "Linux"); process.exit(0); }
 if (command === "date") { console.log("20260908-200000"); process.exit(0); }
 if (command === "nvidia-smi") process.exit(1);
+// hw.memsize in bytes, so total_ram_gb's Darwin branch divides down to a clean 16.
+if (command === "sysctl" && args.includes("hw.memsize")) { console.log(String(16 * 1024 ** 3)); process.exit(0); }
 if (command === "sleep") process.exit(0);
 if (command === "ollama") {
   if (args[0] === "pull") writeFileSync("model-present", "yes");
@@ -117,7 +124,7 @@ function makeFixture(name: string, state = true): string {
     copyFileSync(path.join(root, file), path.join(directory, file));
   }
   writeFileSync(path.join(directory, "bin/fixture.ts"), fake);
-  for (const command of ["docker", "curl", "uname", "date", "nvidia-smi", "sleep", "ollama", "cp", "rm", "mkdir"]) {
+  for (const command of ["docker", "curl", "uname", "date", "nvidia-smi", "sysctl", "sleep", "ollama", "cp", "rm", "mkdir"]) {
     const target = path.join(directory, "bin", command);
     writeFileSync(target, `#!/bin/sh\nexec "${process.execPath}" "$(dirname "$0")/fixture.ts" ${command} "$@"\n`);
     chmodSync(target, 0o755);
@@ -139,9 +146,12 @@ function makeFixture(name: string, state = true): string {
 function run(directory: string, args: string[], extra: Record<string, string> = {}) {
   const env = { ...process.env };
   for (const key of ["OLLAMA_MODEL", "OLLAMA_BASE_URL", "AI_PROVIDER", "BASH_ENV", "ENV", "SHELLOPTS"]) delete env[key];
-  const result = spawnSync("bash", [path.join(directory, "start.sh"), ...args], {
+  const fixtureBin = process.platform === "win32"
+    ? `${directory}/bin;C:/Program Files/Git/usr/bin;${path.dirname(process.execPath)}`
+    : `${directory}/bin:${process.env.PATH}`;
+  const result = spawnSync(bashCommand, [path.join(directory, "start.sh"), ...args], {
     cwd: fixtures, encoding: "utf8", timeout: 30_000,
-    env: { ...env, PATH: `${directory}/bin:${process.env.PATH}`, ...extra }
+    env: { ...env, PATH: fixtureBin, ...extra }
   });
   assert.ifError(result.error);
   return result;
@@ -154,7 +164,7 @@ function events(directory: string): Event[] {
 
 function nodeUp(directory: string): Event {
   const event = events(directory).find(event => event.command === "docker" && event.args.includes("up") && (event.args.includes("sandbox-backend") || event.args.at(-1) === "-d"));
-  assert.ok(event, "Node-tjenestene ble ikke startet");
+  assert.ok(event, "Applikasjonstjenestene ble ikke startet");
   if (event.args.at(-1) !== "-d") {
     assert.deepEqual(event.args.filter(arg => services.includes(arg)).sort(), services);
   }
@@ -175,6 +185,9 @@ function check(name: string, work: () => void) {
 }
 
 try {
+  if (process.platform === "win32") {
+    console.log("Statiske oppstartssjekker bestått. Dynamiske shell-fixturer kjøres på POSIX.");
+  } else {
   for (const platform of ["Linux", "Darwin"]) {
     check(`Nullstilling med mock på ${platform}`, () => {
       const directory = makeFixture(`reset ${platform}`);
@@ -245,6 +258,14 @@ try {
     assert.match(result.stderr, /SIMULERT OPPSTARTSFEIL/);
     assert.equal(readdirSync(path.join(directory, "_backup")).length, 1);
     assert.ok(!result.stdout.includes("✅ Klar"));
+  });
+
+  check("IPv6-prosess på en tjenesteport stopper oppstart", () => {
+    const directory = makeFixture("ipv6-conflict", false);
+    const result = run(directory, ["--mock"], { FIXTURE_FAIL: "ipv6" });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Portene er allerede i bruk/);
+    assert.ok(!events(directory).some(event => event.command === "docker" && event.args.includes("up")));
   });
 
   for (const platform of ["Linux", "Darwin"]) {
@@ -364,7 +385,8 @@ try {
     assert.equal(result.status, 0);
     assert.match(result.stderr, /nodemon mangler/);
   });
-  console.log(`\n${passed} oppstartssjekker bestått. Ingen ekte Docker-kall. Windows-kjøring er ikke testet.`);
+    console.log(`\n${passed} oppstartssjekker bestått. Ingen ekte Docker-kall. Windows-kjøring er ikke testet.`);
+  }
 } finally {
   rmSync(fixtures, { recursive: true, force: true });
 }

@@ -18,7 +18,7 @@ export function mountGarasjeProsess({ oekt, container, save }: MountOptions): ()
   const result = oekt.prosessId === "garasjesjekk" && Boolean(oekt.resultater?.["garasje-vurdering"]);
   if (!question && !result) return () => {};
   const frame = document.createElement("iframe");
-  frame.title = question ? "Velg eiendom og plasser garasjen" : "Garasjesjekkens vurdering og kilder";
+  frame.title = question ? "Velg eiendom og beskriv tiltaket" : "Tiltaksvurdering og kilder";
   frame.className = "garage-process-frame";
   frame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms allow-downloads allow-popups allow-popups-to-escape-sandbox allow-modals");
   frame.src = `/garasje?${new URLSearchParams({

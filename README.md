@@ -89,6 +89,12 @@ Sju demo-case er publisert; `Redusert foreldrebetaling i barnehage` er
 flaggskipet og det eneste som er dekket av en informasjonsmodell. Casene og hvilken
 testbruker som hører til hver, står i `docs/deltakerstart.md`.
 
+I tillegg finnes [**«Kan du bygge uten å søke?»**](docs/garasjesjekk.md):
+tiltakssjekken for frittliggende bygg, tilbygg, gjerde og fasade eller tak.
+Den kombinerer eiendom, kart, lokale planer og PDF-kilder med faste regler og
+KI-forklaringer. Casen avsluttes med veiledning, ikke innsending. Den viser et
+mønster for søknadsavklaring som andre tjenester kan bygge videre på med egne regler.
+
 Arkitekturen er lagt opp for samarbeid mellom flere team, med tydelige grenser mellom frontend, backend, simulatorer, policyer og datasett.
 
 ## Designprinsipp for hackathon
@@ -97,7 +103,7 @@ Høy autonomi, og nok støtte til at teamene faktisk rekker å levere: felles AP
 
 ## Status
 
-Elleve kjørende tjenester, én valgfri avhengighet i kjøretid, sju komplette demo-case. På plass:
+Tretten kjørende tjenester, én valgfri avhengighet i kjøretid, sju komplette demo-case. På plass:
 
 - samtykkeflyt med sperre på inntektsdata uten samtykke, håndhevet ett sted
 - revisjonslogg over all datatilgang
@@ -105,7 +111,7 @@ Elleve kjørende tjenester, én valgfri avhengighet i kjøretid, sju komplette d
 - syntetiske data forankret i Folkeregisterets informasjonsmodell og KS Fiks beregnings-API
 - KI-spor: hvert modellkall lagres med prompt og svar, lesbart på `GET /trace`
 - evals av KI-laget: `pnpm test:eval`
-- OpenAPI for alle ni API-tjenestene, komplett og holdt i takt med koden av
+- OpenAPI for alle elleve API-tjenestene, komplett og holdt i takt med koden av
   `pnpm test:openapi`: hver rute dokumentert, med `security:` per rute
 
 ## Hva som logges
@@ -160,7 +166,7 @@ faktisk svarer.
 
 `start.bat` og `stop.bat` finnes i repoet, men de er et nødløsningsalternativ, ikke en
 ekvivalent. `start.bat` sjekker portene, lager `.env` hvis den mangler, og venter til alle
-elleve tjenestene svarer på `/helse`. Den tar `--reset`, `--reload`, `-d`, `--down` og
+tretten tjenestene svarer på `/helse`. Den tar `--reset`, `--reload`, `-d`, `--down` og
 `--help`, men ingen modellflagg. **Den kjører alltid uten
 språkmodell** - den laster verken ned eller velger modell, så alt annet enn maltekst
 ville vært en tom lovnad. Vil du ha en ekte modell, bruk Git Bash eller WSL og

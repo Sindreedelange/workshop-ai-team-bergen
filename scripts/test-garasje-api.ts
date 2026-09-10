@@ -13,6 +13,7 @@ process.env.AUTH_ENFORCE = "true";
 process.env.DIGDIR_BASE_URL = "http://garasje-digdir.test";
 process.env.DIGDIR_ISSUER = "http://garasje-digdir.test";
 process.env.MATRIKKEL_BASE_URL = "http://garasje-matrikkel.test";
+process.env.PLAN_BASE_URL = "http://garasje-plan.test";
 const { publicKey, privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const kid = "garasje-test";
 const jwk = { ...publicKey.export({ format: "jwk" }), kid, alg: "RS256", use: "sig" };
@@ -37,6 +38,36 @@ globalThis.fetch = async (input, options) => {
   if (url.hostname === "garasje-digdir.test") {
     assert.equal(url.pathname, "/jwks");
     return Response.json({ keys: [jwk] });
+  }
+  // Planmocken over HTTP, med en støysone som dekker teigen helt. Ruten skal svare
+  // med hensynssonen på tråden, og revisjonssporet skal bære den videre.
+  if (url.hostname === "garasje-plan.test") {
+    const hensynssoner = url.pathname === "/mock/plan/hensynssoner";
+    assert(hensynssoner || url.pathname === "/mock/plan/arealformaal", url.pathname);
+    for (const felt of ["kommunenummer", "vest", "sor", "ost", "nord"]) {
+      assert(url.searchParams.has(felt), `Planoppslaget mangler ${felt}`);
+    }
+    // Flaten bygges av utsnittet, ikke av faste koordinater: sandbox-backend
+    // avviser nå geometri utenfor det den ba om, og en fixtur med faste bokser
+    // ville testet en kilde ingen har.
+    const vest = Number(url.searchParams.get("vest")), sor = Number(url.searchParams.get("sor"));
+    const ost = Number(url.searchParams.get("ost")), nord = Number(url.searchParams.get("nord"));
+    const boks = [[[vest, sor], [ost, sor], [ost, nord], [vest, nord], [vest, sor]]];
+    return Response.json({
+      kommunenummer: "4601", kildestatus: "tilgjengelig",
+      kilde: {
+        navn: "Bergen kommuneplanens arealdel 2018 (KPA2018)", planId: "65270000", versjon: "KPA2018",
+        filer: ["KpStøySone_gul_2018.geojson"], uttrekksaar: 2018, koordinatsystem: "EPSG:4326", syntetisk: false,
+      },
+      type: "FeatureCollection", klippetTilUtsnitt: true,
+      features: [{
+        type: "Feature", id: hensynssoner ? 42 : 43,
+        geometry: { type: "Polygon", coordinates: boks },
+        properties: hensynssoner
+          ? { datasett: "stoy", sonekode: 220, sonenavn: "H220_1", arealstatus: null, beskrivelse: "Sjøflyhavn - gul sone", planId: "65270000", kommunenummer: "4601" }
+          : { datasett: "arealformaal", sonekode: 5100, sonenavn: null, arealstatus: 1, beskrivelse: "LNF", planId: "65270000", kommunenummer: "4601" },
+      }],
+    });
   }
   if (url.hostname === "garasje-matrikkel.test") {
     const neighbours = url.pathname === "/mock/matrikkel/naboteiger";
@@ -264,6 +295,11 @@ try {
   const failed = await asJson<Result>(await request(`/api/garasje/sjekk?${q}`));
   assert.equal(failed.vurdering.utfall, "maa_avklares");
   assert.equal(failed.grunnlag.kilder.find(k => k.id === "kpa")?.status, "feil");
+  const sone = result.grunnlag.planflater.find(f => f.kategori === "hensynssone");
+  assert.equal(sone?.kategori === "hensynssone" ? sone.sonenavn : null, "H220_1");
+  assert.equal(sone?.berorer, "helt");
+  assert.equal(result.grunnlag.kilder.find(k => k.id === "planflater")?.uttrekksaar, 2018);
+  assert.equal(result.vurdering.sjekker.find((s: { id: string }) => s.id === "hensynssoner")?.status, "uavklart");
   const audit = JSON.parse(await readFile(path.join(stateDir, "revisjonslogg.json"), "utf8"));
   const localEvent = audit.find((e: { handling: string; sporingsId: string }) => e.handling === "GARASJE_VURDERT" && e.sporingsId === "garasje-lokal-integrasjon");
   assert.equal(localEvent.grunnlag.datagrunnlag.kilder.find((k: { id: string }) => k.id === "eiendomsgrenser").fil, "matrikkel_bk_25.json");

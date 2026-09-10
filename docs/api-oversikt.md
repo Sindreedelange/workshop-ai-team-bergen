@@ -32,11 +32,12 @@ holder spesifikasjonene i takt med koden; ingenting holdt denne filen i takt med
 | digdir-mock | 8086 | `openapi/digdir-mock.yaml` |
 | pasientjournal-mock | 8087 | `openapi/pasientjournal-mock.yaml` |
 | politiattest-mock | 8088 | `openapi/politiattest-mock.yaml` |
+| pdf-extractor | 8089 | `openapi/pdf-extractor.yaml` |
 
 Listen over tjenester bor i `apps/shared/tjenester.json`, som dashboardet og
 API-utforskeren begge leser. `pnpm test:openapi` krever at den er enig med seg selv.
 
-Alle ni svarer også på `GET /helse`. Det finnes ingen `/health` - den var et alias som
+Alle ti svarer også på `GET /helse`. Det finnes ingen `/health` - den var et alias som
 gjorde at hver tjeneste sto oppført to ganger i utforskeren.
 
 Beskyttede ruter i `sandbox-backend` godtar ID-porten eller Maskinporten etter
@@ -73,6 +74,9 @@ Spesifikasjonen har signaturene. Dette er det den ikke sier:
 - `POST /ai/dommer` – LLM-as-judge for `scripts/eval.ts`. Ikke en del av en innbyggerflyt.
 - `POST /ai/velg-prosess`
 - `POST /ai/velg-verktoy` – Gitt et prosessteg og liste over tilgjengelige verktøy, returnerer hvilke som er relevante (`kontekst`, `validering`, eller `kontekst_og_validering`). Brukes av `tools-api/suggest_step_tools`.
+- `POST /ai/strukturer-dokument` – Normaliserer kildeblokker uten å erstatte dem.
+- `POST /ai/les-dokumentside` – Leser en vanskelig side med den lokale bildemodellen.
+- `POST /ai/garasje-raad` - Formulerer råd fra en regelbasert tiltaksvurdering og kildegrunnlag, uten å overstyre utfallet.
 
 ## Tools API (port 8083)
 
@@ -105,11 +109,18 @@ den som leser uten å kjøre stacken.
 | `matrikkel_hent_eiere` | Hent eiere for en matrikkelenhet |
 | `suggest_step_tools` | Dynamisk verktøyoppdagelse for et prosessteg |
 | `answer_citizen_question` | Fritt spørsmål fra innbygger midt i en flyt. Henter satser selv og kaller `/ai/sporsmaal` |
+| `get_garasje_raad` | Hent et råd som beholder regelutfallet og alle uavklarte forhold, med tilgjengelig dokumentgrunnlag |
 | `get_process_definition` | Hent én prosessdefinisjon |
 | `brreg_search_organisations` | Søk i enhetsregisteret |
 | `brreg_get_organisation` | Hent organisasjon på orgnr |
 | `folkeregister_search_persons` | Søk i folkeregisteret |
 | `folkeregister_get_person` | Hent person på fødselsnummer |
+| `pdf_reprocess_document` | Kjør uttrekk og indeksering på nytt; vanlig opplasting starter dette automatisk |
+| `pdf_list_documents` | List opplastede dokumenter med uttrekksstatus og kildemetadata for avgrenset gjenfinning |
+| `pdf_get_job_status` | Følg en uttrekksjobb til `completed` eller `failed` |
+| `pdf_get_extraction_result` | Hent strukturert PDF-uttrekk og kildebevis |
+| `pdf_read_document` | Hent hele det kompakte dokumentinnholdet |
+| `pdf_search_chunks` | Semantisk søk i kildeforankrede dokumentbiter fra den innebygde vektordatabasen |
 
 </details>
 

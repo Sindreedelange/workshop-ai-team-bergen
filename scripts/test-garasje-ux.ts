@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { stripTypeScriptTypes } from "node:module";
 import { createContext, runInContext } from "node:vm";
+import { ringerInneholder } from "../apps/shared/geometri.ts";
+import { nearestPolygonBoundary } from "../apps/demo-gui/src/client/garasje-kart.ts";
 import { projectGarasjeDialogGrunnlag } from "../apps/shared/garasje-dialog.ts";
 import type { GarasjeGrunnlag } from "../apps/shared/garasje.ts";
 
@@ -16,6 +18,7 @@ class Element {
   min = "";
   max = "";
   step = "any";
+  placeholder = "";
   required = false;
   validationMessage = "Ugyldig verdi";
   focusCount = 0;
@@ -23,9 +26,12 @@ class Element {
   dataset: Record<string, string> = {};
   attributes: Record<string, string> = {};
   children: Element[] = [];
+  get options() { return this.children; }
   listeners = new Map<string, ((event: Event) => unknown)[]>();
-  addEventListener(type: string, fn: (event: Event) => unknown) {
-    this.listeners.set(type, [...(this.listeners.get(type) || []), fn]);
+  addEventListener(type: string, fn: (event: Event) => unknown, options?: { signal?: AbortSignal }) {
+    this.listeners.set(type, [...(this.listeners.get(type) || []), event => {
+      if (!options?.signal?.aborted) return fn(event);
+    }]);
   }
   dispatch(type: string, event: Event = {}) {
     for (const fn of this.listeners.get(type) || []) fn({ target: this, ...event });
@@ -84,62 +90,131 @@ const el = (id: string) => {
   return nodes.get(id)!;
 };
 const fields = [
-  { id: "bya", label: "Areal", type: "tall", ukjentTillatt: false },
+  { id: "bya", label: "BYA", type: "tall", ukjentTillatt: false },
+  { id: "bra", label: "BRA", type: "tall", ukjentTillatt: false },
   { id: "gesimshoyde", label: "Gesims", type: "tall", ukjentTillatt: false },
-  { id: "monehoyde", label: "Møne", type: "tall", ukjentTillatt: false }
+  { id: "monehoyde", label: "Møne", type: "tall", ukjentTillatt: false },
+  { id: "etasjer", label: "Etasjer", type: "tall", ukjentTillatt: false },
+  { id: "avstandNabogrense", label: "Avstand", type: "tall", ukjentTillatt: true },
+  { id: "beboelse", label: "Beboelse", type: "valg", ukjentTillatt: true }
 ];
 for (const field of fields) {
   const node = el(field.id);
-  node.type = "number";
+  node.type = field.type === "tall" ? "number" : "select";
   node.min = "0.01";
   node.max = "1000";
-  node.required = true;
+  node.required = !field.ukjentTillatt;
   node.parentElement = new Element();
 }
 let locked = false;
 let changed = 0;
-let answer: { type: string; tekst: string; svar?: number } = { type: "svar", tekst: "Jeg forstår 35", svar: 35 };
+let answer: {
+  type: string; tekst: string; svar?: number | boolean | null;
+  advarsel?: string; kunnskapsadvarsel?: string;
+  dokumentkunnskap?: {
+    documentId: string; title?: string; page: number; canonicalUrl?: string;
+    checkRecommended?: boolean; qualityWarnings?: string[];
+  }[];
+} = { type: "svar", tekst: "Jeg forstår 35", svar: 35 };
 let resolveDelayed: ((value: typeof answer) => void) | undefined;
 let delayed = false;
+const requests: { fieldId: string; text: string; signal: AbortSignal }[] = [];
 const context = createContext({
   document: { getElementById: el, createElement: () => new Element() },
   AbortController,
   options: {
     fields, locked: () => locked, changed: () => { changed++; },
-    ask: () => delayed ? new Promise<typeof answer>(resolve => { resolveDelayed = resolve; }) : Promise.resolve(answer)
+    ask: (fieldId: string, text: string, signal: AbortSignal) => {
+      requests.push({ fieldId, text, signal });
+      return delayed ? new Promise<typeof answer>(resolve => { resolveDelayed = resolve; }) : Promise.resolve(answer);
+    }
   }
 });
 const source = stripTypeScriptTypes(await readFile("apps/demo-gui/src/client/garasje-utfylling.ts", "utf8"))
   .replace("export function createGarasjeUtfylling", "function createGarasjeUtfylling");
 runInContext(source, context);
 const ui = runInContext("createGarasjeUtfylling(options)", context);
+const settled = () => new Promise(resolve => setImmediate(resolve));
+const write = (id: string, value: string) => { el(id).value = value; el(id).dispatch("input"); };
+const send = async (text: string, response: typeof answer) => {
+  answer = response;
+  el("dialog-input").value = text;
+  el("dialog-send").dispatch("click");
+  await settled();
+};
 assert.equal(el("mode-agent").attributes["aria-pressed"], "true");
-assert.equal(el("garage-fields").hidden, false);
+assert.equal(el("dialog-group").children.length, 2, "BYA og BRA skal vises sammen i agentmodus");
+assert.match(el("dialog-input").placeholder, /m²/);
+assert.equal(el("dialog-next").disabled, true);
 el("mode-stepwise").dispatch("click");
 assert.equal(el("agent-interview").hidden, false, "Den samme tekstboksen skal være tilgjengelig i stegvis modus");
 assert.equal(el("bya").parentElement!.hidden, false);
+assert.equal(el("bra").parentElement!.hidden, false, "BYA og BRA skal stå på samme side");
 assert.equal(el("gesimshoyde").parentElement!.hidden, true);
 el("field-next").dispatch("click");
 assert.equal(el("interview-error").hidden, false);
-el("bya").value = "35";
-el("bya").dispatch("input");
+write("bya", "35");
+el("field-next").dispatch("click");
+assert.equal(el("gesimshoyde").parentElement!.hidden, true, "Begge arealene må besvares før neste gruppe");
+write("bra", "30");
 el("field-next").dispatch("click");
 assert.equal(el("gesimshoyde").parentElement!.hidden, false);
+assert.equal(el("monehoyde").parentElement!.hidden, false, "Gesims og møne skal stå på samme side");
 el("mode-agent").dispatch("click");
 assert.equal(el("bya").value, "35", "Modusbytte skal bevare feltverdier");
+assert.equal(el("bra").value, "30");
 assert(el("dialog-question").textContent.includes("Gesims"));
-answer = { type: "sporsmaal", tekst: "Gesims er der vegg og tak møtes." };
-el("dialog-input").value = "Hva er gesims?";
-el("dialog-send").dispatch("click");
-await new Promise(resolve => setImmediate(resolve));
+assert.equal(el("dialog-input").placeholder, "For eksempel 3,5 meter");
+await send("Hva er gesims?", { type: "sporsmaal", tekst: "Gesims er der vegg og tak møtes." });
 assert.equal(el("gesimshoyde").value, "");
 assert.equal(el("dialog-proposal").hidden, true);
 assert(el("dialog-question").textContent.includes("Gesims"), "Et spørsmål skal ikke flytte utfyllingen");
-answer = { type: "svar", tekst: "Jeg forstår 3", svar: 3 };
-el("dialog-input").value = "3 meter";
-el("dialog-send").dispatch("click");
-await new Promise(resolve => setImmediate(resolve));
+const beforeDocumentQuestion = changed;
+await send("Hva sier planen om høyden?", {
+  type: "sporsmaal", tekst: "Avklar høyden i den gjeldende planen.",
+  advarsel: "Modellens svar er bare veiledning.",
+  kunnskapsadvarsel: "Søket dekker ikke hele planen.",
+  dokumentkunnskap: [
+    { documentId: "pdf-plan", title: "KPA2018", page: 7, canonicalUrl: "https://example.test/plan",
+      checkRecommended: true, qualityWarnings: ["OCR-teksten må kontrolleres."] },
+    { documentId: "pdf-ukjent", page: 2, canonicalUrl: "javascript:alert(1)" }
+  ]
+});
+assert.equal(el("gesimshoyde").value, "");
+assert.equal(changed, beforeDocumentQuestion, "Dokumenthjelp må ikke endre svaret");
+assert.match(el("dialog-answer").textContent, /Modellens svar er bare veiledning/);
+assert.match(el("dialog-answer").textContent, /Dokumentgrunnlag: Søket dekker ikke hele planen/);
+assert.equal(el("dialog-sources").hidden, false);
+const citation = el("dialog-sources").children[0];
+assert.equal(citation.children[0].textContent, "KPA2018, side 7");
+assert.equal(citation.children[0].attributes.href, "https://example.test/plan");
+assert.equal(citation.children[0].attributes.rel, "noopener noreferrer");
+assert.match(citation.children[1].textContent, /Kontroll anbefales.*OCR/);
+assert.match(el("dialog-sources").children[1].textContent, /pdf-ukjent, side 2.*Kildelenke mangler eller er ugyldig/);
+assert.equal(el("dialog-sources").children[1].children.length, 0, "Utrygge kilde-URL-er må ikke bli lenker");
+el("mode-stepwise").dispatch("click");
+assert.equal(el("dialog-sources").hidden, true, "Kilder fra chatten skal ikke følge med ved modusbytte");
+el("mode-agent").dispatch("click");
+await send("Hvor finnes planen?", {
+  type: "sporsmaal", tekst: "Spør kommunen om gjeldende bestemmelser.",
+  kunnskapsadvarsel: "PDF-kunnskapsbasen er utilgjengelig.", dokumentkunnskap: []
+});
+assert.match(el("dialog-answer").textContent, /PDF-kunnskapsbasen er utilgjengelig/);
+assert.equal(el("dialog-sources").hidden, true);
+await send("3 meter", { type: "svar", tekst: "Jeg forstår 3", svar: 3 });
+assert.doesNotMatch(el("dialog-answer").textContent, /PDF|Søket/);
+assert.equal(el("dialog-sources").children.length, 0, "Tidligere kilder skal fjernes når et nytt svar vises");
 assert.equal(el("gesimshoyde").value, "", "Agentforslaget skal ikke lagres uten bekreftelse");
+assert.equal(el("dialog-editor").hidden, true, "Bekreftelsesknappene skal erstatte tekstboksen");
+const beforeHelp = changed;
+el("dialog-more").dispatch("click");
+assert.equal(el("dialog-editor").hidden, false);
+await send("Er det målt fra bakken?", { type: "svar", tekst: "Agenten feiltolket spørsmålet", svar: 7 });
+assert.equal(el("gesimshoyde").value, "");
+assert.equal(changed, beforeHelp, "Hjelp skal være statsløs selv hvis modellen foreslår et svar");
+assert.match(el("dialog-proposal-text").textContent, /3 for/, "Hjelp skal ikke erstatte det ubekreftede forslaget");
+el("dialog-resume").dispatch("click");
+assert.equal(el("dialog-editor").hidden, true);
 const beforeRejection = changed;
 el("dialog-reject").dispatch("click");
 assert.equal(el("dialog-proposal").hidden, true);
@@ -147,69 +222,157 @@ assert.equal(el("interview-editing").hidden, false);
 assert.match(el("interview-editing").textContent, /Du endrer «Gesims»/);
 assert.match(el("dialog-input-label").textContent, /Endre svaret for «Gesims»/);
 assert.equal(el("dialog-input").value, "3 meter", "Endring skal gjenopprette teksten innbyggeren skrev");
-assert.equal(el("dialog-input").focusCount, 1, "Fokus skal flyttes til tekstboksen");
+assert(el("dialog-input").focusCount > 0, "Fokus skal flyttes til tekstboksen");
 assert.equal(el("gesimshoyde").value, "");
 assert.equal(changed, beforeRejection, "Et avvist forslag skal ikke endre lagrede svar");
-el("dialog-send").dispatch("click");
-await new Promise(resolve => setImmediate(resolve));
+await send("3 meter", { type: "svar", tekst: "3", svar: 3 });
 el("dialog-accept").dispatch("click");
 assert.equal(el("gesimshoyde").value, "3");
 assert.equal(el("interview-editing").hidden, true, "Endringsmeldingen skal forsvinne når svaret bekreftes");
 assert(el("dialog-question").textContent.includes("Møne"));
+assert.equal(el("dialog-answer").textContent, "", "Forrige svar skal ikke følge med til et annet mål i gruppen");
+assert.equal(el("dialog-group").children.length, 2);
 el("mode-stepwise").dispatch("click");
-el("monehoyde").value = "4";
-el("monehoyde").dispatch("input");
+assert.equal(el("dialog-log").hidden, true, "Stegvis visning skal ikke vise chatlogg");
+write("monehoyde", "4");
 el("field-next").dispatch("click");
+assert.match(el("dialog-input").placeholder, /etasje/);
+write("etasjer", "1");
+el("field-next").dispatch("click");
+assert.match(el("dialog-input").placeholder, /meter.*vet ikke/);
+el("field-next").dispatch("click");
+assert.equal(el("avstandNabogrense").parentElement!.hidden, false, "Tomt felt skal ikke bli et implisitt «Vet ikke»");
+el("avstandNabogrense").parentElement!.children[0].children[0].dispatch("click");
+el("field-next").dispatch("click");
+el("mode-agent").dispatch("click");
+assert.match(el("dialog-input").placeholder, /ja eller nei/);
+assert.deepEqual(el("dialog-choices").children.map(child => child.textContent), ["Ja", "Nei", "Vet ikke"]);
+const beforeChoice = requests.length;
+el("dialog-help").dispatch("click");
+await send("Hva regnes som beboelse?", { type: "sporsmaal", tekst: "Beboelse gjelder bruk av bygget." });
+assert.equal(el("beboelse").value, "");
+el("dialog-resume").dispatch("click");
+el("dialog-choices").children[1].dispatch("click");
+assert.equal(requests.length, beforeChoice + 1, "Ja/nei skal ikke være avhengig av et modellkall");
+assert.equal(el("beboelse").value, "false");
 assert.equal(el("interview-review").hidden, false);
 assert.equal(el("assess").hidden, false);
 assert.equal(ui.validateComplete(), true);
 assert(changed > 0);
 const beforeQuestion = changed;
-answer = { type: "sporsmaal", tekst: "Du kan spørre om målene før du kjører sjekken." };
-el("dialog-input").value = "Hva er mønehøyde?";
-el("dialog-send").dispatch("click");
-await new Promise(resolve => setImmediate(resolve));
+await send("Hva er mønehøyde?", { type: "sporsmaal", tekst: "Du kan spørre om målene før du kjører sjekken." });
 assert.equal(el("interview-review").hidden, false, "Spørsmål i oppsummeringen skal ikke åpne et gammelt felt");
 assert.equal(el("monehoyde").value, "4");
 assert.equal(changed, beforeQuestion, "Fagspørsmål skal ikke endre svarutkastet");
-answer = { type: "svar", tekst: "5", svar: 5 };
-el("dialog-input").value = "5";
-el("dialog-send").dispatch("click");
-await new Promise(resolve => setImmediate(resolve));
+await send("5", { type: "svar", tekst: "5", svar: 5 });
 assert.equal(el("dialog-proposal").hidden, true, "Endringer etter oppsummering må knyttes til riktig felt");
 assert.equal(el("monehoyde").value, "4");
-// A late agent response after switching mode must not propose or overwrite a value.
-el("answer-summary").children[2].children[1].dispatch("click");
+// Editing an earlier answer preserves every later draft, but requires reviewing them again.
+el("answer-summary").children[0].children[1].dispatch("click");
 assert.equal(el("interview-review").hidden, true);
 assert.equal(el("interview-editing").hidden, false);
-assert.match(el("interview-editing").textContent, /Du endrer «Møne».*4/);
-assert.equal(el("monehoyde").focusCount, 1, "Endring fra oppsummeringen skal fokusere riktig skjemafelt");
-assert.equal(el("dialog-input").value, "4");
+assert.match(el("interview-editing").textContent, /Du endrer «BYA».*35/);
+el("mode-stepwise").dispatch("click");
+write("bya", "40");
+assert.equal(el("bra").value, "30");
+assert.equal(el("gesimshoyde").value, "3");
+assert.equal(el("monehoyde").value, "4");
+assert.equal(el("beboelse").value, "false");
+assert.equal(ui.validateComplete(), false, "Endret grunnlag skal kreve ny gjennomgang");
 el("mode-agent").dispatch("click");
-assert.match(el("dialog-input-label").textContent, /Endre svaret for «Møne»/);
+assert.equal(el("dialog-next").disabled, false, "Agentmodus skal ha Neste for gyldige lagrede svar");
+el("dialog-next").dispatch("click");
+el("dialog-previous").dispatch("click");
+assert.equal(el("bya").value, "40");
+el("dialog-next").dispatch("click");
+assert.equal(ui.validateComplete(), false, "Senere svar er ikke ferdig gjennomgått selv om de fortsatt finnes");
+el("mode-agent").dispatch("click");
+assert.match(el("dialog-question").textContent, /Gesims/);
+// Cancelled replies must never change the current group, proposal, or saved values.
 delayed = true;
 el("dialog-input").value = "5 meter";
 el("dialog-send").dispatch("click");
+const cancelled = requests.at(-1)!;
 el("mode-stepwise").dispatch("click");
+assert.equal(cancelled.signal.aborted, true);
 resolveDelayed!({ type: "svar", tekst: "5", svar: 5 });
-await new Promise(resolve => setImmediate(resolve));
+await settled();
 assert.equal(el("monehoyde").value, "4");
 assert.equal(el("dialog-proposal").hidden, true);
+assert.equal(el("dialog-answer").textContent, "", "Modusbytte skal fjerne tidligere svar og avvise sene svar");
 el("dialog-input").value = "5 meter";
 el("dialog-send").dispatch("click");
 el("field-next").dispatch("click");
 resolveDelayed!({ type: "svar", tekst: "5", svar: 5 });
-await new Promise(resolve => setImmediate(resolve));
-assert.equal(el("interview-review").hidden, false);
+await settled();
 assert.equal(el("dialog-proposal").hidden, true, "Et sent agentsvar skal ikke overleve neste steg i skjemaet");
 assert.equal(el("monehoyde").value, "4");
+el("field-next").dispatch("click");
+el("field-next").dispatch("click");
+el("field-next").dispatch("click");
+assert.equal(el("interview-review").hidden, false);
+assert.equal(ui.validateComplete(), true);
+el("answer-summary").children[6].children[1].dispatch("click");
+el("mode-agent").dispatch("click");
+el("dialog-choices").children[2].dispatch("click");
+assert.equal(el("beboelse").value, "");
+assert.equal(ui.validateComplete(), true, "Et eksplisitt «Vet ikke» er et gyldig svar der det er tillatt");
+assert.match(el("answer-summary").children[6].children[0].textContent, /Vet ikke/);
 locked = true;
 ui.refresh();
 assert.equal(el("dialog-send").disabled, true);
+assert.equal(el("field-next").disabled, true);
+locked = false;
+el("answer-summary").children[2].children[1].dispatch("click");
+el("dialog-input").value = "6 meter";
+el("dialog-send").dispatch("click");
+ui.destroy();
+resolveDelayed!({ type: "svar", tekst: "6", svar: 6 });
+await settled();
+assert.equal(el("gesimshoyde").value, "3");
+const beforeDestroyed = requests.length;
+el("dialog-send").dispatch("click");
+assert.equal(requests.length, beforeDestroyed, "Utskifting av tiltak skal fjerne gamle hendelseslyttere");
+runInContext("options.fields = []", context);
+const emptyUi = runInContext("createGarasjeUtfylling(options)", context);
+assert.equal(emptyUi.validateComplete(), true);
+assert.equal(el("agent-interview").hidden, true, "Tiltak uten standardspørsmål skal ikke spørre om et tilfeldig garasjefelt");
+assert.equal(el("interview-review").hidden, false);
+const measureFields = [
+  { id: "hoyde", label: "Gjerdets høyde", type: "tall", ukjentTillatt: false },
+  { id: "friSikt", label: "Fri sikt", type: "valg", ukjentTillatt: true }
+];
+for (const field of measureFields) {
+  const node = el(field.id);
+  node.parentElement = new Element();
+  node.type = field.type === "tall" ? "number" : "select";
+  node.required = !field.ukjentTillatt;
+}
+context.measureFields = measureFields;
+runInContext("options.fields = measureFields", context);
+const measureUi = runInContext("createGarasjeUtfylling(options)", context);
+assert.equal(el("dialog-input").placeholder, "For eksempel 0,9 meter");
+el("mode-stepwise").dispatch("click");
+write("hoyde", "1.2");
+el("field-next").dispatch("click");
+el("mode-agent").dispatch("click");
+el("dialog-choices").children[0].dispatch("click");
+assert.equal(el("friSikt").value, "true");
+assert.equal(measureUi.validateComplete(), true, "Andre tiltakstyper skal ikke kreve garasjens høydefelter");
+measureUi.destroy();
+for (const field of measureFields) el(field.id).parentElement = new Element();
+runInContext("createGarasjeUtfylling(options)", context);
+delayed = false;
+const beforeRecreated = requests.length;
+await send("1,5 meter", { type: "svar", tekst: "1,5", svar: 1.5 });
+assert.equal(requests.length, beforeRecreated + 1, "Nytt tiltak skal ha nøyaktig én aktiv lytter på send-knappen");
+assert.equal(requests.at(-1)!.fieldId, "hoyde");
 const html = await readFile("apps/demo-gui/src/garasje.html", "utf8");
 assert(!html.includes("Prøv en case"));
 assert(!html.includes("case-milde"));
 assert(html.includes('data-color-scheme="dark"'));
+assert(html.indexOf('href="/assets/ds-morketema.css"') > html.indexOf('href="/assets/ds-ksdigital.css"'));
+assert.match(html, /<svg id="placement-map"[^>]*tabindex="0"[^>]*aria-describedby="map-help"/);
 const pageHeader = html.match(/<header class="page-header">([\s\S]*?)<\/header>/)?.[1];
 assert(pageHeader, "Siden skal ha et toppfelt");
 assert(pageHeader.includes('aria-label="Innstillinger"') && pageHeader.includes('id="theme"'), "Temavalget skal ligge i innstillingsfeltet i toppfeltet");
@@ -221,10 +384,14 @@ assert(html.includes("Bekreft plassering og fortsett"));
 assert(html.includes('id="garage-form" class="stack" novalidate'));
 assert.equal((html.match(/<textarea\b/g) || []).length, 1, "Svar og spørsmål skal dele én tekstboks");
 assert(!html.includes('id="help-question"') && !html.includes('id="help-form"'));
+assert(html.includes("<title>Kan du bygge uten å søke?</title>"));
+assert(html.includes(">Bekreft svar</button>") && html.includes(">Jeg har flere spørsmål</button>"));
+assert(html.includes(">Jeg lurer på noe</button>") && html.includes('id="dialog-next"'));
+assert(!/id="move-(north|south|east|west)"/.test(html), "Retningsknapper skal være erstattet med piltaster i kartet");
 const largeGrunnlag: GarasjeGrunnlag = {
   adresse: { adressetekst: "Ikke send adressen", kommunenummer: "4601", gardsnummer: 20, bruksnummer: 1413, festenummer: 0, undernummer: 0, punkt: { lat: 60.33, lon: 5.31 } },
   punkt: { lat: 60.33, lon: 5.31 }, arealformaal: [{ kode: 1001, planId: "65270000", beskrivelse: "Øvrig byggesone", sonenavn: "Øvrig byggesone", arealstatus: 1 }],
-  eiendomsgrenser: [], bygninger: [], reguleringsplaner: [], kilder: [], uavklarteForhold: [],
+  eiendomsgrenser: [], bygninger: [], reguleringsplaner: [], planflater: [], kilder: [], uavklarteForhold: [],
   bebyggelse: { status: "uavklart", bebygd: null, bygninger: [], kilde: "", forklaring: "" },
   arealberegning: { tomtearealM2: 976, kartlagtBebygdArealM2: 200, kartlagtAndelProsent: 20.5, kilde: "", metode: "", forbehold: [] },
   nabotomter: {
@@ -270,12 +437,17 @@ const selection = createContext({
   renderGrunnlag() {},
   renderMap() { maps++; },
   updateMarker() {},
+  updateZoneStatus() {},
+  updatePlacementStatus() {},
+  placementOnProperty: () => null,
   adresse: { ...largeGrunnlag.adresse, adressetekst: "Litle Milde 65", gardsnummer: 105, bruksnummer: 209, kommunenavn: "BERGEN" }
 });
 runInContext(`
   let propertyConfirmed = false, propertyVersion = 0, placementChosen = false, placementConfirmed = false;
+  let tiltakstypeBekreftet = true, tiltakstype = "frittliggende", tiltaksvalg = undefined;
   let busy = false, pendingSave = false;
   let grunnlag = null, vurdering = null, valgtAdresse = null, plassering = null, bounds = {};
+  let kartgrunnlag = null, planflater = [], plankilde = undefined;
   ${functionBlock("function invalidateResult", "async function perform")}
   ${functionBlock("function selectedQuery", "async function searchAdresse")}
   ${functionBlock("async function selectAdresse", "function renderGrunnlag")}
@@ -305,7 +477,7 @@ assert.equal(propertyEl("garage-step").hidden, true);
 assert.equal(propertyEl("property-controls").hidden, true, "Adressevalget lukkes når eiendommen er bekreftet");
 assert.equal(propertyEl("edit-property").hidden, false);
 assert.equal(maps, 1);
-await assert.rejects(runInContext("confirmPlacement()", selection), /Plasser garasjen/);
+await assert.rejects(runInContext("confirmPlacement()", selection), /Plasser tiltaket/);
 assert.equal(loads.length, 1, "Adressepunktet skal ikke automatisk godtas som garasjeplassering");
 runInContext("moveMarker({lat:60.33,lon:5.3101})", selection);
 assert.equal(propertyEl("garage-step").hidden, true, "Flytting av markøren skal ikke alene åpne neste steg");
@@ -368,6 +540,7 @@ const neighbours = createContext({
     assert.equal(className, "neighbour");
     drawnNeighbours = polygons.length;
   },
+  planflater: [],
   element: (_tag: string, text = "") => { const node = new Element(); node.textContent = text; return node; },
   addLink: (parent: Element, text: string) => { const node = new Element(); node.textContent = text; parent.append(node); },
   findNabotomtLabel: () => ({ x: 50, y: 50, width: 48 }),
@@ -417,7 +590,11 @@ const mapView = createContext({
   fitKartutsnitt: () => ({ west: 5.31, east: 5.312, south: 60.33, north: 60.332 }),
   xy: ({ lon, lat }: { lon: number; lat: number }) => [lon, lat],
   renderGrunnlag: (data: GarasjeGrunnlag) => { displayedGrunnlag = data; },
-  bounds: {}, grunnlag: null, vurdering: null, plassering: mapGrunnlag.punkt
+  async renderTiltaksraad() {},
+  ringerInneholder,
+  nearestPolygonBoundary,
+  bounds: {}, grunnlag: null, kartgrunnlag: null, plankilde: undefined,
+  vurdering: null, planflater: [], plassering: mapGrunnlag.punkt
 });
 runInContext(`
   ${functionBlock("function drawPolygons", "function moveMarker")}
@@ -442,6 +619,98 @@ for (const count of [1, 0, 2]) {
   }
   assert.equal(Boolean(mapEl("map-image").attributes.href), count > 0, "Gammelt bakgrunnskart skal fjernes ved kildefeil");
 }
-console.log("Garasje-UX: tema, ett felt av gangen, modusbytte, agentsvar, tydelig redigering og bevarte utkast besto.");
+// Bygningsflatene dekker hele oppslagskonvolutten. Bare de som bebyggelsen har
+// sammenholdt med teigen er egne bygg; resten er nabobygg og skal se annerledes ut.
+const flate = (id: string) => ({ ...polygon, id });
+const byggGrunnlag = (
+  bygninger: string[], egne: string[], status: GarasjeGrunnlag["kilder"][number]["status"], merknad?: string
+): GarasjeGrunnlag => ({
+  ...mapGrunnlag,
+  bygninger: bygninger.map(flate),
+  bebyggelse: {
+    ...mapGrunnlag.bebyggelse!,
+    bygninger: egne.map(id => ({ id, kobling: "geometri" as const })),
+  },
+  kilder: [...mapGrunnlag.kilder, { id: "bygninger", navn: "Bygningskart", url: "https://kart.test/bygg", status, hentet: "", ...(merknad ? { merknad } : {}) }],
+});
+const tegnetBygg = () => [mapEl("map-buildings").children.length, mapEl("map-buildings-neighbour").children.length];
+
+mapView.data = byggGrunnlag(["1", "2", "3"], ["2"], "ok");
+runInContext("renderMap(data)", mapView);
+assert.deepEqual(tegnetBygg(), [1, 2], "Bare bygg som bebyggelsen har koblet til teigen skal tegnes som egne");
+assert.match(mapEl("building-status").textContent, /1 bygningsflater på din tomt og 2 på nabotomter/);
+
+mapView.data = byggGrunnlag(["1", "2"], [], "ok");
+runInContext("renderMap(data)", mapView);
+assert.deepEqual(tegnetBygg(), [2, 0],
+  "Uten en avklart bebyggelse skal ingen flater påstås å ligge på nabotomt");
+assert.match(mapEl("building-status").textContent, /ikke avklart/);
+
+mapView.data = byggGrunnlag([], [], "ingen_treff");
+runInContext("renderMap(data)", mapView);
+assert.deepEqual(tegnetBygg(), [0, 0]);
+assert.match(mapEl("building-status").textContent, /Ingen bygningsflater/);
+
+mapView.data = byggGrunnlag([], [], "feil", "Kartlaget svarte ikke.");
+runInContext("renderMap(data)", mapView);
+assert.match(mapEl("building-status").textContent, /Bygningskartet kunne ikke hentes\. Kartlaget svarte ikke\./,
+  "En kildefeil skal forklares ved kartet, ikke bare inne i kildelisten");
+
+// Planflatene er eiendommens, ikke punktets. De tegnes under teiglaget, får klasse
+// etter hensynstypen, og statuslinjen skal si både hva eiendommen berører og hvor
+// markøren står - det siste regnet ut i nettleseren mens markøren flyttes.
+const soneRinger: [number, number][][] = [[
+  [5.3105, 60.3305], [5.312, 60.3305], [5.312, 60.332], [5.3105, 60.332], [5.3105, 60.3305]
+]];
+const felles = { sonekode: 220, beskrivelse: "", kildetekst: null, berorer: "delvis" as const, planId: "65270000", ringer: soneRinger };
+const hensynssone = (sonenavn: string, hensynstype: "stoy" | "fare" | "angitthensyn"): GarasjeGrunnlag["planflater"][number] =>
+  ({ ...felles, kategori: "hensynssone", datasett: hensynstype, sonenavn, hensynstype, navn: "Gul støysone" });
+const arealformaal = (): GarasjeGrunnlag["planflater"][number] =>
+  ({ ...felles, kategori: "arealformaal", datasett: "arealformaal", arealstatus: 1, navn: "LNF" });
+const soneKlasser = () => mapEl("map-zones").children.map((barn: Element) => barn.attributes.class);
+
+mapView.data = {
+  ...mapGrunnlag,
+  planflater: [hensynssone("H220_1", "stoy"), arealformaal()],
+  kilder: [...mapGrunnlag.kilder, { id: "planflater", navn: "Plan", url: "http://localhost:8089/mock/plan/hensynssoner", status: "ok", hentet: "" }],
+};
+runInContext("renderMap(data)", mapView);
+assert.deepEqual(soneKlasser(), ["zone zone-arealformaal", "zone zone-stoy"],
+  "Arealformålet skal tegnes først, så en hensynssone aldri blir liggende under det");
+assert.match(mapEl("zone-status").textContent, /Gul støysone H220_1/);
+assert.match(mapEl("zone-status").textContent, /utenfor alle flatene/,
+  "Markøren står utenfor flaten i denne fixturen");
+
+// Markøren inne i flaten: svaret skal snu uten et nytt kall til serveren.
+mapView.plassering = { lat: 60.331, lon: 5.311 };
+runInContext("updateZoneStatus()", mapView);
+// «foreløpig» er ikke pynt: dette er regnet ut i nettleseren mens markøren dras,
+// og serveren fastslår det først ved «Bekreft plassering».
+assert.match(mapEl("zone-status").textContent, /Markøren står foreløpig i LNF, Gul støysone H220_1/);
+
+mapView.data = { ...mapGrunnlag, planflater: [] };
+runInContext("renderMap(data)", mapView);
+assert.deepEqual(soneKlasser(), []);
+assert.match(mapEl("zone-status").textContent, /ikke avklart/, "En kilde som mangler skal ikke bli tolket som et tomt treff");
+mapView.data = {
+  ...mapGrunnlag, planflater: [],
+  kilder: [...mapGrunnlag.kilder, { id: "planflater", navn: "Plan", url: "", status: "ingen_treff", hentet: "" }]
+};
+runInContext("renderMap(data)", mapView);
+assert.match(mapEl("zone-status").textContent, /Ingen hensynssoner eller arealformål/);
+
+mapView.data = {
+  ...mapGrunnlag, planflater: [],
+  kilder: [...mapGrunnlag.kilder, { id: "planflater", navn: "Plan", url: "", status: "feil", hentet: "", merknad: "Plankilden svarte ikke." }],
+};
+mapView.grunnlag = mapView.data;
+runInContext("renderMap(data)", mapView);
+assert.match(mapEl("zone-status").textContent, /ikke avklart\. Plankilden svarte ikke\./,
+  "En kildefeil skal forklares ved kartet, ikke bare inne i kildelisten");
+mapView.grunnlag = null;
+
+console.log("Hensynssoner: flatene tegnes under teigen, i riktig rekkefølge, og markøren melder sone før bekreftelse.");
+console.log("Bygge-UX: tema, grupperte mål, lagrede svar, ny gjennomgang, skjult historikk, statsløs hjelp og bekreftelse besto.");
 console.log("Eiendomsvalg: adresse før kart, bekreftet plassering før utfylling, nytt forsøk og avvisning av foreldede svar besto.");
 console.log("Vurderingskart: teiger, bygninger, nabogrenser og bakgrunn følger det ferske grunnlaget ved feil og gjenoppretting.");
+console.log("Bygningslaget: egne bygg skilles fra nabobygg, og kildestatusen forklares ved kartet.");

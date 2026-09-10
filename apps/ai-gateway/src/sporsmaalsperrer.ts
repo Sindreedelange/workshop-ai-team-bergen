@@ -31,7 +31,8 @@
  * spørsmål trenger et felt som ikke er der.
  */
 import { buildGarasjeBegrepssvar, findGarasjeBegreper, isGarasjeKontekst } from "../../shared/garasje-begreper.ts";
-import { buildGarasjeKunnskapsgrunnlag } from "../../shared/garasje-kunnskap.ts";
+import { buildGarasjeKunnskapsgrunnlag, projectGarasjeDokumentkunnskap } from "../../shared/garasje-kunnskap.ts";
+import { getByggetiltakDialogfelt } from "../../shared/garasje-dialog.ts";
 
 export type Sporsmaalskontekst = {
   tjeneste?: unknown;
@@ -52,6 +53,24 @@ export type Sporsmaalskontekst = {
   /** Sandkassens egen personvernerklæring. Settes alltid av sanitize, aldri av kaller. */
   personvern?: { punkter?: string[]; [felt: string]: unknown };
   mineEiendommer?: unknown;
+  /** Utdrag fra PDF-kunnskapsbasen, ikke bekreftet juridisk grunnlag. */
+  dokumentkunnskap?: {
+    chunkId?: string;
+    documentId?: string;
+    title?: string;
+    page?: number;
+    authority?: string;
+    text?: string;
+    score?: number;
+    ruleIds?: string[];
+    knowledgeStatus?: string;
+    checkRecommended?: boolean;
+    qualityWarnings?: string[];
+    canonicalUrl?: string;
+    sourceSha256?: string;
+    scopeVerified?: boolean;
+    truncated?: boolean;
+  }[];
   garasjeKunnskap?: ReturnType<typeof buildGarasjeKunnskapsgrunnlag>;
   aktivtFelt?: { id: string; label: string };
   samtale?: unknown;
@@ -381,6 +400,9 @@ export function buildGarasjeVeiledningssvar(tekst: string, kontekst: Sporsmaalsk
   if (!isGarasjeKontekst(kontekst)) return null;
   const knowledge = kontekst.garasjeKunnskap;
   if (knowledge && isGarasjeRegelsporsmaal(foldNorwegian(normalizeText(tekst)))) {
+    if (!knowledge.nasjonaleKrav) {
+      return `${knowledge.tiltak?.beskrivelse || "Tiltakstypen må avklares."} Forklaringsgrunnlaget har ikke kildebekreftede tallgrenser for denne tiltakstypen. Bruk den regelbaserte vurderingen og avklar usikre krav med kommunens byggesaksveileder.${knowledge.tiltak?.kilde ? ` Kilde: ${knowledge.tiltak.kilde}` : ""}`;
+    }
     const ids = new Set(findGarasjeBegreper(tekst).map(begrep => begrep.id));
     const all = Object.entries(knowledge.nasjonaleKrav.tallkrav);
     const selected = all.filter(([id]) => ids.has(id));
@@ -566,7 +588,8 @@ export function validateAnswer(tekst: unknown, kontekst: Sporsmaalskontekst | nu
   if (isGarasjeKontekst(kontekst)) {
     // URL section numbers in the glossary are not evidence for a height or area.
     const maalgrunnlag = buildGrunnlagsIndeks({
-      tallkrav: kontekst?.garasjeKunnskap?.nasjonaleKrav.tallkrav,
+      tallkrav: kontekst?.garasjeKunnskap?.nasjonaleKrav?.tallkrav,
+      prosjekt: kontekst?.garasjeKunnskap?.prosjekt,
       kartareal: kontekst?.garasjeKunnskap?.arealFraKart
     });
     for (const match of svar.matchAll(/\b(\d+(?:[.,]\d+)?)\s*(m²|m2\b|kvadratmeter\b|meter\b|cm\b|m\b)/gi)) {
@@ -614,7 +637,9 @@ export function sanitizeSporsmaalKontekst(kontekst: unknown): Sporsmaalskontekst
     ut.garasjeKunnskap = buildGarasjeKunnskapsgrunnlag(inn);
     if (inn.prosessId === "garasjesjekk") ut.prosessId = "garasjesjekk";
     const field = ut.garasjeKunnskap.begreper.find(begrep => begrep.id === inn.aktivtFelt?.id);
-    if (field) ut.aktivtFelt = { id: field.id, label: field.navn };
+    const measureField = getByggetiltakDialogfelt(inn.aktivtFelt?.id, ut.garasjeKunnskap.prosjekt.tiltakstype);
+    if (measureField) ut.aktivtFelt = { id: measureField.id,
+      label: field && !ut.garasjeKunnskap.prosjekt.tiltakstype ? field.navn : measureField.label };
   }
 
   if (inn.prosess) {
@@ -715,6 +740,10 @@ export function sanitizeSporsmaalKontekst(kontekst: unknown): Sporsmaalskontekst
     };
   }
 
+  if (Array.isArray(inn.dokumentkunnskap)) {
+    ut.dokumentkunnskap = projectGarasjeDokumentkunnskap(inn.dokumentkunnskap);
+  }
+
   return ut;
 }
 
@@ -732,9 +761,18 @@ export function buildGrunnlag(kontekst: Sporsmaalskontekst): { kilder: string[];
   if (kontekst.samtykke) kilder.push("Samtykkestatus");
   if (kontekst.personvern) kilder.push("Personvernerklæring");
   if (kontekst.mineEiendommer) kilder.push("Dine eiendommer (matrikkel)");
+  for (const treff of kontekst.dokumentkunnskap || []) {
+    const navn = treff.title || treff.documentId || "PDF-dokument";
+    const side = treff.page ? `, side ${treff.page}` : "";
+    const kvalitet = treff.checkRecommended ? " - kontroll anbefales" : "";
+    kilder.push(`${navn}${side}${kvalitet}`);
+  }
   if (isGarasjeKontekst(kontekst) && kontekst.garasjeKunnskap) {
-    kilder.push(...new Set(kontekst.garasjeKunnskap.begreper.map(begrep => begrep.kilde)),
-      kontekst.garasjeKunnskap.nasjonaleKrav.kilde);
+    kilder.push(...new Set(kontekst.garasjeKunnskap.begreper.map(begrep => begrep.kilde)));
+    const nationalSource = kontekst.garasjeKunnskap.nasjonaleKrav?.kilde ?? kontekst.garasjeKunnskap.tiltak?.kilde;
+    if (nationalSource) kilder.push(nationalSource);
+    const planSource = kontekst.garasjeKunnskap.planflatekilde;
+    kilder.push(`Planflater: ${planSource.navn || "ukjent kilde"} (${planSource.status})`);
     const planbestemmelser = kontekst.garasjeKunnskap.kildeTilPlanbestemmelser;
     if (planbestemmelser) kilder.push(planbestemmelser);
   }

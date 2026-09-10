@@ -39,7 +39,6 @@ type Tjeneste = {
   spesifikasjon: string;
   port: number;
   portVariabel: string;
-  scope: string;
   /*
    * Rutene som skal ha et påkrevd spørreparameter, pinnet.
    *
@@ -58,7 +57,6 @@ const tjenester: Tjeneste[] = [
     spesifikasjon: "openapi/pasientjournal-mock.yaml",
     port: Number(process.env.PARAM_JOURNAL_PORT) || 18098,
     portVariabel: "PARAM_JOURNAL_PORT",
-    scope: "pasientjournal:legeerklaering.read",
     dekkerRuter: [
       "/journal/legeerklaeringer",
       "/journal/legeerklaeringer/{erklaeringId}"
@@ -70,8 +68,15 @@ const tjenester: Tjeneste[] = [
     spesifikasjon: "openapi/politiattest-mock.yaml",
     port: Number(process.env.PARAM_ATTEST_PORT) || 18099,
     portVariabel: "PARAM_ATTEST_PORT",
-    scope: "politiattest:attest.read",
     dekkerRuter: ["/attester", "/attester/{attestId}"]
+  },
+  {
+    navn: "plan-mock",
+    fil: "apps/plan-mock/src/server.ts",
+    spesifikasjon: "openapi/plan-mock.yaml",
+    port: Number(process.env.PARAM_PLAN_PORT) || 18100,
+    portVariabel: "PARAM_PLAN_PORT",
+    dekkerRuter: ["/mock/plan/arealformaal", "/mock/plan/hensynssoner"]
   }
 ];
 
@@ -155,15 +160,26 @@ function byggSti(sti: string, path: Record<string, string>, spoerring: Record<st
 
 async function proevTjeneste(tjeneste: Tjeneste) {
   const basis = `http://127.0.0.1:${tjeneste.port}`;
-  const header = await maskinportenHeader({
+  const oversikt = await routeOverview(path.join(repoRoot, tjeneste.spesifikasjon));
+  /*
+   * Scopet leses av spesifikasjonen, ikke skrevet ned her.
+   *
+   * Tokenet er middelet for å nå parametervakten, ikke det som testes - hvilket
+   * scope en rute krever er sjekken i sjekk-openapi-dekning.ts sin sak. Skrevet
+   * ned her ville «plan-mock er åpen» vært en tredje håndskrevet påstand om det
+   * samme, ved siden av `security: []` i spesifikasjonen og `aapneRuter` i
+   * skanneren, og en tjeneste som senere krever token ville svart 401 til noen
+   * husket å endre den fjerde.
+   */
+  const scope = oversikt.ruter.flatMap(rute => rute.scopes ?? [])[0];
+  const header = scope === undefined ? {} : await maskinportenHeader({
     digdirBaseUrl: digdirUrl,
     issuer: digdirUrl,
     clientId: "test-paakrevde-parametere",
-    scope: tjeneste.scope,
+    scope,
     resource: tjeneste.navn
   });
 
-  const oversikt = await routeOverview(path.join(repoRoot, tjeneste.spesifikasjon));
   const dekkedeRuter: string[] = [];
 
   for (const rute of oversikt.ruter) {

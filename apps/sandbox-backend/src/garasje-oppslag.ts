@@ -2,6 +2,7 @@ import { HttpError } from "./errors.ts";
 import { getGarasjeGrunnlag, searchGarasjeAdresser } from "./garasje-data.ts";
 import { readGarasjeRequest } from "./garasje-request.ts";
 import { findGarasjeKommunekilder } from "../../shared/garasje-kommuner.ts";
+import { getByggetiltakPlanvarsler } from "./garasje.ts";
 
 export async function readGarasjeGrunnlag(sok: URLSearchParams) {
   const request = readGarasjeRequest(sok);
@@ -26,6 +27,9 @@ export async function readGarasjeGrunnlag(sok: URLSearchParams) {
     }
   }
   const grunnlag = await getGarasjeGrunnlag(adresse, request.plassering);
+  if (request.tiltakstype !== undefined) {
+    grunnlag.tiltaksvarsler = getByggetiltakPlanvarsler(request.tiltakstype, grunnlag);
+  }
   const kommune = findGarasjeKommunekilder(adresse.kommunenummer);
   if (!kommune) {
     grunnlag.uavklarteForhold.push("Kommunens planbestemmelser må kobles til eiendommen og kontrolleres. Bestemmelser fra en annen kommune kan ikke brukes.");

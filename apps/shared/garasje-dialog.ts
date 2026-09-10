@@ -1,4 +1,6 @@
 import type { GarasjeGrunnlag } from "./garasje.ts";
+import { BYGGETILTAK_KATALOG, getByggetiltakFelter } from "./byggetiltak.ts";
+import { projectGarasjePlanflater } from "./garasje-kunnskap.ts";
 
 export type GarasjeDialogfeltId =
   | "bya" | "bra" | "gesimshoyde" | "monehoyde" | "etasjer"
@@ -47,10 +49,10 @@ function normalizeFieldText(text: string): string {
     .replace(/[^\p{L}\p{N}\s-]/gu, " ").replace(/\s+/g, " ").trim();
 }
 
-export function normalizeGarasjeNumber(field: QuestionField, answer: string): FieldAnswer | null {
+export function normalizeGarasjeNumber(field: QuestionField, answer: string, allowZero = false): FieldAnswer | null {
   const area = ["bra", "bya"].includes(field.id);
   const distance = ["avstandNabogrense", "avstandBygning"].includes(field.id);
-  const length = distance || ["gesimshoyde", "monehoyde"].includes(field.id);
+  const length = distance || ["gesimshoyde", "monehoyde", "hoyde"].includes(field.id);
   const integer = ["gnr", "bnr", "etasjer"].includes(field.id);
   const coordinate = ["lat", "lon"].includes(field.id);
   if (!area && !length && !integer && !coordinate) return null;
@@ -66,7 +68,7 @@ export function normalizeGarasjeNumber(field: QuestionField, answer: string): Fi
   const value = match ? Number(match[1].replace(",", ".")) : NaN;
   const valid = Number.isFinite(value)
     && (coordinate ? field.id === "lat" ? Math.abs(value) <= 90 : Math.abs(value) <= 180
-      : distance ? value >= 0 : value > 0)
+      : distance || allowZero ? value >= 0 : value > 0)
     && (!integer || Number.isSafeInteger(value));
   if (!valid) {
     const hint = area ? "Skriv ett positivt areal, for eksempel 49 m² eller 49,5 m²."
@@ -106,9 +108,37 @@ export function isGarasjeDialogfeltId(value: unknown): value is GarasjeDialogfel
   return typeof value === "string" && GARASJE_DIALOGFELTER.some(field => field.id === value);
 }
 
+export function selectGarasjeProsessfelter<T extends { id: string; obligatorisk?: boolean }>(
+  fields: readonly T[], visning: unknown, tiltakstype?: unknown
+): T[] {
+  if (visning !== "garasje") return fields.filter(field => field.obligatorisk);
+  const branch = tiltakstype === undefined
+    ? GARASJE_DIALOGFELTER.map(field => field.id)
+    : BYGGETILTAK_KATALOG.find(entry => entry.id === tiltakstype)?.sporsmaal.map(field => field.id) ?? [];
+  const ids = new Set<string>(branch);
+  return fields.filter(field => field.obligatorisk || ids.has(field.id));
+}
+
+export function getByggetiltakDialogfelt(feltId: unknown, tiltakstype?: unknown): (Omit<GarasjeDialogfelt, "id"> & { id: string }) | undefined {
+  if (typeof feltId !== "string") return undefined;
+  const legacy = GARASJE_DIALOGFELTER.find(field => field.id === feltId);
+  if ((tiltakstype === undefined && legacy) || tiltakstype === "frittliggende") return legacy;
+  const entries = tiltakstype === undefined ? BYGGETILTAK_KATALOG
+    : BYGGETILTAK_KATALOG.filter(entry => entry.id === tiltakstype);
+  const field = entries.flatMap(entry => getByggetiltakFelter(entry.id)).find(field => field.id === feltId);
+  return field ? { ...field, hint: field.hint ?? field.label } : undefined;
+}
+
+export function validateByggetiltakDialogSvar(feltId: string, answer: unknown, tiltakstype?: unknown): GarasjeDialogValidering {
+  return validateDialogSvar(getByggetiltakDialogfelt(feltId, tiltakstype), answer);
+}
+
 /** Validerer ett oppgitt mål eller valg, ikke om garasjen kan bygges. */
 export function validateGarasjeDialogSvar(feltId: GarasjeDialogfeltId, answer: unknown): GarasjeDialogValidering {
-  const field = GARASJE_DIALOGFELTER.find(field => field.id === feltId);
+  return validateDialogSvar(GARASJE_DIALOGFELTER.find(field => field.id === feltId), answer);
+}
+
+function validateDialogSvar(field: ReturnType<typeof getByggetiltakDialogfelt>, answer: unknown): GarasjeDialogValidering {
   if (!field) return { valid: false, retryMessage: "Velg et kjent garasjefelt." };
   const invalid = (message = field.hint): GarasjeDialogValidering => ({
     valid: false, retryMessage: `${field.label}: ${message}`
@@ -122,7 +152,8 @@ export function validateGarasjeDialogSvar(feltId: GarasjeDialogfeltId, answer: u
       ...field, type: "valg", alternativer: [{ verdi: "vet-ikke", label: "vet ikke" }, "ukjent"]
     }, answer);
     if (unknown.valid) return field.ukjentTillatt ? { valid: true, value: null } : invalid("Dette feltet trenger et tall.");
-    const parsed = normalizeQuestionFieldAnswer({ ...field, type: field.type === "valg" ? "ja-nei" : "tall" }, answer, true);
+    const parsed = (field.type === "tall" ? normalizeGarasjeNumber(field, answer, field.min === 0) : null)
+      ?? normalizeQuestionFieldAnswer({ ...field, type: field.type === "valg" ? "ja-nei" : "tall" }, answer, true);
     if (!parsed.valid) return { valid: false, retryMessage: parsed.retryMessage || `${field.label}: ${field.hint}` };
     value = field.type === "valg" ? parsed.value === "ja" : Number(parsed.value);
   }
@@ -144,10 +175,14 @@ export function projectGarasjeDialogGrunnlag(grunnlag: GarasjeGrunnlag | null) {
   if (!grunnlag) return {};
   return {
     garasje: {
+      ...projectGarasjePlanflater(grunnlag),
       adresse: { kommunenummer: grunnlag.adresse.kommunenummer },
       arealformaal: grunnlag.arealformaal.slice(0, 8).map(sone => ({
         kode: sone.kode, arealstatus: sone.arealstatus,
         sonenavn: sone.sonenavn?.slice(0, 100), planId: sone.planId.slice(0, 30)
+      })),
+      reguleringsplaner: grunnlag.reguleringsplaner.slice(0, 8).map(plan => ({
+        planId: plan.planId.slice(0, 40), navn: plan.navn.slice(0, 150)
       })),
       arealberegning: {
         tomtearealM2: grunnlag.arealberegning.tomtearealM2,

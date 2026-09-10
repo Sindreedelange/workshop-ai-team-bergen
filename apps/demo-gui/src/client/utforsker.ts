@@ -26,6 +26,22 @@ type RuteParameter = {
   beskrivelse?: string;
 };
 
+type Kroppsfelt = {
+  navn: string;
+  type: string;
+  format?: string | null;
+  paakrevd: boolean;
+  eksempel?: string | number | boolean | null;
+  valg?: string[];
+  beskrivelse?: string | null;
+};
+
+type Rutekropp = {
+  innholdstype: string;
+  paakrevd: boolean;
+  felter: Kroppsfelt[];
+};
+
 type Rute = {
   metode: string;
   sti: string;
@@ -35,6 +51,17 @@ type Rute = {
   sammendrag?: string;
   beskrivelse?: string;
   parametere: RuteParameter[];
+  kroppEksempel?: string;
+  kropp?: Rutekropp;
+};
+
+type Kroppskontroll = HTMLInputElement | HTMLSelectElement;
+
+type ByggetKropp = {
+  body?: BodyInit;
+  headers: Record<string, string>;
+  mangler: string[];
+  curlArgumenter: string[];
 };
 
 type RuteOversikt = {
@@ -504,7 +531,7 @@ async function renderDetaljer(rute: Rute): Promise<void> {
 
   const skjema = document.createElement("div");
   const felter = new Map<RuteParameter, HTMLInputElement>();
-  for (const parameter of rute.parametere) {
+  for (const parameter of rute.parametere || []) {
     if (parameter.plassering !== "path" && parameter.plassering !== "query") continue;
     const felt = document.createElement("div");
     felt.className = "felt";
@@ -531,6 +558,76 @@ async function renderDetaljer(rute: Rute): Promise<void> {
     skjema.appendChild(felt);
     felter.set(parameter, input);
   }
+
+  const kroppsfelter = new Map<Kroppsfelt, Kroppskontroll>();
+  let kroppstekst: HTMLTextAreaElement | null = null;
+  if (rute.kropp?.felter.length) {
+    const overskrift = document.createElement("h3");
+    overskrift.textContent = rute.kropp.innholdstype === "multipart/form-data" ? "Fil og metadata" : "Kropp";
+    skjema.appendChild(overskrift);
+    for (const kroppsfelt of rute.kropp.felter) {
+      const felt = document.createElement("div");
+      felt.className = "felt";
+      const merkelapp = document.createElement("label");
+      const id = `kropp-${kroppsfelt.navn}`;
+      merkelapp.htmlFor = id;
+      merkelapp.textContent = `${kroppsfelt.navn}${kroppsfelt.paakrevd ? " (påkrevd)" : ""}`;
+
+      let kontroll: Kroppskontroll;
+      if (kroppsfelt.format === "binary") {
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = "application/pdf,.pdf";
+        kontroll = input;
+      } else if (kroppsfelt.valg?.length) {
+        const select = document.createElement("select");
+        if (!kroppsfelt.paakrevd) {
+          const tomt = document.createElement("option");
+          tomt.value = "";
+          tomt.textContent = "Ikke satt";
+          select.appendChild(tomt);
+        }
+        for (const verdi of kroppsfelt.valg) {
+          const option = document.createElement("option");
+          option.value = verdi;
+          option.textContent = verdi;
+          select.appendChild(option);
+        }
+        kontroll = select;
+      } else {
+        const input = document.createElement("input");
+        input.type = kroppsfelt.format === "uri" ? "url" : kroppsfelt.type === "integer" || kroppsfelt.type === "number" ? "number" : "text";
+        kontroll = input;
+      }
+      kontroll.id = id;
+      if (kroppsfelt.eksempel !== undefined && kroppsfelt.eksempel !== null && kroppsfelt.format !== "binary") {
+        kontroll.value = String(kroppsfelt.eksempel);
+      }
+      felt.appendChild(merkelapp);
+      felt.appendChild(kontroll);
+      if (kroppsfelt.beskrivelse) {
+        const hint = document.createElement("div");
+        hint.className = "hint";
+        hint.textContent = kroppsfelt.beskrivelse;
+        felt.appendChild(hint);
+      }
+      skjema.appendChild(felt);
+      kroppsfelter.set(kroppsfelt, kontroll);
+    }
+  } else if (rute.kroppEksempel !== undefined) {
+    const felt = document.createElement("div");
+    felt.className = "felt";
+    const merkelapp = document.createElement("label");
+    merkelapp.htmlFor = "kropp-json";
+    merkelapp.textContent = "JSON-kropp";
+    kroppstekst = document.createElement("textarea");
+    kroppstekst.id = "kropp-json";
+    kroppstekst.rows = 10;
+    kroppstekst.value = rute.kroppEksempel;
+    felt.appendChild(merkelapp);
+    felt.appendChild(kroppstekst);
+    skjema.appendChild(felt);
+  }
   panel.appendChild(skjema);
 
   const handlinger = document.createElement("div");
@@ -541,15 +638,10 @@ async function renderDetaljer(rute: Rute): Promise<void> {
   handlinger.appendChild(send);
   panel.appendChild(handlinger);
 
-  // Skriving hører til neste steg. En knapp som later som den virker er verre
-  // enn en knapp som sier hvorfor den ikke gjør det.
   if (rute.metode !== "GET") {
-    send.disabled = true;
     const merknad = document.createElement("p");
-    merknad.className = "muted small";
-    merknad.textContent =
-      "Utforskeren sender bare GET foreløpig. Kall som skriver til sandkassen kommer, " +
-      "sammen med et synlig varsel om at de endrer delt tilstand.";
+    merknad.className = "merknad";
+    merknad.textContent = "Dette kallet kan endre lokal tilstand i sandkassen.";
     panel.appendChild(merknad);
   }
 
@@ -557,7 +649,7 @@ async function renderDetaljer(rute: Rute): Promise<void> {
   svarrute.id = "svarrute";
   panel.appendChild(svarrute);
 
-  send.onclick = () => sendRequest(rute, felter, svarrute);
+  send.onclick = () => sendRequest(rute, felter, kroppsfelter, kroppstekst, svarrute);
 }
 
 /* ── Kallet ────────────────────────────────────────────────────────── */
@@ -586,16 +678,88 @@ function shellQuote(verdi: unknown): string {
   return `'${String(verdi).replaceAll("'", `'\\''`)}'`;
 }
 
+function typedValue(felt: Kroppsfelt, verdi: string): unknown {
+  if (felt.type === "integer" || felt.type === "number") return Number(verdi);
+  if (felt.type === "boolean") return verdi === "true";
+  if (felt.type === "array" || felt.type === "object") return JSON.parse(verdi);
+  return verdi;
+}
+
+function buildBody(
+  rute: Rute,
+  kontroller: Map<Kroppsfelt, Kroppskontroll>,
+  kroppstekst: HTMLTextAreaElement | null
+): ByggetKropp {
+  if (rute.kropp?.innholdstype === "multipart/form-data") {
+    const form = new FormData();
+    const mangler: string[] = [];
+    const curlArgumenter: string[] = [];
+    for (const [felt, kontroll] of kontroller) {
+      if (felt.format === "binary" && kontroll instanceof HTMLInputElement) {
+        const fil = kontroll.files?.[0];
+        if (!fil) {
+          if (felt.paakrevd) mangler.push(felt.navn);
+          continue;
+        }
+        form.append(felt.navn, fil, fil.name);
+        curlArgumenter.push(`-F ${shellQuote(`${felt.navn}=@/full/path/${fil.name}`)}`);
+        continue;
+      }
+      const verdi = kontroll.value.trim();
+      if (!verdi) {
+        if (felt.paakrevd) mangler.push(felt.navn);
+        continue;
+      }
+      form.append(felt.navn, verdi);
+      curlArgumenter.push(`-F ${shellQuote(`${felt.navn}=${verdi}`)}`);
+    }
+    return { body: form, headers: {}, mangler, curlArgumenter };
+  }
+
+  if (rute.kropp) {
+    const verdi: Record<string, unknown> = {};
+    const mangler: string[] = [];
+    for (const [felt, kontroll] of kontroller) {
+      const raa = kontroll.value.trim();
+      if (!raa) {
+        if (felt.paakrevd) mangler.push(felt.navn);
+        continue;
+      }
+      verdi[felt.navn] = typedValue(felt, raa);
+    }
+    const json = JSON.stringify(verdi);
+    return {
+      body: json,
+      headers: { "Content-Type": rute.kropp.innholdstype || "application/json" },
+      mangler,
+      curlArgumenter: [`-H ${shellQuote(`Content-Type: ${rute.kropp.innholdstype || "application/json"}`)}`, `--data ${shellQuote(json)}`]
+    };
+  }
+
+  if (kroppstekst) {
+    const parsed = JSON.parse(kroppstekst.value || "{}");
+    const json = JSON.stringify(parsed);
+    return {
+      body: json,
+      headers: { "Content-Type": "application/json" },
+      mangler: [],
+      curlArgumenter: [`-H ${shellQuote("Content-Type: application/json")}`, `--data ${shellQuote(json)}`]
+    };
+  }
+  return { headers: {}, mangler: [], curlArgumenter: [] };
+}
+
 /*
  * Kommandoen som skrives ut er den som ble kjørt, ikke en mal - med de samme
  * headerne. To former: én som viser hvordan tokenet skaffes, og én med
  * tokenet skrevet inn, som virker umiddelbart. Dataene er syntetiske.
  */
-function curlFor(rute: Rute, url: string, legitimasjon: Legitimasjon): { laert: string | null; direkte: string | null } {
+function curlFor(rute: Rute, url: string, legitimasjon: Legitimasjon, kropp: ByggetKropp): { laert: string | null; direkte: string | null } {
   const kall = (tokenUttrykk: string | null): string => {
     const deler = ["curl -i"];
     if (rute.metode !== "GET") deler.push(`-X ${rute.metode}`);
     if (tokenUttrykk) deler.push(`-H "Authorization: Bearer ${tokenUttrykk}"`);
+    deler.push(...kropp.curlArgumenter);
     deler.push(shellQuote(url));
     return deler.join(" ");
   };
@@ -609,6 +773,8 @@ function curlFor(rute: Rute, url: string, legitimasjon: Legitimasjon): { laert: 
 async function sendRequest(
   rute: Rute,
   felter: Map<RuteParameter, HTMLInputElement>,
+  kroppsfelter: Map<Kroppsfelt, Kroppskontroll>,
+  kroppstekst: HTMLTextAreaElement | null,
   svarrute: HTMLElement
 ): Promise<void> {
   svarrute.replaceChildren();
@@ -619,10 +785,21 @@ async function sendRequest(
 
   // En tom path-parameter gir «/api/personer//dialoger» og en 404 som ikke
   // sier hva som mangler. Si det her i stedet.
+  let byggetKropp: ByggetKropp;
+  try {
+    byggetKropp = buildBody(rute, kroppsfelter, kroppstekst);
+  } catch (feil) {
+    const ugyldig = document.createElement("p");
+    ugyldig.className = "statuslinje feil";
+    ugyldig.textContent = `Kroppen er ikke gyldig JSON: ${feilmelding(feil)}`;
+    svarrute.appendChild(ugyldig);
+    return;
+  }
   const tomme = [...felter]
     .filter(([parameter, input]) =>
       input.value.trim() === "" && (parameter.plassering === "path" || parameter.paakrevd))
-    .map(([parameter]) => parameter.navn);
+    .map(([parameter]) => parameter.navn)
+    .concat(byggetKropp.mangler);
   if (tomme.length) {
     const mangler = document.createElement("p");
     mangler.className = "statuslinje feil";
@@ -646,7 +823,11 @@ async function sendRequest(
 
   let svar: Response;
   try {
-    svar = await fetch(url, { method: rute.metode, headers: legitimasjon.header });
+    svar = await fetch(url, {
+      method: rute.metode,
+      headers: { ...(legitimasjon.header || {}), ...byggetKropp.headers },
+      body: byggetKropp.body
+    });
   } catch (feil) {
     status.className = "statuslinje feil";
     status.textContent = `Kallet nådde ikke fram: ${feilmelding(feil)}`;
@@ -692,7 +873,7 @@ async function sendRequest(
   }
   svarrute.appendChild(labelled("Kropp", kropp));
 
-  const curl = curlFor(rute, url, legitimasjon);
+  const curl = curlFor(rute, url, legitimasjon, byggetKropp);
   if (curl.laert) {
     const kommando = document.createElement("pre");
     kommando.textContent = curl.laert;

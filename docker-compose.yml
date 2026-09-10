@@ -1,4 +1,4 @@
-# Every Node service answers /helse with a "tjeneste" field. Without a
+# Every application service answers /helse with a "tjeneste" field. Without a
 # healthcheck, depends_on only waits for the container to start - not for the
 # server inside it to accept connections, which is where startup races come from.
 # Node is present in all these images, so fetch is the cheapest probe available.
@@ -137,6 +137,7 @@ services:
       # The backend no longer reads the matrikkel seed off disk. One matrikkel in
       # the sandbox, and it is the one that also speaks SOAP.
       - MATRIKKEL_BASE_URL=http://matrikkel-mock:8085
+      - PLAN_BASE_URL=http://plan-mock:8090
       # Legeerklaeringene ligger utenfor Fiks fordi en pasientjournal ikke er et
       # KS-register. Se apps/pasientjournal-mock/README.md.
       - PASIENTJOURNAL_BASE_URL=http://pasientjournal-mock:8087
@@ -152,6 +153,8 @@ services:
       - WATCH_POLL=${WATCH_POLL:-0}
     depends_on:
       matrikkel-mock:
+        condition: service_healthy
+      plan-mock:
         condition: service_healthy
       pasientjournal-mock:
         condition: service_healthy
@@ -194,6 +197,21 @@ services:
       - WATCH_POLL=${WATCH_POLL:-0}
     ports:
       - "${BIND_HOST:-127.0.0.1}:8085:8085"
+    volumes:
+      - ./:/workspace
+
+  plan-mock:
+    healthcheck:
+      <<: *helsesjekk
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8090/helse').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+    image: node:24-alpine
+    working_dir: /workspace
+    command: ["/bin/sh", "scripts/dev.sh", "apps/plan-mock/src/server.ts"]
+    environment:
+      - PORT=8090
+      - WATCH_POLL=${WATCH_POLL:-0}
+    ports:
+      - "${BIND_HOST:-127.0.0.1}:8090:8090"
     volumes:
       - ./:/workspace
 
@@ -258,11 +276,14 @@ services:
       - AI_PROVIDER=${AI_PROVIDER:-ollama}
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:7b}
+      - OLLAMA_VISION_MODEL=${OLLAMA_VISION_MODEL:-qwen3-vl:4b}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
       - OPENROUTER_MODEL=${OPENROUTER_MODEL:-mistralai/mistral-7b-instruct:free}
       - TELENOR_AI_FACTORY_BASE_URL=${TELENOR_AI_FACTORY_BASE_URL:-https://litellm.apps.s99ct03.aifactory.telenor.com}
       - TELENOR_AI_FACTORY_API_KEY=${TELENOR_AI_FACTORY_API_KEY:-}
       - TELENOR_AI_FACTORY_MODEL=${TELENOR_AI_FACTORY_MODEL:-GLM-5.2-FP8}
+      - TELENOR_AI_FACTORY_REASONING_MODEL=${TELENOR_AI_FACTORY_REASONING_MODEL:-NVIDIA-Nemotron-3-Super-120B-A12B-FP8}
+      - TELENOR_AI_FACTORY_TIMEOUT_MS=${TELENOR_AI_FACTORY_TIMEOUT_MS:-30000}
       - TELENOR_AI_FACTORY_CACHE_SALT=${TELENOR_AI_FACTORY_CACHE_SALT:-}
       # Both timeouts are read by the gateway but were not passed through here,
       # so setting AI_TIMEOUT_MS in .env - which .env.example documents - did
@@ -286,6 +307,31 @@ services:
     volumes:
       - ./:/workspace
 
+  pdf-extractor:
+    build:
+      context: .
+      dockerfile: apps/pdf-extractor/Dockerfile
+    working_dir: /workspace/apps/pdf-extractor
+    command: ["python", "-m", "pdf_extractor.service"]
+    healthcheck:
+      <<: *helsesjekk
+      test: ["CMD", "curl", "-fsS", "http://localhost:8089/helse"]
+    depends_on:
+      ai-gateway:
+        condition: service_healthy
+    environment:
+      - PORT=8089
+      - WORKSPACE_ROOT=/workspace
+      - AI_BASE_URL=http://ai-gateway:8082
+      - OLLAMA_VISION_MODEL=${OLLAMA_VISION_MODEL:-qwen3-vl:4b}
+      - PDF_EXTRACTOR_AI_ENABLED=${PDF_EXTRACTOR_AI_ENABLED:-true}
+      - PDF_EXTRACTOR_VISION_ENABLED=${PDF_EXTRACTOR_VISION_ENABLED:-true}
+      - PDF_EXTRACTOR_MAX_UPLOAD_BYTES=${PDF_EXTRACTOR_MAX_UPLOAD_BYTES:-104857600}
+    ports:
+      - "${BIND_HOST:-127.0.0.1}:8089:8089"
+    volumes:
+      - ./:/workspace
+
   tools-api:
     healthcheck:
       <<: *helsesjekk
@@ -300,6 +346,8 @@ services:
         condition: service_healthy
       ai-gateway:
         condition: service_healthy
+      pdf-extractor:
+        condition: service_healthy
       matrikkel-mock:
         condition: service_healthy
       digdir-mock:
@@ -307,6 +355,7 @@ services:
     environment:
       - BACKEND_BASE_URL=http://sandbox-backend:8080
       - AI_BASE_URL=http://ai-gateway:8082
+      - PDF_EXTRACTOR_BASE_URL=http://pdf-extractor:8089
       - MATRIKKEL_BASE_URL=http://matrikkel-mock:8085
       - DIGDIR_BASE_URL=http://digdir-mock:8086
       - DIGDIR_ISSUER=${DIGDIR_ISSUER:-http://localhost:8086}

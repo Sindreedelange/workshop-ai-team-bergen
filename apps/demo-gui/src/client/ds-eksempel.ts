@@ -72,8 +72,29 @@ for (const vis of document.querySelectorAll<HTMLElement>(".vis")) {
 
 // data-color-scheme belongs on the root element: the theme defines its colour
 // variables on :root and on [data-color-scheme], so anything below inherits.
+//
+// Three values, and `auto` is the only one that reads the system preference - the theme
+// resolves it inside a prefers-color-scheme media query and never applies dark on the
+// system preference alone. `light` sits on :root, so it is what you get with no
+// attribute at all.
+//
+// The stored choice is applied by the inline script in <head>, not here: this module is
+// deferred, so doing it here would paint the wrong theme first. All this does is keep
+// the select in step with what <html> already says, and write the choice down.
+const NOKKEL = "ksd-fargemodus";
 const mode = krevEl<HTMLSelectElement>("mode");
-mode.onchange = () => document.documentElement.setAttribute("data-color-scheme", mode.value);
+
+mode.value = document.documentElement.getAttribute("data-color-scheme") ?? "auto";
+
+mode.onchange = () => {
+  document.documentElement.setAttribute("data-color-scheme", mode.value);
+  try {
+    localStorage.setItem(NOKKEL, mode.value);
+  } catch {
+    // Private vindu eller blokkerte cookies. Valget gjelder for denne siden likevel,
+    // det er bare ikke husket til neste gang.
+  }
+};
 
 // data-size is inherited too. Setting it once on the gallery rescales every
 // component inside it - that is the whole sizing mechanism, not a per-component prop.
