@@ -1,18 +1,57 @@
-/* Reviewed colour corrections from PR #6, above the unmodified vendored theme. */
+/*
+ * Dark-theme colour corrections for the KS Digital theme.
+ *
+ * Not vendored - this file is ours, and `pnpm ds:hent` does not touch it. It exists
+ * because the theme derives its dark scheme by inverting lightness, which is right for
+ * surfaces and wrong for the solid `base-*` ramps three colour families use:
+ *
+ *   accent    #00042e -> #a9aab8   the KS navy inverts to grey, so the primary button
+ *                                  loses the brand and lands 1.00:1 from neutral
+ *                                  (#a8abae) - the same button twice
+ *   warning   #ea9b1b -> #60400b   1.90:1 against the dark page background, below the
+ *                                  3:1 that WCAG 1.4.11 wants for a component boundary
+ *   support2  #ffffff -> #000000   1.18:1 - a black button on a near-black page
+ *
+ * The corrections below follow dark-theme practice: lighten and desaturate a saturated
+ * colour rather than inverting it, and let hover go *lighter*, since elevation in a dark
+ * theme is carried by lighter surfaces and not by shadow. Every value is measured against
+ * the dark page background `--ds-color-neutral-background-default` (#14181c) and against
+ * its own text colour; the ratios are in docs/designsystem.md.
+ *
+ * We override the per-family tier (`--ds-color-accent-*`), not the component tier
+ * (`--dsc-button-*`), so anything reading the family - buttons, chips, links, the alias
+ * layer behind `data-color` - is corrected once.
+ *
+ * `neutral` is deliberately left grey: primary is now blue against a grey neutral, which
+ * is what makes the hierarchy readable again.
+ */
+
+/* ds and ksd are declared by ds-base.css, so `side` lands after both. */
 @layer side;
 
 @layer side {
+  /* One block, two selectors: the theme resolves `auto` only inside a
+   * prefers-color-scheme media query, so an override for `dark` alone would leave
+   * `data-color-scheme="auto"` on the uncorrected ramps. */
   [data-color-scheme="dark"] {
+    /* Lightened KS navy. 7.94:1 against its black text, 6.75:1 against the page. */
     --ds-color-accent-base-default: #6f9dff;
     --ds-color-accent-base-hover: #8ab4ff;
     --ds-color-accent-base-active: #9cc0ff;
     --ds-color-accent-base-contrast-subtle: #25282c;
     --ds-color-accent-base-contrast-default: #000000;
+
+    /* Amber rather than brown. 9.58:1 against black text, 8.14:1 against the page.
+     * The text colour has to flip with it: the theme pairs the brown with white, which
+     * would be 2.19:1 here. */
     --ds-color-warning-base-default: #e0a52a;
     --ds-color-warning-base-hover: #ebb544;
     --ds-color-warning-base-active: #f4c563;
     --ds-color-warning-base-contrast-subtle: #2b2519;
     --ds-color-warning-base-contrast-default: #000000;
+
+    /* support2 is the inverted extreme in this theme - white in light mode. Light grey
+     * keeps that role and gives the button an edge: 12.52:1 against the page. */
     --ds-color-support2-base-default: #d8d8d8;
     --ds-color-support2-base-hover: #e6e6e6;
     --ds-color-support2-base-active: #f2f2f2;
@@ -27,11 +66,13 @@
       --ds-color-accent-base-active: #9cc0ff;
       --ds-color-accent-base-contrast-subtle: #25282c;
       --ds-color-accent-base-contrast-default: #000000;
+
       --ds-color-warning-base-default: #e0a52a;
       --ds-color-warning-base-hover: #ebb544;
       --ds-color-warning-base-active: #f4c563;
       --ds-color-warning-base-contrast-subtle: #2b2519;
       --ds-color-warning-base-contrast-default: #000000;
+
       --ds-color-support2-base-default: #d8d8d8;
       --ds-color-support2-base-hover: #e6e6e6;
       --ds-color-support2-base-active: #f2f2f2;
@@ -39,4 +80,9 @@
       --ds-color-support2-base-contrast-default: #000000;
     }
   }
+
+  /* The alias layer the components actually read is bound in ds-ksdigital.css, and its
+   * selector list includes bare `[data-color-scheme]` - so it re-reads the family
+   * variables above rather than caching them. Nothing more is needed here, and that is
+   * why the override sits on the family tier. */
 }

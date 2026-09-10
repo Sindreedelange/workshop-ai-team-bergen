@@ -19,6 +19,7 @@ const ASSETS: Record<string, string> = {
   // the lookup below joins the URL name onto a directory, so no name may contain a slash.
   "ds-base.css": "text/css; charset=utf-8",
   "ds-ksdigital.css": "text/css; charset=utf-8",
+  // Ours, not vendored: dark-theme colour corrections on top of the theme.
   "ds-morketema.css": "text/css; charset=utf-8",
   // The service registry. Dashboard and API explorer both read it, so the list of
   // services exists once instead of once per page. See apps/shared/tjenester.json.
