@@ -81,6 +81,7 @@ if (command === "docker") {
 }
 if (command === "curl") {
   const url = args.find(arg => arg.startsWith("http"));
+  if (url?.includes("[::1]")) process.exit(fail === "ipv6" ? 0 : 7);
   if (url.includes("/api/tags")) {
     console.log(JSON.stringify({ models: existsSync("model-present") ? [{name:"qwen2.5:0.5b"},{name:"qwen3-vl:2b"},{name:"qwen3-vl:4b"},{name:"qwen3-vl:8b"}] : [] }));
   } else if (url.includes("/ai/klarsprak")) {
@@ -257,6 +258,14 @@ try {
     assert.match(result.stderr, /SIMULERT OPPSTARTSFEIL/);
     assert.equal(readdirSync(path.join(directory, "_backup")).length, 1);
     assert.ok(!result.stdout.includes("✅ Klar"));
+  });
+
+  check("IPv6-prosess på en tjenesteport stopper oppstart", () => {
+    const directory = makeFixture("ipv6-conflict", false);
+    const result = run(directory, ["--mock"], { FIXTURE_FAIL: "ipv6" });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Portene er allerede i bruk/);
+    assert.ok(!events(directory).some(event => event.command === "docker" && event.args.includes("up")));
   });
 
   for (const platform of ["Linux", "Darwin"]) {
