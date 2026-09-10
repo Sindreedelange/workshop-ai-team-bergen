@@ -266,6 +266,21 @@ export function evaluateGarasje(tiltak: GarasjeTiltak | ByggetiltakInput, grunnl
     + `. Skissepunktet ligger ${containsPunkt(grunnlag.punkt, f) ? "inne i" : "utenfor"} sonen.`;
   const bestemmelseskilde = findGarasjeKommunekilder(grunnlag.adresse.kommunenummer)?.kpa.bestemmelserUrl || GARASJE_SAK10_URL;
   const planvarsler = getByggetiltakPlanvarsler(tiltakstype, grunnlag);
+  const lnfSjekk = planvarsler.find(sjekk => sjekk.id === "kommuneplan");
+  const lnf = grunnlag.arealformaal.some(formaal => formaal.kode === 5100
+    && formaal.planId === KPA2018_SONEKILDE.planId);
+  const avstandNabogrense = "avstandNabogrense" in t ? t.avstandNabogrense : null;
+  if (lnf && lnfSjekk && tiltakstype === "frittliggende") {
+    if (avstandNabogrense === null) {
+      lnfSjekk.forklaring = "Punktet ligger i LNF. KPA2018 § 31.3 og denne flyten bruker mer enn 1 meter til nabogrensen som vilkår for en frittliggende bygning. Avstanden er ikke oppgitt, så dette må avklares.";
+    } else if (avstandNabogrense > 1) {
+      lnfSjekk.status = "oppfylt";
+      lnfSjekk.forklaring = `Punktet ligger i LNF, og oppgitt avstand til nabogrensen er ${avstandNabogrense} m. LNF over hele eiendommen er derfor ikke alene et hinder i denne flyten. KPA2018 § 31.3-vilkåret i denne flyten om mer enn 1 m avstand er oppfylt. Andre planbestemmelser og vilkår må fortsatt leses før du bygger.`;
+    } else {
+      lnfSjekk.status = "uavklart";
+      lnfSjekk.forklaring = `Punktet ligger i LNF, men oppgitt avstand til nabogrensen er ${avstandNabogrense} m. KPA2018 § 31.3 omtaler små tiltak på fradelt og bebygd boligeiendom uten negativ påvirkning på LNF-verdiene. 1 m er ikke tilstrekkelig i denne flyten: LNF over hele eiendommen krever at vilkåret om mer enn 1 m avstand til nabogrensen er oppfylt.`;
+    }
+  }
   sjekker.push(...planvarsler);
   const gjerdeplan = planvarsler.find(sjekk => sjekk.id === "gjerde-plan-6170063");
   if ("tiltakstype" in t && t.tiltakstype === "gjerde" && gjerdeplan) {

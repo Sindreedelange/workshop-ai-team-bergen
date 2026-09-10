@@ -44,7 +44,14 @@ for (const fixture of Object.values(fixtures)) {
   const early = getByggetiltakPlanvarsler(fixture.tiltakstype, grunnlag);
   const assessment = evaluateGarasje(fixture, grunnlag);
   assert(early.length > 0 && early.every(warning => warning.status === "uavklart"));
-  for (const warning of early) assert.deepEqual(assessment.sjekker.find(item => item.id === warning.id), warning);
+  for (const warning of early) {
+    const actual = assessment.sjekker.find(item => item.id === warning.id);
+    if (warning.id === "kommuneplan" && fixture.tiltakstype === "frittliggende") {
+      assert.match(actual?.forklaring ?? "", /mer enn 1 m avstand/);
+    } else {
+      assert.deepEqual(actual, warning);
+    }
+  }
 }
 assert.deepEqual(grunnlag, beforePlanvarsler, "Tidlig planveiledning skal være en ren funksjon.");
 const common = { adresse: "Testveien 1", kommunenummer: "4601", gnr: 1, bnr: 2,
