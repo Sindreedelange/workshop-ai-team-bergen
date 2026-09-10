@@ -38,6 +38,7 @@ const TOKEN = {
   resource: "sandbox-backend"
 };
 const aiBaseUrl = process.env.AI_BASE_URL || "http://ai-gateway:8082";
+const pdfExtractorBaseUrl = process.env.PDF_EXTRACTOR_BASE_URL || "http://pdf-extractor:8089";
 const matrikkelBaseUrl = process.env.MATRIKKEL_BASE_URL || "http://matrikkel-mock:8085";
 const matrikkelMode = String(process.env.MATRIKKEL_MODE || "mock").toLowerCase();
 const geonorgeAdresseBaseUrl = process.env.GEONORGE_ADRESSE_API_BASE_URL || "https://ws.geonorge.no/adresser/v1";
@@ -480,6 +481,58 @@ const toolDefs: Verktoy[] = [
     }
   },
   {
+    name: "pdf_reprocess_document",
+    description: "Explicitly rerun extraction, knowledge generation, and indexing for a document. Normal uploads start this automatically.",
+    inputSchema: {
+      type: "object",
+      required: ["documentId"],
+      properties: { documentId: { type: "string", description: "ID returned by POST /dokumenter on pdf-extractor." } }
+    }
+  },
+  {
+    name: "pdf_get_job_status",
+    description: "Poll an asynchronous PDF extraction job. The terminal states are completed and failed.",
+    inputSchema: {
+      type: "object",
+      required: ["jobId"],
+      properties: { jobId: { type: "string" } }
+    }
+  },
+  {
+    name: "pdf_get_extraction_result",
+    description: "Get the detailed extraction result and source evidence for a completed PDF document.",
+    inputSchema: {
+      type: "object",
+      required: ["documentId"],
+      properties: { documentId: { type: "string" } }
+    }
+  },
+  {
+    name: "pdf_read_document",
+    description: "Get the complete compact, source-grounded content and quality flags of one extracted PDF. Use this when the whole document fits the agent context.",
+    inputSchema: {
+      type: "object",
+      required: ["documentId"],
+      properties: {
+        documentId: { type: "string" },
+        maxChars: { type: "integer", minimum: 1000, maximum: 2000000, description: "Optional context size cap. Use pdf_search_chunks when the document is too large." }
+      }
+    }
+  },
+  {
+    name: "pdf_search_chunks",
+    description: "Semantically retrieve source-grounded chunks with page references and quality flags from the embedded vector database.",
+    inputSchema: {
+      type: "object",
+      required: ["query"],
+      properties: {
+        query: { type: "string" }, documentId: { type: "string", description: "Optional: search only this document." },
+        profile: { type: "string", enum: ["generic", "legal", "arealplan"] },
+        limit: { type: "integer", minimum: 1, maximum: 100, default: 10 }
+      }
+    }
+  },
+  {
     name: "suggest_step_tools",
     description: "Ask the AI gateway which tools are relevant for a given process step. Returns tools to call proactively for context and/or to validate user answers.",
     inputSchema: {
@@ -575,6 +628,13 @@ async function matrikkel<T = unknown>(path: string): Promise<T> {
     throw upstreamError(data, res.status, "Matrikkel");
   }
   return data as T;
+}
+
+async function pdfExtractor(pathname: string, init: RequestInit = {}): Promise<unknown> {
+  const response = await fetch(`${pdfExtractorBaseUrl}${pathname}`, { ...init, headers: { "Content-Type": "application/json", ...(init.headers || {}) } });
+  const data = await response.json() as { detail?: string; feil?: string };
+  if (!response.ok) throw clientError(data.detail || data.feil || `PDF-extractor feil ${response.status}`, response.status);
+  return data;
 }
 
 function normalize(verdi: unknown): string {
@@ -978,6 +1038,33 @@ function fuzzyGateTreff(gater: Gatetreff[], gateSoek: string, limit = 10): Gatet
 // Returtypen er unknown: hvert verktøy har sin egen svarform, og resultatet går
 // rett ut som JSON. Kallstedet pakker det inn uten å lese i det.
 async function invokeTool(name: string | undefined, args: Verktoyargumenter = {}): Promise<unknown> {
+  if (name === "pdf_reprocess_document") {
+    if (!args.documentId) throw clientError("Oppgi documentId.");
+    return pdfExtractor(`/dokumenter/${argSti(args.documentId)}/uttrekk`, { method: "POST" });
+  }
+
+  if (name === "pdf_get_job_status") {
+    if (!args.jobId) throw clientError("Oppgi jobId.");
+    return pdfExtractor(`/jobber/${argSti(args.jobId)}`);
+  }
+
+  if (name === "pdf_get_extraction_result") {
+    if (!args.documentId) throw clientError("Oppgi documentId.");
+    return pdfExtractor(`/dokumenter/${argSti(args.documentId)}/uttrekk`);
+  }
+
+  if (name === "pdf_read_document") {
+    if (!args.documentId) throw clientError("Oppgi documentId.");
+    const params = new URLSearchParams();
+    if (args.maxChars !== undefined) params.set("maxChars", String(args.maxChars));
+    const query = params.size ? `?${params}` : "";
+    return pdfExtractor(`/dokumenter/${argSti(args.documentId)}/kunnskap${query}`);
+  }
+
+  if (name === "pdf_search_chunks") {
+    return pdfExtractor("/sok", { method: "POST", body: JSON.stringify(args) });
+  }
+
   if (name === "list_processes") {
     const prosessdata = await api<Prosessinfo[] | Prosessliste>("/api/prosesser");
     const prosesser: Prosessinfo[] = Array.isArray(prosessdata)

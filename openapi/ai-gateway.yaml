@@ -36,6 +36,8 @@ paths:
                   modellNaaBar:
                     type: boolean
                     description: Om provideren svarer og modellen er lastet ned.
+                  visionModel: { type: string, example: "qwen3-vl:4b" }
+                  visionModelNaaBar: { type: boolean }
                   feil:
                     type: string
                     description: >-
@@ -369,6 +371,43 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/VelgVerktoyResponse"
+
+  /ai/strukturer-dokument:
+    post:
+      summary: Normaliser regler fra kildeforankrede PDF-blokker
+      description: Modellen kan bare legge til tolkning; kildetekst og koordinater beholdes av PDF-extractor.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [blokker]
+              properties:
+                sporingsId: { type: string }
+                profil: { type: string, enum: [generic, legal, arealplan] }
+                blokker: { type: array, items: { type: object, additionalProperties: true } }
+      responses:
+        "200": { description: Validerbar, strukturert tolkning }
+
+  /ai/les-dokumentside:
+    post:
+      summary: Les en vanskelig PDF-side med lokal bildeanalyse
+      description: Bruker OLLAMA_VISION_MODEL og skriver et KI-spor uten selve base64-bildet.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bilde]
+              properties:
+                sporingsId: { type: string }
+                profil: { type: string, enum: [generic, legal, arealplan] }
+                side: { type: integer }
+                bilde: { type: string, format: byte }
+      responses:
+        "200": { description: Transkriberte visuelle blokker og advarsler }
 
   /docs:
     get:

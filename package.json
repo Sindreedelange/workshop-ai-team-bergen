@@ -54,6 +54,7 @@
     "test:matrikkel-mock": "node scripts/test-matrikkel-mock.ts",
     "test:bergen-matrikkel": "node scripts/test-bergen-matrikkel-bulk.ts",
     "test:tools-matrikkel": "node scripts/test-tools-matrikkel.ts",
+    "test:pdf": "docker compose run --rm --no-deps pdf-extractor python -m unittest discover -s tests",
     "test:agent:matrikkel": "node scripts/test-process-agent-matrikkel.ts",
     "lint": "tsc --noEmit && pnpm lint:klient",
     "lint:klient": "tsc -p apps/shared/client && tsc -p apps/demo-gui/src/client && tsc -p apps/process-builder/src/client",

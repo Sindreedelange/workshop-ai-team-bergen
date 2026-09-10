@@ -251,6 +251,19 @@ const raa = {
     },
     "sjekk-rett": { godkjent: true, melding: "Du har rett til redusert betaling." }
   },
+  dokumentkunnskap: [{
+    chunkId: "pdf-1-side-2",
+    documentId: "pdf-1",
+    title: "Forskrift om eksempel",
+    page: 2,
+    authority: "binding",
+    text: "§ 4 Tiltaket skal plasseres minst 4 meter fra grensen.",
+    score: 0.91,
+    checkRecommended: true,
+    qualityWarnings: ["Kolonnerekkefølgen bør kontrolleres."],
+    ruleIds: ["§ 4"],
+    ukjent: "skal bort"
+  }],
   samtale: Array.from({ length: 20 }, (_, i) => ({ rolle: "innbygger", tekst: `tur ${i}` }))
 };
 
@@ -273,6 +286,8 @@ check("utfallet beholdes", rent.resultater?.["sjekk-rett"]?.godkjent === true);
 check("satser beholdes", (rent.satser?.ordninger as unknown[] | undefined)?.length === 2);
 check("ukjente stegfelter fjernes", rent.steg?.internt === undefined);
 check("samtalehistorikk kappes til seks turer", (rent.samtale as unknown[] | undefined)?.length === 6);
+check("kildeforankret dokumentkunnskap beholdes", rent.dokumentkunnskap?.[0]?.documentId === "pdf-1");
+check("ukjente dokumentfelter fjernes", !("ukjent" in (rent.dokumentkunnskap?.[0] || {})));
 check(
   "steg uten utfall droppes helt",
   rent.resultater?.["hent-inntekt"] === undefined,
@@ -284,6 +299,7 @@ check(
 const grunnlag = buildGrunnlag(rent);
 check("grunnlaget er et objekt med kilder", Array.isArray(grunnlag.kilder) && grunnlag.kilder.length > 0);
 check("satser navngis med dato", grunnlag.kilder.some((kilde) => kilde.includes("2026-08-01")));
+check("PDF-kilden navngis med side og kvalitetsflagg", grunnlag.kilder.includes("Forskrift om eksempel, side 2 – kontroll anbefales"));
 
 /* ── The provider signatures ──────────────────────────────────────────────── */
 //
