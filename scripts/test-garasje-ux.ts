@@ -144,7 +144,7 @@ const send = async (text: string, response: typeof answer) => {
 };
 assert.equal(el("mode-agent").attributes["aria-pressed"], "true");
 assert.equal(el("dialog-group").children.length, 2, "BYA og BRA skal vises sammen i agentmodus");
-assert.match(el("dialog-input").placeholder, /m²/);
+assert.match(el("dialog-input").placeholder, /BYA.*m²/);
 assert.equal(el("dialog-next").disabled, true);
 el("mode-stepwise").dispatch("click");
 assert.equal(el("agent-interview").hidden, false, "Den samme tekstboksen skal være tilgjengelig i stegvis modus");

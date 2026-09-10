@@ -83,7 +83,8 @@ export function createGarasjeUtfylling(options: Options) {
   }
 
   function placeholder(field: GarasjeInputField): string {
-    if (["bya", "bra"].includes(field.id)) return "For eksempel 35 m²";
+    if (field.id === "bya") return "Skriv BYA i m²";
+    if (field.id === "bra") return "Skriv BRA i m²";
     if (field.id === "hoyde") return "For eksempel 0,9 meter";
     if (["gesimshoyde", "monehoyde"].includes(field.id)) return "For eksempel 3,5 meter";
     if (field.id === "etasjer") return "For eksempel 1 etasje";

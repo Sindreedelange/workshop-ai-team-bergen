@@ -1441,6 +1441,16 @@ try {
       assert.equal(evaluateGarasje(tiltak, g).utfall, "maa_avklares");
     });
   }
+  await test("LNF-vilkåret følger flyten når avstanden er større enn én meter", async () => {
+    lokaleTeiger = () => localResponse();
+    const g = await getGarasjeGrunnlag(milde);
+    const vurdering = evaluateGarasje({ ...tiltak, avstandNabogrense: 2 }, g);
+    const lnf = vurdering.sjekker.find(sjekk => sjekk.id === "kommuneplan");
+    assert.equal(lnf?.status, "oppfylt");
+    assert.match(lnf?.forklaring ?? "", /mer enn 1 m avstand/);
+    const paaGrensen = evaluateGarasje({ ...tiltak, avstandNabogrense: 1 }, g);
+    assert.equal(paaGrensen.sjekker.find(sjekk => sjekk.id === "kommuneplan")?.status, "uavklart");
+  });
   await test("Manglende lokal teig gir synlig API-kilde uten å blande kilder", async () => {
     lokaleTeiger = () => ({ ...localResponse(), features: [] });
     urls.length = 0;
