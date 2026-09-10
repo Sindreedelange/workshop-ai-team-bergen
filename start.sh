@@ -21,8 +21,11 @@ cd "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # digdir-mock must stay in this list for the same reason as matrikkel-mock: on
 # macOS we start only these by name, and everything that needs a token dials it.
 # Leave it out and every authenticated call fails while the stack looks healthy.
-APP_SERVICES=(sandbox-backend fiks-simulator ai-gateway pdf-extractor tools-api process-agent matrikkel-mock digdir-mock pasientjournal-mock politiattest-mock demo-gui process-builder)
-SERVICE_PORTS=(8080 8081 8082 8083 8084 8085 8086 8087 8088 8089 3000 3001)
+# plan-mock must stay in this list for the same reason: the garasje map step reads
+# the KPA2018 hensynssoner through it over PLAN_BASE_URL. Leave it out and the map
+# loses its zones with only a source warning to show for it.
+APP_SERVICES=(sandbox-backend fiks-simulator ai-gateway pdf-extractor tools-api process-agent matrikkel-mock digdir-mock pasientjournal-mock politiattest-mock plan-mock demo-gui process-builder)
+SERVICE_PORTS=(8080 8081 8082 8083 8084 8085 8086 8087 8088 8089 8090 3000 3001)
 OLLAMA_PORT=11434
 
 MODEL=""

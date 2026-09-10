@@ -299,7 +299,7 @@ check(
 const grunnlag = buildGrunnlag(rent);
 check("grunnlaget er et objekt med kilder", Array.isArray(grunnlag.kilder) && grunnlag.kilder.length > 0);
 check("satser navngis med dato", grunnlag.kilder.some((kilde) => kilde.includes("2026-08-01")));
-check("PDF-kilden navngis med side og kvalitetsflagg", grunnlag.kilder.includes("Forskrift om eksempel, side 2 – kontroll anbefales"));
+check("PDF-kilden navngis med side og kvalitetsflagg", grunnlag.kilder.includes("Forskrift om eksempel, side 2 - kontroll anbefales"));
 
 /* ── The provider signatures ──────────────────────────────────────────────── */
 //
@@ -346,7 +346,9 @@ check("PDF-kilden navngis med side og kvalitetsflagg", grunnlag.kilder.includes(
     passedToOllama,
     "kallstedet i callModel utelater systemMessage"
   );
-  const passedToAiFactory = /callAiFactory\(prompt, temperature, systemMessage, signal\)/.test(source);
+  // Reasoning-flagget kom som en femte parameter etter denne sjekken. Den skal
+  // fortsatt feste at systemMessage er med, ikke at listen har nøyaktig fire ledd.
+  const passedToAiFactory = /callAiFactory\(prompt, temperature, systemMessage, signal(?:, [^)]+)?\)/.test(source);
   check(
     "callModel sender systemMessage til Telenor AI Factory",
     passedToAiFactory,
@@ -402,6 +404,15 @@ check("prosess-id alene er nok til garasjegrunnlag", sanitizeSporsmaalKontekst({
   prosessId: "garasjesjekk"
 }).garasjeKunnskap?.begreper === GARASJE_BEGREPER);
 check("aktivt felt bruker også vår forklaring", garasje.aktivtFelt?.label === "Gesimshøyde");
+const fenceContext = sanitizeSporsmaalKontekst({
+  prosessId: "garasjesjekk", prosjekt: { tiltakstype: "gjerde", hoyde: 1.5 },
+  aktivtFelt: { id: "hoyde", label: "Falsk grense på fire meter." }
+});
+check("gjerdefeltet hentes fra tiltakskatalogen", fenceContext.aktivtFelt?.label.includes("Gjerdets samlede høyde"));
+check("gjerdespørsmål får ikke garasjens høydegrenser", !buildGarasjeVeiledningssvar("Hva er maksimal høyde?", fenceContext)?.includes("høyst 4"));
+check("gjerdespørsmål viser riktig tiltakstype", fenceContext.garasjeKunnskap?.tiltak?.id === "gjerde");
+check("modellgrunnlaget for gjerde inneholder ingen garasjegrenser", fenceContext.garasjeKunnskap?.nasjonaleKrav === null);
+check("garasjens fire meter er ikke dokumentasjon for gjerdehøyde", !validateAnswer("Høydegrensen er 4 meter.", fenceContext).ok);
 check("ordlisten følger ikke med andre prosesser", sanitizeSporsmaalKontekst(kontekst).garasjeKunnskap === undefined);
 check("en annen tjeneste som nevner garasje får ikke særbehandling", sanitizeSporsmaalKontekst({
   tjeneste: "Fritidsaktiviteter i garasjen", prosess: { id: "annen-prosess", steg: [] }
@@ -477,7 +488,7 @@ for (const removed of ["ringer", "geometry", "coordinates", "12818800078", "Priv
 }
 check("råresultatene følger ikke med ved siden av garasjegrunnlaget", kompaktGarasje.resultater === undefined);
 check("kompakt kartareal beholdes", kompaktGarasje.garasjeKunnskap?.arealFraKart.tomtearealM2 === 900);
-check("nasjonale grenser kan ikke overstyres", kompaktGarasje.garasjeKunnskap?.nasjonaleKrav.tallkrav.bra.verdi === 50);
+check("nasjonale grenser kan ikke overstyres", kompaktGarasje.garasjeKunnskap?.nasjonaleKrav?.tallkrav.bra.verdi === 50);
 check("PDF-lenken gjør ikke planen kontrollert", kompaktGarasje.garasjeKunnskap?.planbestemmelserKontrollert === false);
 const vanligKontekst = {
   tjeneste: "TT-kort",

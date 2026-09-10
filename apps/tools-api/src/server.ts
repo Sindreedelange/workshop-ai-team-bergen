@@ -481,6 +481,19 @@ const toolDefs: Verktoy[] = [
     }
   },
   {
+    name: "pdf_list_documents",
+    description: "List available PDF documents with source metadata and extraction status. Use provenance to scope searches; a match is not a verified permission.",
+    inputSchema: { type: "object", properties: {} }
+  },
+  {
+    name: "get_garasje_raad",
+    description: "Explain a supplied deterministic garasje assessment with bounded public document excerpts. Stateless guidance, not a trusted assessment or permission to build.",
+    inputSchema: {
+      type: "object", required: ["kontekst"],
+      properties: { kontekst: { type: "object" }, sporingsId: { type: "string" } }
+    }
+  },
+  {
     name: "pdf_reprocess_document",
     description: "Explicitly rerun extraction, knowledge generation, and indexing for a document. Normal uploads start this automatically.",
     inputSchema: {
@@ -631,7 +644,7 @@ async function matrikkel<T = unknown>(path: string): Promise<T> {
 }
 
 async function pdfExtractor(pathname: string, init: RequestInit = {}): Promise<unknown> {
-  const response = await fetch(`${pdfExtractorBaseUrl}${pathname}`, { ...init, headers: { "Content-Type": "application/json", ...(init.headers || {}) } });
+  const response = await fetch(`${pdfExtractorBaseUrl}${pathname}`, { signal: AbortSignal.timeout(5000), ...init, headers: { "Content-Type": "application/json", ...(init.headers || {}) } });
   const data = await response.json() as { detail?: string; feil?: string };
   if (!response.ok) throw clientError(data.detail || data.feil || `PDF-extractor feil ${response.status}`, response.status);
   return data;
@@ -1038,6 +1051,10 @@ function fuzzyGateTreff(gater: Gatetreff[], gateSoek: string, limit = 10): Gatet
 // Returtypen er unknown: hvert verktøy har sin egen svarform, og resultatet går
 // rett ut som JSON. Kallstedet pakker det inn uten å lese i det.
 async function invokeTool(name: string | undefined, args: Verktoyargumenter = {}): Promise<unknown> {
+  if (name === "pdf_list_documents") return pdfExtractor("/dokumenter");
+  if (name === "get_garasje_raad") return ai("/ai/garasje-raad", {
+    kontekst: args.kontekst, sporingsId: args.sporingsId
+  });
   if (name === "pdf_reprocess_document") {
     if (!args.documentId) throw clientError("Oppgi documentId.");
     return pdfExtractor(`/dokumenter/${argSti(args.documentId)}/uttrekk`, { method: "POST" });

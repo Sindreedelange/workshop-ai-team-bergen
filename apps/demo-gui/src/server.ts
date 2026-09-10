@@ -19,6 +19,7 @@ const ASSETS: Record<string, string> = {
   // the lookup below joins the URL name onto a directory, so no name may contain a slash.
   "ds-base.css": "text/css; charset=utf-8",
   "ds-ksdigital.css": "text/css; charset=utf-8",
+  "ds-morketema.css": "text/css; charset=utf-8",
   // The service registry. Dashboard and API explorer both read it, so the list of
   // services exists once instead of once per page. See apps/shared/tjenester.json.
   "tjenester.json": "application/json; charset=utf-8"
@@ -29,6 +30,19 @@ const ASSETS: Record<string, string> = {
 // typene på vei ut.
 const DELTE_KLIENTFILER: Record<string, string> = {
   "felles.ts": KLIENTSKRIPT
+};
+
+const DELTE_MODULER: Record<string, string> = {
+  "garasje-dialog.ts": KLIENTSKRIPT,
+  "garasje-kunnskap.ts": KLIENTSKRIPT,
+  "garasje-begreper.ts": KLIENTSKRIPT,
+  "garasje-regelgrunnlag.ts": KLIENTSKRIPT,
+  "garasje-kommuner.ts": KLIENTSKRIPT,
+  "garasje.ts": KLIENTSKRIPT,
+  "arealsoner.ts": KLIENTSKRIPT,
+  "hensynssoner.ts": KLIENTSKRIPT,
+  "geometri.ts": KLIENTSKRIPT,
+  "byggetiltak.ts": KLIENTSKRIPT
 };
 
 // One script per page, served from this app rather than shared because that is
@@ -44,6 +58,8 @@ const KLIENTFILER: Record<string, string> = {
   "garasje.ts": KLIENTSKRIPT,
   "garasje-kart.ts": KLIENTSKRIPT,
   "garasje-tema.ts": KLIENTSKRIPT,
+  "garasje-tiltak.ts": KLIENTSKRIPT,
+  "garasje-raad.ts": KLIENTSKRIPT,
   "garasje-utfylling.ts": KLIENTSKRIPT,
   "garasje-prosess.ts": KLIENTSKRIPT,
   "callback.ts": KLIENTSKRIPT
@@ -87,16 +103,12 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
     return;
   }
 
-  if (sti === "/shared/garasje-dialog.ts") {
-    await sendFil(response, path.join(sharedDir, "garasje-dialog.ts"), KLIENTSKRIPT);
-    return;
-  }
-
   for (const [prefiks, katalog, tillatte] of [
     // /delt/ før /assets/: felles.ts er .ts og strippes, resten er statiske
     // filer som sendes uendret. Rekkefølgen betyr ingenting her siden
     // prefiksene ikke overlapper, men holder de to slagene fra hverandre.
     ["/delt/", deltKlientDir, DELTE_KLIENTFILER],
+    ["/shared/", sharedDir, DELTE_MODULER],
     ["/assets/", sharedDir, ASSETS],
     ["/client/", klientDir, KLIENTFILER]
   ] as const) {

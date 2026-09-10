@@ -8,10 +8,12 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { cors, readRequestBody, svarhjelpere } from "../../shared/http.ts";
 import { feilmelding } from "../../shared/errors.ts";
 import { buildGarasjeBegrepssvar, isGarasjeKontekst } from "../../shared/garasje-begreper.ts";
+import { retrieveGarasjeKunnskap } from "./garasje-kunnskap.ts";
+import { projectGarasjeProsjekt } from "../../shared/garasje-kunnskap.ts";
+import { BYGGETILTAK_KATALOG } from "../../shared/byggetiltak.ts";
 import {
-  GARASJE_DIALOGFELTER, isGarasjeDialogfeltId, normalizeQuestionFieldAnswer, validateGarasjeDialogSvar
+  getByggetiltakDialogfelt, normalizeQuestionFieldAnswer, validateByggetiltakDialogSvar, selectGarasjeProsessfelter
 } from "../../shared/garasje-dialog.ts";
-import type { GarasjeDialogfeltId } from "../../shared/garasje-dialog.ts";
 
 const port = Number(process.env.PORT || 8084);
 const toolsBaseUrl = process.env.TOOLS_BASE_URL || "http://tools-api:8083";
@@ -1062,11 +1064,36 @@ function findProcessStepById(state: Agentsesjon, stepId: string): Agentsteg | nu
   return steg.find((s) => s.id === stepId) || null;
 }
 
+function selectedQuestionTiltakstype(state: Agentsesjon, step: Agentsteg | null | undefined): unknown {
+  const answers = state.lastSession?.svar;
+  const saved = isRecord(answers) && step ? answers[step.id] : undefined;
+  return (state.awaitingStepId === step?.id ? state.questionFieldAnswers.tiltakstype : undefined)
+    ?? (isRecord(saved) ? saved.tiltakstype : undefined);
+}
+
+function requiredQuestionFields(state: Agentsesjon, step: Agentsteg | null | undefined) {
+  return selectGarasjeProsessfelter(step?.felter || [], step?.visning, selectedQuestionTiltakstype(state, step));
+}
+
+function normalizeAgentFieldAnswer(state: Agentsesjon, field: NonNullable<Agentsteg["felter"]>[number], answer: string) {
+  const step = state.lastSession?.aktivtSteg;
+  const type = selectedQuestionTiltakstype(state, step);
+  if (step?.visning === "garasje" && typeof type === "string" && type !== "frittliggende"
+    && getByggetiltakDialogfelt(field.id, type)) {
+    const parsed = validateByggetiltakDialogSvar(field.id, answer, type);
+    return parsed.valid ? { valid: true as const,
+      value: parsed.value === null ? "vet-ikke" : typeof parsed.value === "boolean" ? parsed.value ? "ja" : "nei" : String(parsed.value)
+    } : parsed;
+  }
+  return normalizeQuestionFieldAnswer(field, answer, step?.visning === "garasje");
+}
+
 function buildQuestionAnswer(state: Agentsesjon, stepId: string | null, answer: unknown): unknown {
   if (!stepId || (typeof answer === "object" && answer !== null)) return answer;
-  const fields = findProcessStepById(state, stepId)?.felter || [];
+  const step = findProcessStepById(state, stepId);
+  const fields = step?.felter || [];
   if (fields.length <= 1) return answer;
-  const required = fields.filter((field) => field.obligatorisk);
+  const required = requiredQuestionFields(state, step);
   const target = required.length <= 1 ? required[0] || fields[0] : null;
   return target ? { [target.id]: answer } : answer;
 }
@@ -1127,14 +1154,22 @@ function clearQuestionState(state: Agentsesjon): void {
 }
 
 function prepareQuestionFields(state: Agentsesjon, step: Agentsteg): void {
+  const fields = requiredQuestionFields(state, step);
+  const answers = state.lastSession?.svar;
+  const saved = isRecord(answers) ? answers[step.id] : undefined;
+  const metadata: Record<string, string> = {};
+  if (step.visning === "garasje" && isRecord(saved) && typeof saved.tiltakstype === "string") {
+    for (const key of ["tiltakstype", "tiltaksbeskrivelse", "tiltakstypeBekreftet"]) {
+      if (typeof saved[key] === "string") metadata[key] = saved[key];
+    }
+  }
   state.awaiting = "question";
   state.awaitingStepId = step.id;
-  const fields = (step.felter || []).filter(field => field.obligatorisk);
   if (fields.length > 1) {
     state.awaiting = "question_fields";
     state.questionFieldCurrent = fields[0];
     state.questionFieldQueue = fields.slice(1);
-    state.questionFieldAnswers = {};
+    state.questionFieldAnswers = metadata;
   }
 }
 
@@ -1302,13 +1337,21 @@ async function maybeAnswerCitizenQuestion(state: Agentsesjon, text: string): Pro
     // Search results carry their extraction/review status. Documents can be
     // useful immediately; uncertain extraction remains visibly marked.
     let dokumentkunnskap: PdfTreff[] = [];
+    let kunnskapsadvarsel: string | undefined;
     try {
-      const pdfSvar = await invokeTool<PdfSoekesvar>("pdf_search_chunks", { query: text, limit: 3 });
-      dokumentkunnskap = Array.isArray(pdfSvar?.treff)
-        ? pdfSvar.treff.filter((treff) => typeof treff?.text === "string").slice(0, 3)
-        : [];
-    } catch {
-      // Public-document grounding is optional and must not break the process.
+      if (garasje) {
+        const grounding = await retrieveGarasjeKunnskap({ resultater: state.lastSession?.resultater }, text, invokeTool);
+        dokumentkunnskap = grounding.dokumentkunnskap;
+        kunnskapsadvarsel = grounding.kunnskapsadvarsel;
+      } else {
+        const pdfSvar = await invokeTool<PdfSoekesvar>("pdf_search_chunks", { query: text, limit: 3 });
+        dokumentkunnskap = Array.isArray(pdfSvar?.treff)
+          ? pdfSvar.treff.filter((treff) => typeof treff?.text === "string").slice(0, 3)
+          : [];
+      }
+    } catch (error) {
+      console.warn(`Dokumentsøk: ${feilmelding(error)}`);
+      kunnskapsadvarsel = "Dokumentgrunnlaget er utilgjengelig.";
     }
 
     const svar = await invokeTool<Sidesvar>("answer_citizen_question", {
@@ -1323,6 +1366,7 @@ async function maybeAnswerCitizenQuestion(state: Agentsesjon, text: string): Pro
         flyt: buildFlyt(state),
         resultater: state.lastSession?.resultater || null,
         dokumentkunnskap,
+        kunnskapsadvarsel,
         samtale: recentHistory(state, 6).map((entry) => ({
           rolle: entry.role === "assistant" ? "assistent" : "innbygger",
           tekst: entry.message
@@ -1596,7 +1640,7 @@ async function advanceAndPrompt(state: Agentsesjon): Promise<string[]> {
         : await discoverStepTools(step);
       state.awaitingValideringTools = validering.map((v) => v.name).filter((n): n is string => Boolean(n));
       messages.push(...warnings);
-      const requiredFields = (step.felter || []).filter((field) => field.obligatorisk);
+      const requiredFields = requiredQuestionFields(state, step);
       if (requiredFields.length > 1) {
         if (step.tekst) messages.push(step.tekst);
         messages.push(questionFieldPrompt(requiredFields[0]));
@@ -1765,7 +1809,7 @@ async function handleMessage(state: Agentsesjon, message: string): Promise<strin
       state.awaiting = "question";
       return ["Jeg mistet hvilket felt vi var på. Kan du svare på spørsmålet på nytt?"];
     }
-    const normalized = normalizeQuestionFieldAnswer(current, text, state.lastSession?.aktivtSteg?.visning === "garasje");
+    const normalized = normalizeAgentFieldAnswer(state, current, text);
     if (!normalized.valid) {
       return [normalized.retryMessage || `Jeg fikk ikke koblet svaret til et gyldig valg. ${questionFieldPrompt(current)}`];
     }
@@ -1885,9 +1929,9 @@ async function handleMessage(state: Agentsesjon, message: string): Promise<strin
       return [normalizedAnswer.retryMessage || "Jeg fikk ikke tolket svaret. Kan du prøve igjen?"];
     }
     const fields = step?.felter || [];
-    const field = fields.find((f) => f.obligatorisk) || fields[0];
+    const field = requiredQuestionFields(state, step)[0] || fields[0];
     if (field && normalizedAnswer.answer !== null) {
-      const fieldAnswer = normalizeQuestionFieldAnswer(field, normalizedAnswer.answer, step?.visning === "garasje");
+      const fieldAnswer = normalizeAgentFieldAnswer(state, field, normalizedAnswer.answer);
       if (!fieldAnswer.valid) return [fieldAnswer.retryMessage || `Jeg fikk ikke koblet svaret til et gyldig valg. ${questionFieldPrompt(field)}`];
       normalizedAnswer.answer = fieldAnswer.value;
     }
@@ -2276,18 +2320,20 @@ async function createAgentSession(body: { personId?: string }) {
 
 type GarasjeDialogRequest = {
   tekst: string;
-  feltId: GarasjeDialogfeltId;
+  feltId: string;
+  tiltakstype?: string;
   sporingsId?: string;
   kontekst?: {
     samtale?: { rolle: "innbygger" | "assistent"; tekst: string }[];
     resultater?: Record<string, unknown>;
+    prosjekt?: Record<string, unknown>;
   };
 };
 
-function validateGarasjeDialogRequest(body: unknown): GarasjeDialogRequest {
-  if (!isRecord(body) || Object.keys(body).some(key => !["tekst", "feltId", "kontekst", "sporingsId"].includes(key))
+function validateGarasjeDialogRequest(body: unknown, validateField = true): GarasjeDialogRequest {
+  if (!isRecord(body) || Object.keys(body).some(key => !["tekst", "feltId", "tiltakstype", "kontekst", "sporingsId"].includes(key))
     || typeof body.tekst !== "string" || !body.tekst.trim() || body.tekst.length > 500
-    || !isGarasjeDialogfeltId(body.feltId)) {
+    || typeof body.feltId !== "string") {
     throw new Verktoyfeil("Oppgi et kjent garasjefelt og en tekst på 1 til 500 tegn.", 400);
   }
   if (body.sporingsId !== undefined && (typeof body.sporingsId !== "string"
@@ -2296,10 +2342,11 @@ function validateGarasjeDialogRequest(body: unknown): GarasjeDialogRequest {
   }
   if (body.kontekst !== undefined) {
     const context = body.kontekst;
-    if (!isRecord(context) || Object.keys(context).some(key => !["samtale", "resultater"].includes(key))
+    if (!isRecord(context) || Object.keys(context).some(key => !["samtale", "resultater", "prosjekt"].includes(key))
       || JSON.stringify(context).length > 30000
-      || (context.resultater !== undefined && !isRecord(context.resultater))) {
-      throw new Verktoyfeil("Konteksten kan bare inneholde samtale og offentlige kartresultater, inntil 30000 tegn.", 400);
+      || (context.resultater !== undefined && !isRecord(context.resultater))
+      || (context.prosjekt !== undefined && !isRecord(context.prosjekt))) {
+      throw new Verktoyfeil("Konteksten kan bare inneholde samtale, prosjektmål og offentlige kartresultater, inntil 30000 tegn.", 400);
     }
     if (context.samtale !== undefined && (!Array.isArray(context.samtale) || context.samtale.length > 6
       || context.samtale.some(turn => !isRecord(turn) || Object.keys(turn).some(key => !["rolle", "tekst"].includes(key))
@@ -2308,14 +2355,33 @@ function validateGarasjeDialogRequest(body: unknown): GarasjeDialogRequest {
       throw new Verktoyfeil("Samtalen kan ha inntil seks meldinger med rolle og tekst på inntil 2000 tegn.", 400);
     }
   }
-  return body as GarasjeDialogRequest;
+  const checked = body as GarasjeDialogRequest;
+  const contextType = checked.kontekst?.prosjekt?.tiltakstype;
+  if (body.tiltakstype !== undefined && !BYGGETILTAK_KATALOG.some(entry => entry.id === body.tiltakstype)) {
+    throw new Verktoyfeil("Oppgi en kjent tiltakstype fra katalogen.", 400);
+  }
+  if (body.tiltakstype !== undefined && contextType !== undefined && body.tiltakstype !== contextType) {
+    throw new Verktoyfeil("Tiltakstypen må være den samme i forespørselen og prosjektkonteksten.", 400);
+  }
+  const tiltakstype = checked.tiltakstype ?? contextType ?? (validateField ? "frittliggende" : undefined);
+  if (tiltakstype !== undefined && !BYGGETILTAK_KATALOG.some(entry => entry.id === tiltakstype)) {
+    throw new Verktoyfeil("Oppgi en kjent tiltakstype fra katalogen.", 400);
+  }
+  if (validateField && !getByggetiltakDialogfelt(checked.feltId, tiltakstype)) {
+    throw new Verktoyfeil("Feltet finnes ikke i katalogen for den oppgitte tiltakstypen.", 400);
+  }
+  return tiltakstype === undefined ? checked : {
+    ...checked,
+    kontekst: { ...checked.kontekst, prosjekt: { ...checked.kontekst?.prosjekt, tiltakstype } }
+  };
 }
 
 async function handleGarasjeDialog(body: GarasjeDialogRequest) {
-  const field = GARASJE_DIALOGFELTER.find(field => field.id === body.feltId)!;
+  const field = getByggetiltakDialogfelt(body.feltId, body.kontekst?.prosjekt?.tiltakstype)!;
   const folded = normalize(body.tekst).replace(/ø/g, "o");
   const clarification = /^(forklar|hjelp|kan du|jeg (forstar|skjonner) ikke|(?:jeg )?vet ikke (hva|hvordan|hvor|hvilk)|er|har|skal|ma|bor|betyr|regnes|teller)\b/.test(folded);
   if (looksLikeCitizenQuestion(body.tekst) || clarification) {
+    const grounding = await retrieveGarasjeKunnskap(body.kontekst, body.tekst, invokeTool);
     try {
       const result = await invokeTool<unknown>("answer_citizen_question", {
         tekst: body.tekst.trim(),
@@ -2323,11 +2389,13 @@ async function handleGarasjeDialog(body: GarasjeDialogRequest) {
         kontekst: {
           tjeneste: "Garasjesjekken",
           prosessId: "garasjesjekk",
-          steg: { id: "garasje-prosjekt", type: "QUESTION", visning: "garasje", tittel: "Opplysninger om garasjen" },
+          steg: { id: "garasje-prosjekt", type: "QUESTION", visning: "garasje", tittel: "Opplysninger om tiltaket" },
           aktivtFelt: { id: field.id, label: field.label },
           flyt: { status: "UTKAST", soknadSendt: false },
           // The gateway projects public map facts and drops raw property data.
           resultater: body.kontekst?.resultater || {},
+          prosjekt: projectGarasjeProsjekt(body.kontekst?.prosjekt),
+          ...grounding,
           samtale: body.kontekst?.samtale?.map(turn => ({ rolle: turn.rolle, tekst: turn.tekst.slice(0, 400) })) || []
         }
       });
@@ -2336,19 +2404,23 @@ async function handleGarasjeDialog(body: GarasjeDialogRequest) {
       }
       return {
         type: "sporsmaal", tekst: result.tekst,
+        ...grounding,
         ...(typeof result.modell === "string" ? { modell: result.modell } : {}),
         ...(typeof result.advarsel === "string" ? { advarsel: result.advarsel } : {}),
         ...(result.grunnlag !== undefined ? { grunnlag: result.grunnlag } : {})
       };
-    } catch {
+    } catch (error) {
+      console.warn(`Garasjedialog: ${feilmelding(error)}`);
       return {
         type: "sporsmaal",
-        tekst: buildGarasjeBegrepssvar(body.tekst, field.id) || "Forklaringen er utilgjengelig akkurat nå. Prøv igjen.",
+        ...grounding,
+        tekst: buildGarasjeBegrepssvar(body.tekst, field.id)
+          || `${field.label} ${field.hint} Kontakt kommunens byggesaksveileder hvis du trenger hjelp til å avklare opplysningen.`,
         advarsel: "Forklaringstjenesten er utilgjengelig. Dette er hjelpetekst, ikke et KI-svar. Ingen opplysninger er endret."
       };
     }
   }
-  const result = validateGarasjeDialogSvar(body.feltId, body.tekst);
+  const result = validateByggetiltakDialogSvar(body.feltId, body.tekst, body.kontekst?.prosjekt?.tiltakstype);
   if (!result.valid) return { type: "ugyldig", tekst: result.retryMessage };
   const value = result.value === null ? "vet ikke" : typeof result.value === "boolean"
     ? result.value ? "ja" : "nei" : String(result.value).replace(".", ",");
@@ -2394,6 +2466,40 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
         throw error;
       }
       json(response, 200, await handleGarasjeDialog(validateGarasjeDialogRequest(body)));
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/agent/garasje/raad") {
+      let body: unknown;
+      try {
+        body = await readRequestBody(request);
+      } catch (error) {
+        if (error instanceof SyntaxError) throw new Verktoyfeil("Rådsgrunnlaget må være gyldig JSON.", 400);
+        throw error;
+      }
+      if (!isRecord(body) || Object.keys(body).some(key => !["kontekst", "sporingsId"].includes(key))) {
+        throw new Verktoyfeil("Oppgi kontekst med en regelbasert vurdering.", 400);
+      }
+      const checked = validateGarasjeDialogRequest({ ...body, feltId: "bya", tekst: "Veiledning" }, false);
+      const assessment = checked.kontekst?.resultater?.["garasje-vurdering"];
+      if (!isRecord(assessment) || !isRecord(assessment.vurdering)) {
+        throw new Verktoyfeil("kontekst.resultater.garasje-vurdering.vurdering mangler.", 400);
+      }
+      const grounding = await retrieveGarasjeKunnskap(checked.kontekst,
+        "Tiltak garasje byggesak planbestemmelser utnyttelse høyde byggegrense avklaring søknad dispensasjon", invokeTool);
+      let advice: unknown;
+      try {
+        advice = await invokeTool<unknown>("get_garasje_raad", {
+          kontekst: { ...checked.kontekst, ...grounding }, sporingsId: checked.sporingsId
+        });
+      } catch (error) {
+        console.warn(`Garasjeråd: ${feilmelding(error)}`);
+        throw new Verktoyfeil("Rådstjenesten er utilgjengelig. Den regelbaserte vurderingen er uendret; kontakt kommunens byggesaksveileder ved spørsmål.", 502);
+      }
+      if (!isRecord(advice) || typeof advice.raad !== "string" || !advice.raad.trim()) {
+        throw new Verktoyfeil("Rådstjenesten svarte uten et gyldig råd.", 502);
+      }
+      json(response, 200, { ...advice, ...grounding });
       return;
     }
 

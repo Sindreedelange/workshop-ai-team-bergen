@@ -1386,7 +1386,7 @@ paths:
 
   /api/garasje/grunnlag:
     get:
-      summary: Hent eiendoms- og plangrunnlag for garasje
+      summary: Hent eiendomsgrunnlag og tidlige planvarsler for valgt tiltakstype
       security:
         - idporten: []
         - maskinporten: [ks:innbyggerdialog:les]
@@ -1400,6 +1400,11 @@ paths:
         Kartverkets eiendoms-API brukes når kommunen ikke dekkes eller
         eiendommen mangler. Feil i den lokale kilden gir kildefeil uten et
         stille kildebytte. Kilder viser filnavn og uttrekksår for lokale treff.
+        Når tiltakstype er oppgitt etter klientens bekreftelse, returneres
+        tiltaksvarsler uten at tiltakets mål eller øvrige svar kreves.
+        Varslene bruker samme planregler som sluttvurderingen. Et treff i Bergen
+        plan 6170063 gir gjerdevarsel om § 7 bokstav d med kildehenvisning.
+        Dette er avklaringsbehov, ikke byggetillatelse, avslag eller ferdig søknadsvurdering.
       parameters:
         - $ref: "#/components/parameters/GarasjeAdresse"
         - $ref: "#/components/parameters/GarasjeKommune"
@@ -1407,6 +1412,7 @@ paths:
         - $ref: "#/components/parameters/GarasjeBnr"
         - $ref: "#/components/parameters/GarasjeLat"
         - $ref: "#/components/parameters/GarasjeLon"
+        - $ref: "#/components/parameters/GarasjeTiltakstype"
       responses:
         "200":
           description: Datagrunnlag med kilder, dekning og uavklarte forhold
@@ -1425,7 +1431,7 @@ paths:
 
   /api/garasje/sjekk:
     get:
-      summary: Veiledende, regelbasert vurdering av garasjens søknadsplikt
+      summary: Veiledende, regelbasert vurdering av bekreftet byggetiltak
       security:
         - idporten: []
         - maskinporten: [ks:innbyggerdialog:les]
@@ -1446,10 +1452,14 @@ paths:
         - $ref: "#/components/parameters/GarasjeBnr"
         - $ref: "#/components/parameters/GarasjeLat"
         - $ref: "#/components/parameters/GarasjeLon"
+        - $ref: "#/components/parameters/GarasjeTiltakstype"
         - name: tiltak
           in: query
           required: true
-          description: JSON-kodet GarasjeTiltak, maksimalt 5000 tegn.
+          description: >
+            JSON-kodet Byggetiltak eller eldre GarasjeTiltak, maksimalt 5000 tegn.
+            Eldre objekter uten tiltakstype behandles som frittliggende bygning.
+            Nye objekter har bekreftet tiltakstype og bare denne typens opplysninger.
           schema:
             type: string
             maxLength: 5000
@@ -1542,6 +1552,19 @@ components:
         «vi vet ikke hvem du er» og «vi vet, og du har ikke lov».
         Hent ett med `scripts/token.ts --innbygger <personId>`.
   parameters:
+    GarasjeTiltakstype:
+      name: tiltakstype
+      in: query
+      required: false
+      description: >
+        Tiltakstypen innbyggeren har bekreftet. Sendes som én verdi.
+        Ukjente kodeverdier og gjentatte verdier gir 400. Kodeverdien ukjent
+        er gyldig og gir generelle avklaringsbehov.
+        På /api/garasje/sjekk må verdien samsvare med tiltakets type.
+        Eldre tiltak uten type regnes som frittliggende.
+      schema:
+        type: string
+        enum: [frittliggende, tilbygg, gjerde, fasade, ukjent]
     GarasjeKommune:
       name: kommunenummer
       in: query
@@ -1862,6 +1885,14 @@ components:
       type: object
       required: [adresse, punkt, arealformaal, reguleringsplaner, eiendomsgrenser, bygninger, bebyggelse, arealberegning, kilder, uavklarteForhold]
       properties:
+        tiltaksvarsler:
+          type: array
+          description: >
+            Valgfri tidlig planveiledning for oppgitt tiltakstype. Ingen mål kreves,
+            og uavklarte lokale vilkår gir aldri automatisk tillatelse.
+            Evaluatoren beregner samme regler på nytt og stoler ikke på innsendte varsler.
+          items:
+            $ref: "#/components/schemas/GarasjeSjekk"
         adresse:
           $ref: "#/components/schemas/GarasjeAdresse"
         punkt:
@@ -1941,10 +1972,150 @@ components:
         avstandNabogrense: { type: [number, "null"], minimum: 0, maximum: 100000 }
         avstandBygning: { type: [number, "null"], minimum: 0, maximum: 100000 }
         overVannAvlop: { type: [boolean, "null"] }
+    ByggetiltakMetadata:
+      type: object
+      required: [tiltakstype, tiltaksbeskrivelse, tiltakstypeBekreftet]
+      properties:
+        tiltakstype: { type: string, enum: [frittliggende, tilbygg, gjerde, fasade, ukjent] }
+        tiltaksbeskrivelse: { type: string, minLength: 1, maxLength: 2000 }
+        tiltakstypeBekreftet: { const: true }
+      description: >
+        Beskrivelsen brukes bare til et deterministisk forslag i klienten.
+        Innbyggeren må uttrykkelig bekrefte eller endre tiltakstypen.
+        Bekreftelse er ikke bevis på at et tiltak er lovlig.
+    Byggetiltak:
+      oneOf:
+        - $ref: "#/components/schemas/FrittliggendeByggetiltak"
+        - $ref: "#/components/schemas/TilbyggTiltak"
+        - $ref: "#/components/schemas/GjerdeTiltak"
+        - $ref: "#/components/schemas/FasadeTiltak"
+        - $ref: "#/components/schemas/UkjentByggetiltak"
+    FrittliggendeByggetiltak:
+      allOf:
+        - $ref: "#/components/schemas/ByggetiltakMetadata"
+        - type: object
+          required: [bra, bya, gesimshoyde, monehoyde, etasjer, frittliggende, beboelse, kjeller, avstandNabogrense, avstandBygning, overVannAvlop]
+          properties:
+            tiltakstype: { const: frittliggende }
+            bra: { type: number, exclusiveMinimum: 0, maximum: 100000 }
+            bya: { type: number, exclusiveMinimum: 0, maximum: 100000 }
+            gesimshoyde: { type: number, exclusiveMinimum: 0, maximum: 100000 }
+            monehoyde: { type: number, exclusiveMinimum: 0, maximum: 100000 }
+            etasjer: { type: integer, minimum: 1, maximum: 100000 }
+            frittliggende: { type: [boolean, "null"] }
+            beboelse: { type: [boolean, "null"] }
+            kjeller: { type: [boolean, "null"] }
+            bebygdEiendom: { type: [boolean, "null"] }
+            avstandNabogrense: { type: [number, "null"], minimum: 0, maximum: 100000 }
+            avstandBygning: { type: [number, "null"], minimum: 0, maximum: 100000 }
+            overVannAvlop: { type: [boolean, "null"] }
+      unevaluatedProperties: false
+      description: >
+        SAK10 § 4-1 første ledd bokstav a. Samme målekrav som GarasjeTiltak,
+        også gesimshøyde høyst mønehøyde. bebygdEiendom kan utelates når tiltakstype
+        er oppgitt, normaliseres da til null og overstyres alltid fra serverens oppslag.
+    TilbyggTiltak:
+      allOf:
+        - $ref: "#/components/schemas/ByggetiltakMetadata"
+        - type: object
+          required: [bra, bya, etasjer, understottet, endrerBruk, nyBoenhet, avstandNabogrense, overVannAvlop]
+          properties:
+            tiltakstype: { const: tilbygg }
+            bra: { type: [number, "null"], minimum: 0, maximum: 100000 }
+            bya: { type: [number, "null"], minimum: 0.01, maximum: 100000 }
+            etasjer: { type: [integer, "null"], minimum: 1, maximum: 100000 }
+            understottet: { type: [boolean, "null"] }
+            endrerBruk: { type: [boolean, "null"] }
+            nyBoenhet: { type: [boolean, "null"] }
+            bebygdEiendom: { type: [boolean, "null"] }
+            avstandNabogrense: { type: [number, "null"], minimum: 0, maximum: 100000 }
+            overVannAvlop: { type: [boolean, "null"] }
+      unevaluatedProperties: false
+      description: >
+        SAK10 § 4-1 første ledd bokstav b. BRA og BYA høyst 15 m², understøttet,
+        høyst to etasjer eller plan, ingen endret godkjent bruk eller ny boenhet.
+        Garasjens 1-metersregel gjelder ikke. Avstand, plan og grunnforhold må avklares.
+        Ukjente svar er null, aldri utledet som oppfylt. bebygdEiendom kan utelates,
+        normaliseres da til null og overstyres alltid fra serverens oppslag.
+    GjerdeTiltak:
+      allOf:
+        - $ref: "#/components/schemas/ByggetiltakMetadata"
+        - type: object
+          required: [hoyde, motVeg, friSikt, aapenLett]
+          properties:
+            tiltakstype: { const: gjerde }
+            hoyde: { type: [number, "null"], minimum: 0.01, maximum: 100000 }
+            motVeg: { type: [boolean, "null"] }
+            friSikt: { type: [boolean, "null"] }
+            aapenLett: { type: [boolean, "null"] }
+      unevaluatedProperties: false
+      description: >
+        Høyde i meter inkludert sokkel. SAK10 § 4-1 første ledd bokstav f nr. 3
+        gjelder åpen, lett innhegning mot vei inntil 1,5 m uten hindret frisikt.
+        Bergen plan 6170063 § 7 bokstav d vurderes bare ved dokumentert plantreff:
+        kommunal godkjenning av utførelse, høyde og farge og høyst 0,9 m inkludert sokkel.
+        Lokal godkjenning, anvendelse og eventuell dispensasjon må avklares, ikke automatisk avslag.
+        Ingen garasjemål eller bebygdEiendom skal sendes.
+    FasadeTiltak:
+      allOf:
+        - $ref: "#/components/schemas/ByggetiltakMetadata"
+        - type: object
+          required: [likUtforming, endrerUtseende, endrerBaering, endrerBrannkrav]
+          properties:
+            tiltakstype: { const: fasade }
+            likUtforming: { type: [boolean, "null"] }
+            endrerUtseende: { type: [boolean, "null"] }
+            endrerBaering: { type: [boolean, "null"] }
+            endrerBrannkrav: { type: [boolean, "null"] }
+      unevaluatedProperties: false
+      description: >
+        Omfatter fasade og tak. Skiller vedlikehold med lik utforming fra mulig
+        karakterendring etter pbl. § 20-5 første ledd bokstav f og inngrep i
+        bæring eller brannsikring etter § 20-1 første ledd bokstav b.
+        Kommunen og kvalifisert fagperson må avklare tvil, vern og lokale krav.
+    UkjentByggetiltak:
+      allOf:
+        - $ref: "#/components/schemas/ByggetiltakMetadata"
+        - type: object
+          properties:
+            tiltakstype: { const: ukjent }
+      unevaluatedProperties: false
+      description: Uklassifisert eller annet tiltak gir maa_avklares og henvisning til kommunen, aldri automatisk garasjevurdering.
     GarasjeProsessSvar:
       type: object
       additionalProperties: false
-      required: [adresse, gnr, bnr, lat, lon, bra, bya, gesimshoyde, monehoyde, etasjer, frittliggende, beboelse, kjeller, avstandNabogrense, avstandBygning, overVannAvlop, eiendomBekreftet, plasseringBekreftet]
+      required: [adresse, gnr, bnr, lat, lon, eiendomBekreftet, plasseringBekreftet]
+      allOf:
+        - if:
+            required: [tiltakstype]
+          then:
+            required: [tiltaksbeskrivelse, tiltakstypeBekreftet]
+          else:
+            required: [bra, bya, gesimshoyde, monehoyde, etasjer, frittliggende, beboelse, kjeller, avstandNabogrense, avstandBygning, overVannAvlop]
+        - if:
+            required: [tiltakstype]
+            properties:
+              tiltakstype: { const: frittliggende }
+          then:
+            required: [bra, bya, gesimshoyde, monehoyde, etasjer, frittliggende, beboelse, kjeller, avstandNabogrense, avstandBygning, overVannAvlop]
+        - if:
+            required: [tiltakstype]
+            properties:
+              tiltakstype: { const: tilbygg }
+          then:
+            required: [bra, bya, etasjer, understottet, endrerBruk, nyBoenhet, avstandNabogrense, overVannAvlop]
+        - if:
+            required: [tiltakstype]
+            properties:
+              tiltakstype: { const: gjerde }
+          then:
+            required: [hoyde, motVeg, friSikt, aapenLett]
+        - if:
+            required: [tiltakstype]
+            properties:
+              tiltakstype: { const: fasade }
+          then:
+            required: [likUtforming, endrerUtseende, endrerBaering, endrerBrannkrav]
       description: >
         Samlet svar på QUESTION-steget garasje-prosjekt, sendt som svar til /svar
         eller /handling. Tall kan sendes som tall eller desimaltekst med punktum
@@ -1959,8 +2130,17 @@ components:
         Eksisterende bebyggelse hentes fra eiendomsgrunnlaget, ikke fra brukeren.
         Eldre klienters bebygdEiendom godtas, men lagres ikke og brukes aldri som
         dokumentasjon på bebyggelse.
+        Uten tiltakstype gjelder alle eldre garasjefelter. Med tiltakstype kreves
+        beskrivelse, bekreftelse og alle spørsmålene for akkurat denne typen.
+        Felter fra andre grener avvises selv om de står i det samlede skjemaet her.
+        Tilbygg, gjerde og fasade kan svare null eller vet-ikke også på ukjente mål.
+        Obligatoriske felles prosessfelter er ikke alene et komplett svar:
+        den typespesifikke normaliseringen kjører før lagring og fullføring.
       properties:
         adresse: { type: string, minLength: 3, maxLength: 120 }
+        tiltakstype: { type: string, enum: [frittliggende, tilbygg, gjerde, fasade, ukjent] }
+        tiltaksbeskrivelse: { type: string, minLength: 1, maxLength: 2000 }
+        tiltakstypeBekreftet: { type: [boolean, string], enum: [true, ja, Bekreftet] }
         kommunenummer:
           type: string
           pattern: '^(?!0000)\d{4}$'
@@ -1969,11 +2149,11 @@ components:
         bnr: { type: [number, string], description: Heltall fra 1 til 1000000. }
         lat: { type: [number, string], description: Gyldig breddegrad nær valgt eiendom. }
         lon: { type: [number, string], description: Gyldig lengdegrad nær valgt eiendom. }
-        bra: { type: [number, string] }
-        bya: { type: [number, string] }
+        bra: { type: [number, string, "null"] }
+        bya: { type: [number, string, "null"] }
         gesimshoyde: { type: [number, string] }
         monehoyde: { type: [number, string] }
-        etasjer: { type: [integer, string] }
+        etasjer: { type: [integer, string, "null"] }
         frittliggende: { type: [boolean, string, "null"] }
         beboelse: { type: [boolean, string, "null"] }
         kjeller: { type: [boolean, string, "null"] }
@@ -1981,6 +2161,17 @@ components:
         avstandNabogrense: { type: [number, string, "null"] }
         avstandBygning: { type: [number, string, "null"] }
         overVannAvlop: { type: [boolean, string, "null"] }
+        understottet: { type: [boolean, string, "null"] }
+        endrerBruk: { type: [boolean, string, "null"] }
+        nyBoenhet: { type: [boolean, string, "null"] }
+        hoyde: { type: [number, string, "null"] }
+        motVeg: { type: [boolean, string, "null"] }
+        friSikt: { type: [boolean, string, "null"] }
+        aapenLett: { type: [boolean, string, "null"] }
+        likUtforming: { type: [boolean, string, "null"] }
+        endrerUtseende: { type: [boolean, string, "null"] }
+        endrerBaering: { type: [boolean, string, "null"] }
+        endrerBrannkrav: { type: [boolean, string, "null"] }
         eiendomBekreftet: { type: [boolean, string], enum: [true, ja, Bekreftet] }
         plasseringBekreftet: { type: [boolean, string], enum: [true, ja, Bekreftet] }
     GarasjeProsessResultat:
@@ -1993,6 +2184,16 @@ components:
         vurdering:
           $ref: "#/components/schemas/GarasjeVurdering"
         sporingsId: { type: string }
+    GarasjeSjekk:
+      type: object
+      required: [id, navn, status, forklaring, kilde]
+      properties:
+        id: { type: string }
+        navn: { type: string }
+        status: { type: string, enum: [oppfylt, brudd, uavklart] }
+        forklaring: { type: string }
+        kilde: { type: string, format: uri }
+        bestemmelse: { type: string, description: Nøyaktig lov- eller planhenvisning når en bestemt bestemmelse er kontrollert. }
     GarasjeVurdering:
       type: object
       required: [utfall, nasjonaltUnntak, forklaring, sjekker, uavklarteForhold]
@@ -2002,20 +2203,18 @@ components:
         soknadspliktig betyr at det kontrollerte nasjonale unntaket ikke er oppfylt,
         ikke at en søknad er innsendt eller et vedtak fattet.
       properties:
+        tiltakstype: { type: string, enum: [frittliggende, tilbygg, gjerde, fasade, ukjent] }
         utfall: { type: string, enum: [ikke_soknadspliktig, soknadspliktig, maa_avklares] }
         nasjonaltUnntak: { type: string, enum: [oppfylt, brudd, uavklart] }
         forklaring: { type: string }
         sjekker:
           type: array
           items:
-            type: object
-            required: [id, navn, status, forklaring, kilde]
-            properties:
-              id: { type: string }
-              navn: { type: string }
-              status: { type: string, enum: [oppfylt, brudd, uavklart] }
-              forklaring: { type: string }
-              kilde: { type: string, format: uri }
+            $ref: "#/components/schemas/GarasjeSjekk"
+        nesteSteg:
+          type: array
+          items: { type: string }
+          description: Konkrete avklaringer og dokumentasjon innbyggeren kan ta til kommunen eller en kvalifisert fagperson.
         uavklarteForhold:
           type: array
           items: { type: string }

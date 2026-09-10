@@ -1,4 +1,7 @@
 import type { Arealsonetype } from "./arealsoner.ts";
+import type { Hensynssonetype } from "./hensynssoner.ts";
+import type { Byggetiltakstype } from "./byggetiltak.ts";
+export type { Byggetiltak, ByggetiltakInput, Byggetiltakstype } from "./byggetiltak.ts";
 
 export type GarasjePunkt = { lat: number; lon: number };
 
@@ -135,6 +138,59 @@ export type GarasjeNabotomter = {
   kilde: GarasjeKilde;
 };
 
+/**
+ * En planflate fra KPA2018 som berører eiendommen.
+ *
+ * To kategorier med vilje i én liste: de tegnes i det samme kartet og hentes fra
+ * den samme kilden, men de er ikke det samme rettslig. En hensynssone legger et
+ * hensyn på området (plan- og bygningsloven § 11-8); et arealformål sier hva
+ * området er satt av til. Regelen leser bare hensynssonene - arealformålet
+ * avgjøres fortsatt av det live punktoppslaget mot kommunens kart, som er
+ * kontrollert mot tegnforklaringen.
+ *
+ * En union og ikke én flat form med nullbare felter: `hensynstype` finnes bare
+ * for en hensynssone og `arealstatus` bare for et arealformål, og med dem som
+ * valgfrie på begge måtte tegnekoden skrive en reservefarge for en hensynssone
+ * uten type. Den reserven kunne ikke inntreffe og ville uansett tegnet en
+ * faresone grønn. Nå kan den ikke skrives.
+ *
+ * Ringene er klippet til kartutsnittet plan-mock ble spurt om, så de har kanter
+ * som ikke er sonegrenser. De skal tegnes og brukes til å svare på om sonen
+ * berører eiendommen. Ingen avstand skal måles mot dem.
+ */
+type GarasjePlanflateFelles = {
+  /** Datasettet hos plan-mock: «stoy», «fare», «arealformaal», … */
+  datasett: string;
+  sonekode: number;
+  /** Klarspråksnavnet fra et kontrollert register, ikke kildens egen tekst. */
+  navn: string;
+  /** Hva flaten betyr for en som vil bygge. */
+  beskrivelse: string;
+  /**
+   * Kildens egen BESKRIVELSE, ordrett - «Eikås motorsport - gul sone». Det er
+   * den som sier hva hensynet konkret gjelder. Kilden har skrivefeil
+   * («Naturomåde»); de står som de står, fordi teksten er kommunens og ikke vår.
+   */
+  kildetekst: string | null;
+  /** «helt» når hele den kartlagte eiendommen ligger inne i flaten, ellers «delvis». */
+  berorer: "helt" | "delvis";
+  planId: string;
+  ringer: [number, number][][];
+};
+
+export type GarasjePlanflate =
+  | (GarasjePlanflateFelles & {
+      kategori: "hensynssone";
+      /** HENSYNSONENAVN, for eksempel «H220_1». */
+      sonenavn: string;
+      hensynstype: Hensynssonetype;
+    })
+  | (GarasjePlanflateFelles & {
+      kategori: "arealformaal";
+      /** AREALST. Sammen med sonekoden er det nøkkelen til soneregisteret. */
+      arealstatus: number;
+    });
+
 export type GarasjeGrunnlag = {
   adresse: GarasjeAdresse;
   punkt: GarasjePunkt;
@@ -144,10 +200,13 @@ export type GarasjeGrunnlag = {
   eiendomsgeojson?: GarasjeEiendomsGeoJson;
   nabotomter?: GarasjeNabotomter;
   bygninger: GarasjePolygon[];
+  /** Hensynssoner og arealformål fra KPA2018 som berører eiendommen. */
+  planflater: GarasjePlanflate[];
   bebyggelse: GarasjeBebyggelse;
   arealberegning: GarasjeArealberegning;
   kilder: GarasjeKilde[];
   uavklarteForhold: string[];
+  tiltaksvarsler?: GarasjeSjekk[];
 };
 
 export type GarasjeTiltak = {
@@ -171,12 +230,29 @@ export type GarasjeSjekk = {
   status: "oppfylt" | "brudd" | "uavklart";
   forklaring: string;
   kilde: string;
+  bestemmelse?: string;
 };
 
+/**
+ * Utfallene vurderingen kan gi. En as const-liste og ikke bare en union, fordi en
+ * union er borte ved kjøretid: hver kaller som skulle validere et utfall skrev
+ * verdiene av på nytt, og en fjerde verdi i unionen gjorde ingenting rødt.
+ *
+ * `GARASJE_UTFALL_FRITAR` er det ene utfallet som slipper innbyggeren fri fra å
+ * søke. Alvorsordenen bor her, ved kodeverket, av samme grunn som `SLIPPER_GJENNOM`
+ * i `vilkaar.ts` bor ved regelen: en kaller skal kunne sammenligne uten å
+ * klassifisere selv.
+ */
+export const GARASJE_UTFALL = ["ikke_soknadspliktig", "soknadspliktig", "maa_avklares"] as const;
+export type GarasjeUtfall = (typeof GARASJE_UTFALL)[number];
+export const GARASJE_UTFALL_FRITAR = "ikke_soknadspliktig" as const;
+
 export type GarasjeVurdering = {
-  utfall: "ikke_soknadspliktig" | "soknadspliktig" | "maa_avklares";
+  tiltakstype?: Byggetiltakstype;
+  utfall: GarasjeUtfall;
   nasjonaltUnntak: "oppfylt" | "brudd" | "uavklart";
   forklaring: string;
   sjekker: GarasjeSjekk[];
   uavklarteForhold: string[];
+  nesteSteg?: string[];
 };

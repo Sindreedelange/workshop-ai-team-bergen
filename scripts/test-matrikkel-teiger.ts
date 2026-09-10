@@ -8,7 +8,7 @@ import path from "node:path";
 import { setTimeout as wait } from "node:timers/promises";
 import { test } from "node:test";
 import { createTeigStore, parseTeigQuery, parseNaboteigQuery, TeigError } from "../apps/matrikkel-mock/src/teiger.ts";
-import { getTeigBounds } from "../apps/shared/matrikkelteig.ts";
+import { getGeometriBounds } from "../apps/shared/geometri.ts";
 import type { MatrikkelTeigFeature } from "../apps/shared/matrikkelteig.ts";
 
 function feature(id = 1, snr = 0, fnr = 0): MatrikkelTeigFeature {
@@ -267,7 +267,7 @@ await test("Matrikkelteiger fra lokalt Bergen-uttrekk", async (t) => {
         [first, [45569, 45588, 84381]],
         [second, [1657, 1958, 24351, 31812, 31889, 32010, 32012, 32694, 32695, 32696, 32697, 32711, 32712, 32714, 75564]]
       ] as const) {
-        const bounds = getTeigBounds(selected.features[0].geometry), d = 15 / 111320;
+        const bounds = getGeometriBounds(selected.features[0].geometry), d = 15 / 111320;
         const dx = d / Math.cos((bounds.sor + bounds.nord) / 2 * Math.PI / 180);
         const result = await store.getNaboteiger({ kommunenummer: "4601",
           vest: bounds.vest - dx, sor: bounds.sor - d, ost: bounds.ost + dx, nord: bounds.nord + d });

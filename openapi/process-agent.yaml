@@ -98,6 +98,62 @@ paths:
                               eksempel: { type: string }
                               beskrivelse: { type: string }
                         kroppEksempel: { type: string }
+  /agent/garasje/raad:
+    post:
+      summary: Forklar en oppgitt garasjevurdering med PDF-utdrag
+      description: >
+        Statsløs veiledning, ikke en ny eller autentisert regelvurdering. Endrer ingen
+        prosessøkt og gir ingen byggetillatelse. Henter dokumentlisten via tools-api,
+        avgrenser på kjent kommune og plan, og søker bare i relevante dokumenter.
+        Et søketreff bekrefter aldri at hele planen er kontrollert. Oppgi hele den
+        deterministiske vurderingen fra backend, inkludert alle uavklarte forhold.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [kontekst]
+              properties:
+                sporingsId: { type: string, pattern: "^[a-zA-Z0-9_-]{1,100}$" }
+                kontekst:
+                  type: object
+                  description: >
+                    Maksimalt 30000 tegn. Samme offentlige resultater, prosjekt og
+                    samtale som dialogen. resultater["garasje-vurdering"] må inneholde
+                    vurdering og bør inneholde det offentlige grunnlaget som grunnlag.
+                  properties:
+                    resultater: { type: object }
+                    prosjekt: { type: object }
+                    samtale: { type: array, maxItems: 6, items: { type: object } }
+      responses:
+        "200":
+          description: >
+            Svaret fra /ai/garasje-raad, med dokumentkunnskap og kunnskapsadvarsel.
+            Vis kilder, usikkerhet og eventuell advarsel ved reservesvar.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  antattUtfall: { type: string }
+                  raad: { type: string }
+                  maaAvklares: { type: array, items: { type: string } }
+                  fraRegler: { type: integer }
+                  begrunnelse: { type: string }
+                  modell: { type: string }
+                  tenkte: { type: boolean }
+                  syntetisk: { type: boolean }
+                  overstyrt: { type: string }
+                  advarsel: { type: string }
+                  dokumentkunnskap: { type: array, maxItems: 3, items: { type: object } }
+                  kunnskapsadvarsel: { type: string }
+        "400":
+          description: Ugyldig eller manglende vurderingsgrunnlag
+        "502":
+          description: Rådstjenesten er utilgjengelig eller svarte ugyldig
   /agent/garasje/dialog:
     post:
       summary: Forklar eller tolk ett felt i garasjeutkastet
@@ -264,8 +320,18 @@ components:
           examples: ["49 m²", "3 meter", "vet ikke", "Hva er gesimshøyde?"]
         feltId:
           type: string
-          enum: [bya, bra, gesimshoyde, monehoyde, etasjer, avstandNabogrense, avstandBygning, frittliggende, beboelse, kjeller, overVannAvlop]
-          description: Felt fra GARASJE_DIALOGFELTER i apps/shared/garasje-dialog.ts.
+          description: >
+            Kjent felt fra GARASJE_DIALOGFELTER eller BYGGETILTAK_KATALOG.
+            Når kontekst.prosjekt.tiltakstype er oppgitt, må feltet tilhøre tiltakstypen.
+            Etiketter og grenser leses fra katalogen, ikke fra kalleren.
+          examples: [bya, hoyde, friSikt, endrerBaering, understottet]
+        tiltakstype:
+          type: string
+          enum: [frittliggende, tilbygg, gjerde, fasade, ukjent]
+          description: >
+            Valgfri tiltakstype. Kan også sendes i kontekst.prosjekt.tiltakstype;
+            hvis begge er oppgitt, må de stemme. Uten noen av dem brukes
+            frittliggende med de opprinnelige garasjefeltene og grensene.
         sporingsId:
           type: string
           minLength: 1
@@ -276,14 +342,24 @@ components:
           type: object
           additionalProperties: false
           description: >
-            Bare offentlig kartgrunnlag og samtale. Maksimalt 30000 tegn som JSON.
+            Bare offentlig kartgrunnlag, prosjektmål og samtale. Maksimalt 30000 tegn som JSON.
             Ingen persondata, sesjonsidentifikatorer eller overstyring av tjeneste
             og felt. KI-tjenesten projiserer kartgrunnlaget før modellen kalles.
           properties:
+            prosjekt:
+              type: object
+              description: Oppgitte mål, valg og tiltakstype; bare kjente felt projiseres til modellen.
             resultater:
               type: object
               additionalProperties: true
-              description: Offentlige kartresultater fra garasjesjekken, ikke rå person- eller eierdata.
+              description: >
+                Offentlige kartresultater fra garasjesjekken, ikke rå person- eller eierdata.
+                Projeksjonen beholder høyst åtte planflater med kategori, sonekode,
+                hensynstype, sonenavn, navn, planId, berorer og punktIFlate, uten ringer.
+                planflatekilde har kildestatus, mens planflatedekning viser antall,
+                viste og utelatte flater og eventuelle advarsler. Punktkontrollen er
+                beregnet med felles geometri før projeksjonen; ukjent kilde eller
+                ugyldig geometri gir ukjent punktforhold, ikke fravær av soner.
             samtale:
               type: array
               maxItems: 6
@@ -312,10 +388,11 @@ components:
         svar:
           type: [number, boolean, "null"]
           description: >
-            Bare ved type svar. Areal og høyder må være positive, etasjer et heltall
+            Bare ved type svar. Garasjeareal og høyder må være positive, etasjer et heltall
             fra 1. Avstander kan være 0. Utkastets grenser er 10000 for areal og
             avstander, 100 for høyder og etasjer. Ukjent avstand og ukjente valg
             blir null, aldri et antatt nei. Ingen vurdering av søknadsplikt.
+            Andre tiltak følger BYGGETILTAK_KATALOG sine grenser og tillater ukjent.
         modell:
           type: string
           description: Modellnavnet som forklaringstjenesten oppgir, også ved reservesvar.
@@ -323,6 +400,17 @@ components:
           type: string
         grunnlag:
           description: Kilder og avgrensninger fra forklaringstjenesten.
+        dokumentkunnskap:
+          type: array
+          maxItems: 3
+          description: >
+            PDF-utdrag på inntil 1800 tegn med documentId, title, page, canonicalUrl,
+            sourceSha256, authority, knowledgeStatus, qualityWarnings, checkRecommended,
+            scopeVerified og truncated. Ukjent proveniens gir kontrollvarsel, ikke tillatelse.
+          items: { type: object }
+        kunnskapsadvarsel:
+          type: string
+          description: Synlig begrensning ved dokumentgrunnlaget, også når søket feiler eller gir null treff.
     HealthResponse:
       type: object
       required: [status, tjeneste, tidspunkt]

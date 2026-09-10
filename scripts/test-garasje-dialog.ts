@@ -9,8 +9,9 @@ import { setTimeout as wait } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import {
   GARASJE_DIALOGFELTER, isGarasjeDialogfeltId, normalizeQuestionFieldAnswer,
-  validateGarasjeDialogHoyder, validateGarasjeDialogSvar
+  validateGarasjeDialogHoyder, validateGarasjeDialogSvar, getByggetiltakDialogfelt, validateByggetiltakDialogSvar, selectGarasjeProsessfelter
 } from "../apps/shared/garasje-dialog.ts";
+import { BYGGETILTAK_KATALOG } from "../apps/shared/byggetiltak.ts";
 import type { GarasjeDialogfeltId } from "../apps/shared/garasje-dialog.ts";
 import { readRequestBody, svarhjelpere } from "../apps/shared/http.ts";
 
@@ -29,6 +30,7 @@ const tools = createServer(async (request, response) => {
     const call = await readRequestBody(request) as typeof calls[number];
     calls.push(call);
     if (call.name === "list_processes") return json(response, 200, { ok: true, result: { prosesser: [] } });
+    if (call.name === "pdf_list_documents") return json(response, 200, { ok: true, result: { dokumenter: [] } });
     assert.equal(call.name, "answer_citizen_question", "Dialogen må aldri bruke prosessverktøy.");
     return json(response, toolStatus, toolStatus === 200
       ? { ok: true, result: toolResult } : { ok: false, feil: "Verktøyet er utilgjengelig i testen." });
@@ -100,6 +102,45 @@ check("Høyder sammenlignes uten å beregne et regelutfall", () => {
   assert.equal(validateGarasjeDialogHoyder({ gesimshoyde: 3, monehoyde: 3 }), null);
   assert.equal(validateGarasjeDialogHoyder({ gesimshoyde: 3, monehoyde: 4 }), null);
   assert.equal(validateGarasjeDialogHoyder({ gesimshoyde: 3 }), null);
+});
+check("Nye tiltak bruker katalogens felt, etiketter og grenser", () => {
+  for (const entry of BYGGETILTAK_KATALOG.filter(entry => entry.id !== "frittliggende")) {
+    for (const field of entry.sporsmaal) {
+      const projected = getByggetiltakDialogfelt(field.id, entry.id)!;
+      assert.equal(projected.label, field.label);
+      assert.equal(projected.min, field.min);
+      assert.equal(projected.max, field.max);
+      assert.deepEqual(validateByggetiltakDialogSvar(field.id, "vet ikke", entry.id), { valid: true, value: null });
+      if (field.type === "number") {
+        for (const value of [field.min!, field.max!]) {
+          assert.deepEqual(validateByggetiltakDialogSvar(field.id, String(value), entry.id), { valid: true, value });
+        }
+        assert.equal(validateByggetiltakDialogSvar(field.id, field.max! + 1, entry.id).valid, false);
+      } else {
+        assert.deepEqual(validateByggetiltakDialogSvar(field.id, "ja", entry.id), { valid: true, value: true });
+      }
+    }
+  }
+  assert.equal(getByggetiltakDialogfelt("bya", "gjerde"), undefined);
+  assert.equal(getByggetiltakDialogfelt("constructor"), undefined);
+  assert.equal(getByggetiltakDialogfelt("hoyde", "ukjent"), undefined);
+  assert.deepEqual(validateByggetiltakDialogSvar("hoyde", "1,5 meter", "gjerde"), { valid: true, value: 1.5 });
+  assert.deepEqual(validateByggetiltakDialogSvar("bra", "0 m²", "tilbygg"), { valid: true, value: 0 });
+});
+check("Prosessdialogen velger gammel garasje eller valgt tiltak, ikke alle valgfrie felt", () => {
+  const fields = [
+    { id: "adresse", obligatorisk: true },
+    ...Array.from(new Set(BYGGETILTAK_KATALOG.flatMap(entry => entry.sporsmaal.map(field => field.id))))
+      .map(id => ({ id, obligatorisk: false })),
+    { id: "tiltakstype", obligatorisk: false }
+  ];
+  assert.deepEqual(selectGarasjeProsessfelter(fields, "garasje").map(field => field.id).sort(),
+    ["adresse", ...GARASJE_DIALOGFELTER.map(field => field.id)].sort());
+  for (const entry of BYGGETILTAK_KATALOG) {
+    assert.deepEqual(selectGarasjeProsessfelter(fields, "garasje", entry.id).map(field => field.id).sort(),
+      ["adresse", ...entry.sporsmaal.map(field => field.id)].sort());
+  }
+  assert.deepEqual(selectGarasjeProsessfelter(fields, "annen").map(field => field.id), ["adresse"]);
 });
 check("Eksisterende agentparser beholder valg og tekst utenfor garasje", () => {
   assert.deepEqual(normalizeQuestionFieldAnswer({ id: "navn", label: "Navn" }, "mitt navn"), { valid: true, value: "mitt navn" });
@@ -174,6 +215,20 @@ try {
       assert.match(result.tekst, new RegExp(field.type === "valg" ? "Svar ja" : "Skriv"));
     }
   }
+  for (const [tiltakstype, feltId, tekst, value] of [
+    ["gjerde", "hoyde", "1,5 meter", 1.5],
+    ["gjerde", "friSikt", "vet ikke", null],
+    ["fasade", "endrerBaering", "nei", false],
+    ["tilbygg", "bra", "0 m²", 0],
+    ["tilbygg", "understottet", "ja", true]
+  ] as const) {
+    const result = await say(feltId, tekst, { kontekst: { prosjekt: { tiltakstype } } });
+    assert.equal(result.type, "svar");
+    assert.equal(result.svar, value);
+    const topLevel = await say(feltId, tekst, { tiltakstype });
+    assert.equal(topLevel.type, "svar");
+    assert.equal(topLevel.svar, value);
+  }
   check("Alle felt gir bare deterministiske forslag uten verktøybruk", () => assert.deepEqual(calls, []));
 
   for (const text of [
@@ -208,7 +263,17 @@ try {
     assert.ok(!Object.hasOwn(call.arguments, "personId"));
     assert.ok(!Object.hasOwn(call.arguments, "oektsId"));
   }
-  check("Forklaringer går gjennom spørsmålstjenesten med riktig felt og fast kontekst", () => assert.equal(calls.length, 10));
+  check("Forklaringer henter dokumentlisten og bruker riktig felt og fast kontekst", () => {
+    assert.equal(calls.filter(call => call.name === "answer_citizen_question").length, 10);
+    assert.equal(calls.filter(call => call.name === "pdf_list_documents").length, 10);
+  });
+  const measureHelp = await say("hoyde", "Hvordan måler jeg høyden på gjerdet?", {
+    tiltakstype: "gjerde", kontekst: { prosjekt: { hoyde: 1.5 } }
+  });
+  assert.equal(measureHelp.type, "sporsmaal");
+  const measureContext = calls.at(-1)!.arguments.kontekst;
+  assert.equal(measureContext.aktivtFelt.label, getByggetiltakDialogfelt("hoyde", "gjerde")!.label);
+  assert.equal(measureContext.prosjekt.tiltakstype, "gjerde");
 
   toolResult = {
     tekst: "Hjelpetekst fra tjenesten.", modell: "fallback", advarsel: "Modellen svarte ikke.",
@@ -218,7 +283,8 @@ try {
   check("Modellens reservesvar beholder modellnavn og advarsel, aldri et feltforslag", () => {
     assert.deepEqual(fallback, {
       type: "sporsmaal", tekst: "Hjelpetekst fra tjenesten.", modell: "fallback",
-      advarsel: "Modellen svarte ikke.", grunnlag: { kilder: ["DIBK"] }
+      advarsel: "Modellen svarte ikke.", grunnlag: { kilder: ["DIBK"] },
+      dokumentkunnskap: [], kunnskapsadvarsel: "Kommunen er ukjent. Dokumentgrunnlaget må avklares med byggesaksveilederen. Plankilden er ikke tilgjengelig. En tom liste betyr ikke at eiendommen er uten hensynssoner eller arealbegrensninger."
     });
   });
   toolStatus = 502;
@@ -238,10 +304,15 @@ try {
   const valid = { feltId: "bya", tekst: "49" };
   for (const body of [
     null, [], "49", {}, { ...valid, tekst: 49 }, { ...valid, tekst: "" }, { ...valid, tekst: "  " },
+    { ...valid, tiltakstype: null }, { ...valid, tiltakstype: 1 }, { ...valid, tiltakstype: "ikke-en-type" },
+    { ...valid, tiltakstype: "tilbygg", kontekst: { prosjekt: { tiltakstype: "frittliggende" } } },
+    { ...valid, feltId: "hoyde" }, { ...valid, feltId: "hoyde", tiltakstype: "fasade" },
     { ...valid, tekst: "a".repeat(501) }, { ...valid, feltId: "__proto__" }, { ...valid, feltId: "constructor" },
     { ...valid, feltId: "adresse" }, { ...valid, feltId: "bebygdEiendom" }, { ...valid, personId: "person-001" },
     { ...valid, sessionId: session.sessionId }, { ...valid, sporingsId: {} }, { ...valid, sporingsId: "a/b" },
     { ...valid, kontekst: null }, { ...valid, kontekst: [] }, { ...valid, kontekst: { tjeneste: "Annen tjeneste" } },
+    { ...valid, kontekst: { prosjekt: { tiltakstype: "gjerde" } } },
+    { ...valid, kontekst: { prosjekt: { tiltakstype: "ukjent-type" } } },
     { ...valid, kontekst: { aktivtFelt: { id: "beboelse" } } }, { ...valid, kontekst: { resultater: [] } },
     { ...valid, kontekst: { resultater: { garasje: "a".repeat(30001) } } },
     { ...valid, kontekst: { samtale: "hei" } }, { ...valid, kontekst: { samtale: [null] } },
@@ -268,7 +339,7 @@ try {
   check("Eksisterende økt er urørt, og dokumentasjonen viser den nye ruten", () => {
     assert.deepEqual(sessionAfter, sessionBefore);
     assert.ok(overview.ruter.some((route: { sti: string; metode: string }) => route.sti === "/agent/garasje/dialog" && route.metode === "POST"));
-    assert.ok(calls.every(call => call.name === "answer_citizen_question"));
+    assert.ok(calls.every(call => ["answer_citizen_question", "pdf_list_documents"].includes(call.name)));
   });
   await assert.rejects(stat(stateDir), { code: "ENOENT" });
   console.log(`Alle ${checks} kontroller av den statsløse garasjedialogen bestod.`);

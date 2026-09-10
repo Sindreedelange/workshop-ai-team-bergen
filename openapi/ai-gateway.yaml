@@ -46,6 +46,27 @@ paths:
                       @aws-sdk/client-bedrock-runtime kommer ut her. GET /admin/providers.json
                       skiller de to tilstandene i egne felter (sdkAvailable, sdkError).
                     example: "Ollama kjører, men modellen qwen2.5:14b er ikke lastet ned"
+                  reasoning:
+                    type: object
+                    description: >
+                      Om oppgavene som ber om reasoning faktisk får tenke hos denne
+                      provideren. Bare målt støtte teller, så `stotter: false` betyr
+                      at gatewayen ikke har en prøvd måte å be om tenking på her -
+                      oppgaven kjører da uten, og svaret sier det.
+                    properties:
+                      stotter: { type: boolean }
+                      grunn:
+                        type: string
+                        example: "Målt: `chat_template_kwargs.enable_thinking` styrer tenkingen, og tenkedelen kommer tilbake i `reasoning_content`."
+                      modell:
+                        type: string
+                        description: Kun til stede når stotter er true.
+                        example: NVIDIA-Nemotron-3-Super-120B-A12B-FP8
+                      advarsel:
+                        type: string
+                        description: >
+                          Satt bare når den ønskede reasoning-modellen manglet
+                          tenkemodus, eller var ukjent, og ble byttet ut.
                   tidspunkt: { type: string, format: date-time }
   /openapi-ruter.json:
     get:
@@ -351,6 +372,86 @@ paths:
                   syntetisk: { type: boolean }
         "400":
           description: kriterium eller tekst mangler
+  /ai/garasje-raad:
+    post:
+      summary: Råd på slutten av garasjesjekken, med reasoning
+      description: |
+        Modellen leser hele grunnlaget, måler det mot plangrunnlaget og gir et råd
+        med et antatt utfall. Dette er det ene kallet i sandkassen som ber om
+        reasoning; oppgaven er tung nok til å tjene på det, mens `oppsummering` og
+        `tolk-svar` ble like gode eller dårligere av tenkingen. Spores som
+        `task: garasje-raad`, og tenkingen legges i `reasoningResponse` i sporet.
+
+        **Rådet er et tillegg til den deterministiske vurderingen, ikke en
+        erstatning.** `antattUtfall` kan aldri bli `ikke_soknadspliktig` når den
+        regelbaserte vurderingen sa noe annet - da erstattes også prosaen med
+        regelbasert reserveveiledning og
+        `overstyrt` forklarer hvorfor. Reglenes `uavklarteForhold` står alltid i
+        `maaAvklares`, uansett hva modellen svarte, uten å kutte antall eller tekst.
+        Mock-provider og modellfeil gir et eksplisitt merket reservesvar.
+        Gatewayen gjør ingen dokumentoppslag selv. Bruk /agent/garasje/raad for
+        dokumenthenting, eller send avgrenset dokumentkunnskap i kontekst. Et vektortreff
+        gjør aldri planbestemmelserKontrollert sann.
+        Planflate- og hensynssonemetadata bevares uten rå geometri. Kildestatus,
+        punktforhold og begrenset dekning følger modellgrunnlaget. Feilet plankilde
+        og utelatte planflater varsles også i kunnskapsadvarsel.
+
+        Grunnlaget projiseres gjennom det samme kunnskapsgrunnlaget som
+        `GET /api/garasje/veiledning` viser, så persondata og rå kartgeometri når
+        aldri modellen.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                kontekst:
+                  type: object
+                  description: >
+                    Prosesskonteksten. Vurderingen leses fra
+                    `resultater["garasje-vurdering"].vurdering`.
+                sporingsId: { type: string }
+      responses:
+        "200":
+          description: Råd returnert
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  antattUtfall: { type: string, enum: [ikke_soknadspliktig, soknadspliktig, maa_avklares] }
+                  raad: { type: string }
+                  maaAvklares:
+                    type: array
+                    items: { type: string }
+                  fraRegler:
+                    type: integer
+                    description: >
+                      Hvor mange av de første punktene i maaAvklares som kommer fra
+                      reglene. Uten tallet ser modellens omformulering av et
+                      regelpunkt ut som et duplikat.
+                  begrunnelse: { type: string }
+                  overstyrt:
+                    type: string
+                    description: Satt når modellens utfall eller tillatende prosa er erstattet.
+                  advarsel: { type: string }
+                  kunnskapsadvarsel: { type: string }
+                  dokumentkunnskap:
+                    type: array
+                    maxItems: 3
+                    description: >
+                      Utdrag på maksimalt 1800 tegn med documentId, title, page,
+                      canonicalUrl, sourceSha256, authority, knowledgeStatus,
+                      qualityWarnings, checkRecommended, scopeVerified og truncated.
+                    items: { type: object }
+                  tenkte:
+                    type: boolean
+                    description: >
+                      Om kallet faktisk tenkte. Satt av callModel, som er det ene
+                      stedet som vet både hva oppgaven ba om og hva provideren kan.
+                  modell: { type: string }
+                  syntetisk: { type: boolean }
   /ai/velg-verktoy:
     post:
       summary: Dynamisk verktøyoppdagelse – hvilke verktøy er relevante for et prosessteg?
@@ -488,6 +589,24 @@ components:
                   id: { type: string, example: "GLM-5.2-FP8" }
                   label: { type: string, example: "GLM-5.2-FP8" }
             currentModel: { type: string, example: "GLM-5.2-FP8" }
+            reasoningAdvarsel:
+              type: string
+              description: >
+                Satt bare når TELENOR_AI_FACTORY_REASONING_MODEL pekte på en modell
+                uten tenkemodus, eller på en ukjent modell, og ble byttet ut.
+            reasoningModel:
+              type: string
+              description: >
+                Modellen de oppgavene som ber om reasoning bruker, uavhengig av
+                currentModel. Ikke valgbar i nedtrekkslisten: hvilken modell som
+                rekker gjennom en tung oppgave innenfor timeoutMs er målt.
+              example: NVIDIA-Nemotron-3-Super-120B-A12B-FP8
+            timeoutMs:
+              type: integer
+              description: >
+                Taket for denne provideren. Endepunktet ligger bak en API Gateway
+                som kutter etter 30 sekunder, så AI_TIMEOUT_MS gjelder ikke her.
+              example: 30000
             baseUrl:
               type: string
               example: https://litellm.apps.s99ct03.aifactory.telenor.com

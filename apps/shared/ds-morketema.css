@@ -1,0 +1,42 @@
+/* Reviewed colour corrections from PR #6, above the unmodified vendored theme. */
+@layer side;
+
+@layer side {
+  [data-color-scheme="dark"] {
+    --ds-color-accent-base-default: #6f9dff;
+    --ds-color-accent-base-hover: #8ab4ff;
+    --ds-color-accent-base-active: #9cc0ff;
+    --ds-color-accent-base-contrast-subtle: #25282c;
+    --ds-color-accent-base-contrast-default: #000000;
+    --ds-color-warning-base-default: #e0a52a;
+    --ds-color-warning-base-hover: #ebb544;
+    --ds-color-warning-base-active: #f4c563;
+    --ds-color-warning-base-contrast-subtle: #2b2519;
+    --ds-color-warning-base-contrast-default: #000000;
+    --ds-color-support2-base-default: #d8d8d8;
+    --ds-color-support2-base-hover: #e6e6e6;
+    --ds-color-support2-base-active: #f2f2f2;
+    --ds-color-support2-base-contrast-subtle: #4c4c4c;
+    --ds-color-support2-base-contrast-default: #000000;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    [data-color-scheme="auto"] {
+      --ds-color-accent-base-default: #6f9dff;
+      --ds-color-accent-base-hover: #8ab4ff;
+      --ds-color-accent-base-active: #9cc0ff;
+      --ds-color-accent-base-contrast-subtle: #25282c;
+      --ds-color-accent-base-contrast-default: #000000;
+      --ds-color-warning-base-default: #e0a52a;
+      --ds-color-warning-base-hover: #ebb544;
+      --ds-color-warning-base-active: #f4c563;
+      --ds-color-warning-base-contrast-subtle: #2b2519;
+      --ds-color-warning-base-contrast-default: #000000;
+      --ds-color-support2-base-default: #d8d8d8;
+      --ds-color-support2-base-hover: #e6e6e6;
+      --ds-color-support2-base-active: #f2f2f2;
+      --ds-color-support2-base-contrast-subtle: #4c4c4c;
+      --ds-color-support2-base-contrast-default: #000000;
+    }
+  }
+}
