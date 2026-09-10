@@ -38,6 +38,20 @@ export async function findShadowedSeeds(): Promise<string[]> {
 }
 
 export function normalizeProsess(prosess: any) {
+  if (prosess?.avslutning !== undefined) {
+    if (prosess.avslutning !== "veiledning") {
+      throw new HttpError("Ukjent avslutning. Bruk veiledning eller utelat feltet.", 400);
+    }
+    if (!Array.isArray(prosess.steg) || prosess.steg.at(-1)?.type !== "DATA_FETCH"
+      || prosess.steg.some((steg: { type?: string }) => steg.type === "SUBMIT")) {
+      throw new HttpError("Veiledning må avsluttes med DATA_FETCH og kan ikke ha SUBMIT.", 400);
+    }
+  }
+  for (const steg of Array.isArray(prosess?.steg) ? prosess.steg : []) {
+    if (steg.visning !== undefined && (steg.type !== "QUESTION" || steg.visning !== "garasje")) {
+      throw new HttpError("Visningen garasje kan bare brukes på QUESTION.", 400);
+    }
+  }
   return {
     ...prosess,
     steg: Array.isArray(prosess?.steg) ? prosess.steg : [],

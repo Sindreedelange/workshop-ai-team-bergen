@@ -6,7 +6,36 @@ export {};
 
 renderTopNav("/");
 
-const aiBase = "http://localhost:8082";
+const aiBase = sandkasseKonfigurasjon.aiBaseUrl;
+
+async function renderInnbyggertjenester(): Promise<void> {
+  const container = krevEl("innbygger-tjenester");
+  try {
+    const response = await fetch(`${sandkasseKonfigurasjon.backendBaseUrl}/api/prosesser`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const prosesser: Prosess[] = await response.json();
+    for (const prosess of prosesser) {
+      const card = document.createElement("article");
+      card.className = "entrance";
+      const heading = document.createElement("h4");
+      heading.textContent = prosess.navn;
+      const description = document.createElement("p");
+      description.textContent = prosess.beskrivelse || "";
+      const links = document.createElement("p");
+      for (const [path, label] of [["/chat", "Chat"], ["/agent", "AI-agent"], ["/stegvis", "Stegvis"]]) {
+        if (links.childNodes.length) links.append(document.createTextNode(" · "));
+        const link = document.createElement("a");
+        link.href = `${path}?${new URLSearchParams({ prosess: prosess.id })}`;
+        link.textContent = label;
+        links.append(link);
+      }
+      card.append(heading, description, links);
+      container.append(card);
+    }
+  } catch (error) {
+    container.textContent = `Kunne ikke hente innbyggertjenestene: ${feilmelding(error)}.`;
+  }
+}
 
 /*
  * Tjenestelisten sto her, håndholdt, ved siden av en identisk liste i
@@ -27,7 +56,7 @@ function dot(klasse: string, tekst: string): DocumentFragment {
 }
 
 function renderTjenesterad(tjeneste: Tjeneste, tabell: HTMLElement): HTMLTableCellElement {
-  const base = `http://localhost:${tjeneste.port}`;
+  const base = tjenesteBaseUrl(tjeneste);
   const rad = document.createElement("tr");
 
   const navn = document.createElement("td");
@@ -39,7 +68,7 @@ function renderTjenesterad(tjeneste: Tjeneste, tabell: HTMLElement): HTMLTableCe
   navn.append(kode, document.createElement("br"), rolle);
 
   const port = document.createElement("td");
-  port.textContent = String(tjeneste.port);
+  port.textContent = new URL(base).port || new URL(base).protocol;
 
   const status = document.createElement("td");
   status.append(dot("dot", "sjekker…"));
@@ -70,7 +99,7 @@ function renderTjenesterad(tjeneste: Tjeneste, tabell: HTMLElement): HTMLTableCe
 
 async function checkTjeneste(tjeneste: Tjeneste, statusCelle: HTMLElement): Promise<void> {
   try {
-    const res = await fetch(`http://localhost:${tjeneste.port}/helse`, {
+    const res = await fetch(`${tjenesteBaseUrl(tjeneste)}/helse`, {
       signal: AbortSignal.timeout(4000)
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -103,6 +132,7 @@ async function renderTjenester(): Promise<void> {
 }
 
 renderTjenester();
+renderInnbyggertjenester();
 
 async function renderModellstatus(): Promise<void> {
   const tabell = krevEl("modellTabell");

@@ -230,6 +230,8 @@ components:
             en flyt. Den henter satser selv når kontekst.satser mangler, og kaller
             ai-gateway /ai/sporsmaal, som kjører sperrene. Den har ingen egen
             dataadgang og kan ikke nå samtykkesperret data.
+            Referansegrunnlaget tilpasses den aktive prosessen. Spørsmål lagrer
+            ikke stegsvar og flytter ikke prosessøkten.
         arguments:
           type: object
           additionalProperties: true

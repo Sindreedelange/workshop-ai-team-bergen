@@ -194,6 +194,12 @@ paths:
 
         `aktivtStegFullfort` sier om `/neste` kan aktivere neste steg. Klienter
         kan bruke feltet til å sperre navigasjonen uten å kopiere fullføringsreglene.
+
+        Prosesser med `avslutning: veiledning` returnerer dette feltet på økten.
+        Etter vellykket siste DATA_FETCH er status FULLFORT, og `sluttmelding`
+        er «Veiledningen er ferdig. Ingen søknad er sendt.» Resultatet beholdes.
+        Ingen søknad, oppgave eller SvarUt-forsendelse opprettes. Feil i handlingen
+        lar økten være AKTIV for nytt forsøk. Avsluttede økter kan leses, ikke endres.
       parameters:
         - name: oektsId
           in: path
@@ -1257,6 +1263,262 @@ paths:
         "200":
           description: Hendelser returnert
 
+  /api/garasje/adresser:
+    get:
+      summary: Finn adresser til garasjesjekken
+      security:
+        - idporten: []
+        - maskinporten: [ks:innbyggerdialog:les]
+      description: >
+        Søker i Kartverkets offentlige adresseregister, ikke i eierregisteret.
+        Alle kandidater returneres. Ingen personidentitet eller token sendes til
+        karttjenesten. Ingen søknad eller prosessøkt opprettes.
+      parameters:
+        - name: sok
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 3
+            maxLength: 120
+          example: Litle Milde 65
+        - $ref: "#/components/parameters/GarasjeKommune"
+      responses:
+        "200":
+          description: Adressetreff, tom liste når ingen adresse ble funnet
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GarasjeAdresse"
+        "400":
+          description: Ugyldig eller manglende søketekst
+        "401":
+          description: Innlogging mangler eller tokenet er ugyldig
+        "502":
+          $ref: "#/components/responses/OppstroemsFeil"
+
+  /api/garasje/veiledning:
+    get:
+      summary: Strukturert kunnskapsgrunnlag for Garasjesjekken
+      security: []
+      description: >
+        Offentlige fagbegreper og nasjonale vilkår fra de delte kodemodulene.
+        Ingen eiendom eller person er vurdert. Modellen kan forklare grunnlaget,
+        men skal ikke avgjøre søknadsplikten eller finne på utnyttelsesgrenser.
+      responses:
+        "200":
+          description: Fagbegreper, måleenheter, nasjonale vilkår og tydelige avgrensninger
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [begreper, nasjonaleKrav, planbestemmelserKontrollert, regelutfall, avgrensning]
+                properties:
+                  begreper:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, navn, forklaring, kilde]
+                      properties:
+                        id: { type: string }
+                        navn: { type: string }
+                        forklaring: { type: string }
+                        kilde: { type: string, format: uri }
+                  nasjonaleKrav:
+                    type: object
+                    properties:
+                      regelsett: { type: string }
+                      versjon: { type: string }
+                      kilde: { type: string, format: uri }
+                      virkeomraade: { type: string }
+                      tallkrav:
+                        type: object
+                        additionalProperties:
+                          type: object
+                          properties:
+                            navn: { type: string }
+                            operator: { type: string, enum: [maks, min, lik] }
+                            verdi: { type: number }
+                            enhet: { type: string }
+                      andreVilkaar: { type: array, items: { type: string } }
+                      uavklart: { type: string }
+                      modellrolle: { type: string }
+                  planbestemmelserKontrollert: { type: boolean, const: false }
+                  kildeTilPlanbestemmelser: { type: [string, "null"], description: Kun den valgte kommunens kilde, ellers null. }
+                  kommunenummer: { type: [string, "null"] }
+                  kommunaleOppsett:
+                    type: array
+                    description: Eksplisitt konfigurerte kommuner. Oppsettene brukes aldri som reserve for en annen kommune.
+                    items:
+                      type: object
+                      properties:
+                        kommunenummer: { type: string }
+                        navn: { type: string }
+                        planId: { type: string }
+                        versjon: { type: string }
+                        bestemmelserUrl: { type: string, format: uri }
+                  sonetyper:
+                    type: array
+                    description: Verifiserte soner, koblet til kommune, plan, versjon og kilde.
+                    items:
+                      type: object
+                      properties:
+                        sonetype: { type: string }
+                        navn: { type: string }
+                        KPAREALFORMAL: { type: integer }
+                        AREALST: { type: integer }
+                        kilde: { type: object }
+                        tillattUtnyttelse: { type: object, description: Bare til stede når en konkret bestemmelse er kontrollert. }
+                  soner: { type: array, items: { type: object } }
+                  arealFraKart:
+                    type: object
+                    properties:
+                      tomtearealM2: { type: [number, "null"] }
+                      kartlagtBebygdArealM2: { type: [number, "null"] }
+                      kartlagtAndelProsent: { type: [number, "null"] }
+                      juridiskUtnyttelsesgrad: { type: string, const: uavklart }
+                      tillattUtnyttelse: { type: string, const: uavklart }
+                      forklaring: { type: string }
+                  regelutfall: { type: string, const: ikke_vurdert }
+                  avgrensning: { type: string }
+
+  /api/garasje/grunnlag:
+    get:
+      summary: Hent eiendoms- og plangrunnlag for garasje
+      security:
+        - idporten: []
+        - maskinporten: [ks:innbyggerdialog:les]
+      description: >
+        Adressen og gnr./bnr. kontrolleres mot adresseregisteret. Plangrunnlaget
+        hentes for adressepunktet eller en uttrykkelig valgt plassering.
+        Punktet representerer ikke hele garasjens omriss. Manglende eller
+        mislykkede kartoppslag fremgår av kildestatusen og er ikke bevis på at
+        området er fritt for begrensninger.
+        Tomtegrenser hentes først fra matrikkelmockens lokale teiguttrekk.
+        Kartverkets eiendoms-API brukes når kommunen ikke dekkes eller
+        eiendommen mangler. Feil i den lokale kilden gir kildefeil uten et
+        stille kildebytte. Kilder viser filnavn og uttrekksår for lokale treff.
+      parameters:
+        - $ref: "#/components/parameters/GarasjeAdresse"
+        - $ref: "#/components/parameters/GarasjeKommune"
+        - $ref: "#/components/parameters/GarasjeGnr"
+        - $ref: "#/components/parameters/GarasjeBnr"
+        - $ref: "#/components/parameters/GarasjeLat"
+        - $ref: "#/components/parameters/GarasjeLon"
+      responses:
+        "200":
+          description: Datagrunnlag med kilder, dekning og uavklarte forhold
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GarasjeGrunnlag"
+        "400":
+          description: Manglende eller ugyldige parametere
+        "401":
+          description: Innlogging mangler eller tokenet er ugyldig
+        "404":
+          description: Ingen entydig adresse med oppgitt eiendomsidentitet
+        "502":
+          $ref: "#/components/responses/OppstroemsFeil"
+
+  /api/garasje/sjekk:
+    get:
+      summary: Veiledende, regelbasert vurdering av garasjens søknadsplikt
+      security:
+        - idporten: []
+        - maskinporten: [ks:innbyggerdialog:les]
+      description: >
+        Tilstandsfri sjekk, ingen søknad sendes. Garasjeopplysningene sendes som
+        JSON i tiltak. Eiendoms- og plangrunnlag hentes på nytt på serveren;
+        klienten kan ikke overstyre arealformål eller kildestatus. Nasjonale
+        unntaksvilkår vurderes separat fra uavklarte planforhold og andre krav.
+        Manglende kunnskap gir ikke et ubetinget unntak fra søknadsplikt.
+        Datatilgang og vurdering etterlater revisjonsspor.
+        bebygdEiendom i tiltak beholdes av hensyn til eldre klienter, men
+        overstyres alltid med hentet grunnlag.bebyggelse før vurderingen.
+        Kartlagt eksisterende bebyggelse er ikke dokumentasjon på lovlig bruk.
+      parameters:
+        - $ref: "#/components/parameters/GarasjeAdresse"
+        - $ref: "#/components/parameters/GarasjeKommune"
+        - $ref: "#/components/parameters/GarasjeGnr"
+        - $ref: "#/components/parameters/GarasjeBnr"
+        - $ref: "#/components/parameters/GarasjeLat"
+        - $ref: "#/components/parameters/GarasjeLon"
+        - name: tiltak
+          in: query
+          required: true
+          description: JSON-kodet GarasjeTiltak, maksimalt 5000 tegn.
+          schema:
+            type: string
+            maxLength: 5000
+      responses:
+        "200":
+          description: Vurdering med det faktisk brukte grunnlaget
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [grunnlag, vurdering, sporingsId]
+                properties:
+                  grunnlag:
+                    $ref: "#/components/schemas/GarasjeGrunnlag"
+                  vurdering:
+                    $ref: "#/components/schemas/GarasjeVurdering"
+                  sporingsId:
+                    type: string
+        "400":
+          description: Ugyldige garasjeopplysninger eller parametere
+        "401":
+          description: Innlogging mangler eller tokenet er ugyldig
+        "404":
+          description: Ingen entydig adresse med oppgitt eiendomsidentitet
+        "502":
+          $ref: "#/components/responses/OppstroemsFeil"
+
+  /api/garasje/prosess/sjekk:
+    get:
+      summary: Vurder bekreftede garasjeopplysninger fra en aktiv prosessøkt
+      security:
+        - idporten: []
+        - maskinporten: [ks:innbyggerdialog:les]
+      description: >
+        Intern katalogressurs for DATA_FETCH-steget garasje-vurdering i
+        garasjesjekk. Kalles via POST /api/prosessoekter/{oektsId}/handling,
+        aldri direkte fra klienten. Direkte HTTP-kall mangler prosesskontekst og
+        gir 400. Bare personId godtas i URL-en, ikke tiltak eller plangrunnlag.
+        Tiltaket utledes fra det lagrede svaret på garasje-prosjekt.
+        Eiendomslisten leses på nytt med samme hjemmelskontroll og revisjonsspor
+        som /api/matrikkel/mine-eiendommer. Den valgte adressen må være blant
+        søkerens eiendommer. Kommunenummer, adresse og gnr./bnr. kontrolleres deretter
+        mot offentlig adresseregister før kart- og plangrunnlag hentes på nytt.
+        Faste regler lager vurderingen. Ingen modell, søknad, oppgave eller
+        SvarUt-forsendelse brukes. Uavklarte kartkilder er synlige i resultatet
+        og betyr ikke at forholdet er oppfylt.
+      parameters:
+        - name: personId
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Veiledning med kildegrunnlag, også ved søknadsplikt eller uavklarte forhold
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GarasjeProsessResultat"
+        "400":
+          description: Manglende prosesskontekst, ubekreftet plassering eller ugyldige svar
+        "401":
+          description: Innlogging mangler eller tokenet er ugyldig
+        "403":
+          description: Annen persons økt eller eiendom som ikke er registrert på søkeren
+        "404":
+          description: Ingen entydig adresse med oppgitt gnr./bnr.
+        "502":
+          $ref: "#/components/responses/OppstroemsFeil"
+
 components:
   securitySchemes:
     maskinporten:
@@ -1280,6 +1542,47 @@ components:
         «vi vet ikke hvem du er» og «vi vet, og du har ikke lov».
         Hent ett med `scripts/token.ts --innbygger <personId>`.
   parameters:
+    GarasjeKommune:
+      name: kommunenummer
+      in: query
+      required: false
+      description: >
+        Kommunenummeret fra eiendommen. Ingen kommune brukes som standard.
+        Uten avgrensning må adresse og gnr./bnr. gi ett entydig treff.
+        Kommuner uten tilkoblede plankilder får uavklart plangrunnlag.
+      schema:
+        type: string
+        pattern: '^(?!0000)\d{4}$'
+    GarasjeAdresse:
+      name: adresse
+      in: query
+      required: true
+      schema: { type: string, minLength: 3, maxLength: 120 }
+      example: Litle Milde 65
+    GarasjeGnr:
+      name: gnr
+      in: query
+      required: true
+      schema: { type: integer, minimum: 1, maximum: 100000 }
+      example: 105
+    GarasjeBnr:
+      name: bnr
+      in: query
+      required: true
+      schema: { type: integer, minimum: 1, maximum: 1000000 }
+      example: 209
+    GarasjeLat:
+      name: lat
+      in: query
+      required: false
+      description: Breddegrad i EPSG:4258. Krever også lon og må være i nærheten av valgt adresse.
+      schema: { type: number, exclusiveMinimum: -90, exclusiveMaximum: 90 }
+    GarasjeLon:
+      name: lon
+      in: query
+      required: false
+      description: Lengdegrad i EPSG:4258. Krever også lat.
+      schema: { type: number, minimum: -180, maximum: 180 }
     PersonId:
       name: personId
       in: path
@@ -1327,6 +1630,395 @@ components:
             $ref: "#/components/schemas/Feil"
 
   schemas:
+    GarasjePunkt:
+      type: object
+      required: [lat, lon]
+      additionalProperties: false
+      description: Geografisk punkt i EPSG:4258, ikke hele byggets omriss.
+      properties:
+        lat: { type: number, exclusiveMinimum: -90, exclusiveMaximum: 90 }
+        lon: { type: number, minimum: -180, maximum: 180 }
+    GarasjeAdresse:
+      type: object
+      required: [adressetekst, kommunenummer, gardsnummer, bruksnummer, festenummer, undernummer, punkt]
+      properties:
+        adressetekst: { type: string }
+        kommunenavn: { type: string, description: Kommunenavn fra adresseregisteret, når tilgjengelig. }
+        kommunenummer:
+          type: string
+          pattern: '^(?!0000)\d{4}$'
+        gardsnummer: { type: integer }
+        bruksnummer: { type: integer }
+        festenummer: { type: integer }
+        undernummer: { type: integer }
+        punkt:
+          $ref: "#/components/schemas/GarasjePunkt"
+    GarasjeKilde:
+      type: object
+      required: [id, navn, url, hentet, status]
+      properties:
+        id: { type: string }
+        navn: { type: string }
+        url: { type: string, format: uri }
+        hentet: { type: string, format: date-time }
+        status: { type: string, enum: [ok, ingen_treff, feil, ikke_sjekket] }
+        merknad: { type: string }
+        fil: { type: string, description: Filnavn når grunnlaget er hentet fra et lokalt uttrekk gjennom matrikkelmocken. }
+        uttrekksaar: { type: integer, description: Årstallet uttrekket er merket med, ikke tidspunktet da eiendommen ble oppdatert. }
+        koordinatsystem: { type: string, enum: ["EPSG:4326", "EPSG:4258"] }
+    GarasjePolygon:
+      type: object
+      required: [id, ringer]
+      properties:
+        id: { type: string }
+        teigId: { type: integer }
+        matrikkelnummer: { type: string }
+        kildeObjektId: { type: integer, description: OBJECTID i lokalt uttrekk, aldri en Matrikkel-teig-ID. }
+        registrertArealM2: { type: number, description: Teigareal oppgitt i uttrekket, atskilt fra beregnet geometriareal. }
+        kvalitetsklasse: { type: string, enum: [Grønt, Gult, Rødt] }
+        oppdatert: { type: string, description: Oppdateringsdato slik den er oppgitt av Kartverket. }
+        teig:
+          type: object
+          description: Eiendomsidentitet og kvalitet fra kilden. Fravær av tvistopplysning betyr ikke at ingen tvist finnes.
+          required: [gnr, bnr, fnr]
+          properties:
+            gnr: { type: integer }
+            bnr: { type: integer }
+            fnr: { type: integer, description: Festenummer, ikke fødselsnummer. }
+            teigId: { type: integer }
+            kvalitet: { type: string }
+            tvist: { type: string }
+        ringer:
+          type: array
+          description: >
+            Lukkede geografiske ringer, inkludert eventuelle hull. Hvert punkt er
+            [lon, lat]. Eiendomskildens koordinatsystem står i kilder og
+            eiendomsgeojson. Lokal GeoJSON er EPSG:4326, API-oppslag er EPSG:4258.
+          items:
+            type: array
+            minItems: 4
+            items:
+              type: array
+              minItems: 2
+              maxItems: 2
+              items: { type: number }
+    GarasjeRing:
+      type: array
+      minItems: 4
+      description: Lukket geografisk ring av [lengdegrad, breddegrad]. Koordinatsystemet følger eiendomskilden.
+      items:
+        type: array
+        minItems: 2
+        maxItems: 2
+        items: { type: number }
+    GarasjeEiendomsGeoJson:
+      type: object
+      required: [type, features]
+      description: >
+        Validert og normalisert GeoJSON fra lokalt teiguttrekk eller
+        Kartverkets eiendoms-API. Kilden identifiseres i kilder.
+        Polygon og MultiPolygon beholder ringer og hull. Identiteten kontrolleres
+        mot valgt kommunenummer, gnr./bnr. og festenummer. Bare dokumenterte
+        eiendomsopplysninger beholdes, ingen eierdata.
+        Lokale OBJECTID-er blir kildeObjektId, ikke lokalid. Lokal kilde
+        mangler grensekvalitet og oppdateringsdato; disse blir ikke oppdiktet.
+      properties:
+        type: { type: string, enum: [FeatureCollection] }
+        koordinatsystem:
+          type: string
+          enum: ["EPSG:4326", "EPSG:4258"]
+          description: Lokal GeoJSON oppgir EPSG:4326. Ved eldre API-svar uten feltet er kilden EPSG:4258.
+        features:
+          type: array
+          items:
+            type: object
+            required: [type, geometry, properties]
+            properties:
+              type: { type: string, enum: [Feature] }
+              geometry:
+                oneOf:
+                  - type: object
+                    required: [type, coordinates]
+                    properties:
+                      type: { type: string, enum: [Polygon] }
+                      coordinates:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/GarasjeRing"
+                  - type: object
+                    required: [type, coordinates]
+                    properties:
+                      type: { type: string, enum: [MultiPolygon] }
+                      coordinates:
+                        type: array
+                        items:
+                          type: array
+                          items:
+                            $ref: "#/components/schemas/GarasjeRing"
+              properties:
+                type: object
+                required: [kommunenummer, gardsnummer, bruksnummer, festenummer, seksjonsnummer, objekttype, matrikkelnummertekst]
+                oneOf:
+                  - required: [lokalid]
+                  - required: [kildeObjektId, kildefil]
+                properties:
+                  kommunenummer:
+                    type: string
+                    pattern: '^(?!0000)\d{4}$'
+                  gardsnummer: { type: integer }
+                  bruksnummer: { type: integer }
+                  festenummer: { type: integer }
+                  seksjonsnummer: { type: integer }
+                  lokalid: { type: integer }
+                  kildeObjektId: { type: integer }
+                  kildefil: { type: string }
+                  registrertArealM2: { type: number }
+                  arealmerknad: { type: [string, "null"] }
+                  tinglyst: { type: string }
+                  antallMatrikkelenheter: { type: integer, minimum: 0, description: Null som tall betyr ukjent antall i uttrekket, ikke én matrikkelenhet. }
+                  objekttype: { type: string, enum: [Teig] }
+                  matrikkelnummertekst: { type: string }
+                  nøyaktighetsklasseteig: { type: string, enum: [Grønt, Gult, Rødt] }
+                  oppdateringsdato: { type: string }
+                  hovedområde: { type: boolean }
+                  teigmedflerematrikkelenheter: { type: boolean }
+                  uregistrertjordsameie: { type: boolean }
+    GarasjeBebyggelse:
+      type: object
+      required: [status, bebygd, bygninger, forklaring, kilde]
+      description: >
+        Eksisterende bebyggelse fra offentlig bygningskart og geometrisk treff
+        på valgt eiendomsteig. Ikke en bekreftet registerkobling til
+        matrikkelenheten. Registrert bygningsnummer og bruksstatus brukes som
+        kildegrunnlag; geometrien alene dokumenterer ikke bruk eller lovlighet.
+        Manglende eller ufullstendige opplysninger gir uavklart, ikke et manuelt ja.
+      properties:
+        status: { type: string, enum: [bekreftet, uavklart] }
+        bebygd: { type: [boolean, "null"] }
+        forklaring: { type: string }
+        kilde: { type: string, format: uri }
+        bygninger:
+          type: array
+          description: >
+            Kartlagte bygningsflater på tomten, ikke en fullstendig opptelling
+            av registrerte bygninger. Kartobjekter uten bygningsnummer, type
+            eller BRA kan være med.
+          items:
+            type: object
+            required: [id, kobling]
+            properties:
+              id: { type: string }
+              kobling: { type: string, enum: [geometri] }
+              objekttype: { type: string }
+              bygningsnummer: { type: integer }
+              bygningstype: { type: integer }
+              bygningstypeNavn: { type: string }
+              bygningsstatus: { type: string }
+              bygningsstatusNavn: { type: string }
+              bruksareal:
+                type: number
+                description: Registrert BRA fra kilden, ikke BYA eller beregnet utnyttelsesgrad.
+    GarasjeArealberegning:
+      type: object
+      required: [tomtearealM2, kartlagtBebygdArealM2, kartlagtAndelProsent, kilde, metode, forbehold]
+      description: >
+        Geometrisk kartberegning, ikke juridisk BYA, BRA eller tillatt
+        utnyttelsesgrad. Overlappende bygningsflater telles én gang og
+        avgrenses til tomten. Manglende grunnlag gir null, ikke null areal.
+        Ingen tillatte utnyttelsesgrenser utledes eller gjettes fra kartandelen.
+      properties:
+        tomtearealM2: { type: [number, "null"] }
+        kartlagtBebygdArealM2: { type: [number, "null"] }
+        kartlagtAndelProsent: { type: [number, "null"] }
+        kilde: { type: string, format: uri }
+        metode: { type: string }
+        forbehold:
+          type: array
+          items: { type: string }
+    GarasjeNabotomter:
+      type: object
+      required: [tomter, kilde]
+      description: >
+        Tomter i kartutsnittet rundt valgt eiendom, med 15 meter margin og høyst
+        500 meter langs hver side. Dette er kartkontekst, ikke en bekreftet
+        naboliste eller en vurdering av naboenes eiendommer. Alle teiger på
+        valgt kommunenummer/gnr/bnr/fnr utelates uansett seksjonsnummer.
+        Lokale indekstreff foretrekkes. Ved gyldig tomt utvalg eller udekket
+        kommune brukes Kartverkets dokumenterte /eiendom/v1/punkt/omrader,
+        med avgrenset radius og maksTreff=201. Over 200 treff gir eksplisitt
+        kildefeil uten delvis liste. Lokal kildefeil utløser ikke reserveoppslag.
+        Nabokilden holdes utenfor kilder og uavklarteForhold; feil vises gjennom
+        kilde.status og kilde.merknad, uten å endre vilkår, areal eller bebyggelse.
+        Eierdata, planvilkår og byggetillatelser for naboeiendommer hentes ikke.
+      properties:
+        tomter:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/GarasjePolygon"
+        kilde:
+          $ref: "#/components/schemas/GarasjeKilde"
+    GarasjeGrunnlag:
+      type: object
+      required: [adresse, punkt, arealformaal, reguleringsplaner, eiendomsgrenser, bygninger, bebyggelse, arealberegning, kilder, uavklarteForhold]
+      properties:
+        adresse:
+          $ref: "#/components/schemas/GarasjeAdresse"
+        punkt:
+          $ref: "#/components/schemas/GarasjePunkt"
+        arealformaal:
+          type: array
+          items:
+            type: object
+            required: [kode, beskrivelse, planId]
+            properties:
+              kode: { type: integer }
+              beskrivelse: { type: string }
+              planId: { type: string }
+              arealstatus: { type: integer }
+              sonenavn:
+                type: string
+              sonetype:
+                type: string
+                enum: [sentrumskjerne, byfortettingssone, ytre_fortettingssone, ovrig_byggesone, lnf, gronnstruktur, ukjent]
+                description: Klassifisert fra kontrollert kommune, plan, versjon og kodekombinasjon. Ukjent er ikke et byggeforbud eller en tillatelse.
+                description: Sonebetegnelse fra kartlagets metadata, ikke en kontroll av tillatt utnyttelse.
+        reguleringsplaner:
+          type: array
+          items:
+            type: object
+            required: [planId, navn, url]
+            properties:
+              planId: { type: string }
+              navn: { type: string }
+              url: { type: string, format: uri }
+        eiendomsgrenser:
+          type: array
+          items:
+            $ref: "#/components/schemas/GarasjePolygon"
+        eiendomsgeojson:
+          $ref: "#/components/schemas/GarasjeEiendomsGeoJson"
+        nabotomter:
+          $ref: "#/components/schemas/GarasjeNabotomter"
+        bygninger:
+          type: array
+          items:
+            $ref: "#/components/schemas/GarasjePolygon"
+        bebyggelse:
+          $ref: "#/components/schemas/GarasjeBebyggelse"
+        arealberegning:
+          $ref: "#/components/schemas/GarasjeArealberegning"
+        kilder:
+          type: array
+          description: >
+            Inkluderer behovet for KPA2018-bestemmelsene fra b65270000.pdf.
+            Denne kilden har status ikke_sjekket så lenge dokumentinnholdet
+            ikke er gjort tilgjengelig og kontrollert i løsningen.
+          items:
+            $ref: "#/components/schemas/GarasjeKilde"
+        uavklarteForhold:
+          type: array
+          items: { type: string }
+    GarasjeTiltak:
+      type: object
+      additionalProperties: false
+      required: [bra, bya, gesimshoyde, monehoyde, etasjer, frittliggende, beboelse, kjeller, bebygdEiendom, avstandNabogrense, avstandBygning, overVannAvlop]
+      description: >
+        Areal i m², høyder og avstander i meter. Gesimshøyde kan ikke overstige
+        mønehøyde. null betyr ukjent, aldri automatisk oppfylt.
+        bebygdEiendom er et eldre påkrevd inndatafelt. Klienten kan sende null;
+        begge vurderingsendepunktene overstyrer feltet fra hentet bebyggelse.
+      properties:
+        bra: { type: number, exclusiveMinimum: 0, maximum: 100000 }
+        bya: { type: number, exclusiveMinimum: 0, maximum: 100000 }
+        gesimshoyde: { type: number, exclusiveMinimum: 0, maximum: 100000 }
+        monehoyde: { type: number, exclusiveMinimum: 0, maximum: 100000 }
+        etasjer: { type: integer, minimum: 1, maximum: 100000 }
+        frittliggende: { type: [boolean, "null"] }
+        beboelse: { type: [boolean, "null"] }
+        kjeller: { type: [boolean, "null"] }
+        bebygdEiendom: { type: [boolean, "null"] }
+        avstandNabogrense: { type: [number, "null"], minimum: 0, maximum: 100000 }
+        avstandBygning: { type: [number, "null"], minimum: 0, maximum: 100000 }
+        overVannAvlop: { type: [boolean, "null"] }
+    GarasjeProsessSvar:
+      type: object
+      additionalProperties: false
+      required: [adresse, gnr, bnr, lat, lon, bra, bya, gesimshoyde, monehoyde, etasjer, frittliggende, beboelse, kjeller, avstandNabogrense, avstandBygning, overVannAvlop, eiendomBekreftet, plasseringBekreftet]
+      description: >
+        Samlet svar på QUESTION-steget garasje-prosjekt, sendt som svar til /svar
+        eller /handling. Tall kan sendes som tall eller desimaltekst med punktum
+        eller komma; lagres som tall. Positive arealer og høyder, gesimshøyde
+        høyst mønehøyde, helt antall etasjer, ikke-negative avstander.
+        Boolsk true/false/null og ja/nei/vet-ikke godtas og lagres som ja/nei/vet-ikke.
+        Ukjent avstand kan sendes som null eller vet-ikke og lagres som vet-ikke,
+        slik at et uttrykkelig ukjent svar ikke behandles som ubesvart.
+        Bekreftelsene må være ja, true eller Bekreftet og lagres som ja.
+        Alle feltene valideres på serveren før lagring på begge skriverutene.
+        Grunnlag, vurdering, planstatus og andre udokumenterte felter avvises.
+        Eksisterende bebyggelse hentes fra eiendomsgrunnlaget, ikke fra brukeren.
+        Eldre klienters bebygdEiendom godtas, men lagres ikke og brukes aldri som
+        dokumentasjon på bebyggelse.
+      properties:
+        adresse: { type: string, minLength: 3, maxLength: 120 }
+        kommunenummer:
+          type: string
+          pattern: '^(?!0000)\d{4}$'
+          description: Kan utledes fra en entydig eid eiendom når det er utelatt.
+        gnr: { type: [number, string], description: Heltall fra 1 til 100000. }
+        bnr: { type: [number, string], description: Heltall fra 1 til 1000000. }
+        lat: { type: [number, string], description: Gyldig breddegrad nær valgt eiendom. }
+        lon: { type: [number, string], description: Gyldig lengdegrad nær valgt eiendom. }
+        bra: { type: [number, string] }
+        bya: { type: [number, string] }
+        gesimshoyde: { type: [number, string] }
+        monehoyde: { type: [number, string] }
+        etasjer: { type: [integer, string] }
+        frittliggende: { type: [boolean, string, "null"] }
+        beboelse: { type: [boolean, string, "null"] }
+        kjeller: { type: [boolean, string, "null"] }
+        bebygdEiendom: { type: [boolean, string, "null"] }
+        avstandNabogrense: { type: [number, string, "null"] }
+        avstandBygning: { type: [number, string, "null"] }
+        overVannAvlop: { type: [boolean, string, "null"] }
+        eiendomBekreftet: { type: [boolean, string], enum: [true, ja, Bekreftet] }
+        plasseringBekreftet: { type: [boolean, string], enum: [true, ja, Bekreftet] }
+    GarasjeProsessResultat:
+      type: object
+      required: [melding, grunnlag, vurdering, sporingsId]
+      properties:
+        melding: { type: string }
+        grunnlag:
+          $ref: "#/components/schemas/GarasjeGrunnlag"
+        vurdering:
+          $ref: "#/components/schemas/GarasjeVurdering"
+        sporingsId: { type: string }
+    GarasjeVurdering:
+      type: object
+      required: [utfall, nasjonaltUnntak, forklaring, sjekker, uavklarteForhold]
+      description: >
+        Piloten kan ikke gi ikke_soknadspliktig når kommunale og øvrige vilkår
+        mangler. Den returnerer da maa_avklares selv om nasjonaltUnntak er oppfylt.
+        soknadspliktig betyr at det kontrollerte nasjonale unntaket ikke er oppfylt,
+        ikke at en søknad er innsendt eller et vedtak fattet.
+      properties:
+        utfall: { type: string, enum: [ikke_soknadspliktig, soknadspliktig, maa_avklares] }
+        nasjonaltUnntak: { type: string, enum: [oppfylt, brudd, uavklart] }
+        forklaring: { type: string }
+        sjekker:
+          type: array
+          items:
+            type: object
+            required: [id, navn, status, forklaring, kilde]
+            properties:
+              id: { type: string }
+              navn: { type: string }
+              status: { type: string, enum: [oppfylt, brudd, uavklart] }
+              forklaring: { type: string }
+              kilde: { type: string, format: uri }
+        uavklarteForhold:
+          type: array
+          items: { type: string }
     Helse:
       type: object
       properties:
@@ -1860,6 +2552,13 @@ components:
           type: string
         adresse:
           type: string
+        kommunenummer:
+          type: string
+          description: Eiendommens kommune, ikke nødvendigvis søkerens bostedskommune.
+        gnr:
+          type: integer
+        bnr:
+          type: integer
         bruksenhetstype:
           type: string
         gate:
@@ -1894,6 +2593,13 @@ components:
           type: string
         tekst:
           type: string
+        visning:
+          type: string
+          enum: [garasje]
+          description: >
+            Valgfri presentasjon, bare på QUESTION. Garasjevisningen samler
+            GarasjeProsessSvar i ett steg; felter er fortsatt den deklarative
+            kontrakten for klienter som viser ett felt om gangen.
     ProsessDefinisjonInput:
       type: object
       additionalProperties: true
@@ -1906,6 +2612,12 @@ components:
           type: string
         versjon:
           type: string
+        avslutning:
+          type: string
+          enum: [veiledning]
+          description: >
+            Valgfri fullføring uten søknad. Krever siste steg DATA_FETCH og
+            tillater ikke SUBMIT. Manglende felt beholder eksisterende oppførsel.
         redigering:
           $ref: "#/components/schemas/RedigeringMeta"
         steg:

@@ -712,6 +712,72 @@
         }
       ],
       "syntetisk": true
+    },
+    {
+      "id": "garasjesjekk",
+      "navn": "Garasjesjekken",
+      "beskrivelse": "Sjekk søknadsplikt for en planlagt garasje på egen eiendom. Nasjonale regler og tilgjengelige kommunale kilder, med Bergen som første eksempel. Veiledning, ikke et vedtak.",
+      "versjon": "0.1.0",
+      "avslutning": "veiledning",
+      "redigering": {
+        "status": "publisert",
+        "eier": "Plan og bygg"
+      },
+      "steg": [
+        {
+          "id": "intro",
+          "type": "INFO",
+          "tittel": "Må du søke om garasjen?",
+          "tekst": "Vi sjekker opplysningene om garasjen mot faste nasjonale regler og henter tilgjengelig kart- og plangrunnlag for eiendommens kommune. Du velger en av dine registrerte eiendommer og bekrefter garasjens plassering. Kommuner uten tilkoblede plankilder får uavklarte planforhold. Dette er veiledning, ikke byggetillatelse eller et vedtak. Ingen søknad sendes."
+        },
+        {
+          "id": "hent-eiendommer",
+          "type": "DATA_FETCH",
+          "tittel": "Hent dine eiendommer",
+          "api": {
+            "method": "GET",
+            "url": "/api/matrikkel/mine-eiendommer?personId={personId}"
+          }
+        },
+        {
+          "id": "garasje-prosjekt",
+          "type": "QUESTION",
+          "visning": "garasje",
+          "tittel": "Velg eiendom og beskriv garasjen",
+          "tekst": "Bekreft eiendommen og velg et skissepunkt for garasjen, ikke bare boligens adressepunkt. Oppgi mål og avstander selv. «Vet ikke» er et gyldig svar der forholdet er ukjent, men gir ikke grønt lys.",
+          "felter": [
+            { "id": "adresse", "label": "Full adresse", "type": "tekst", "obligatorisk": true },
+            { "id": "kommunenummer", "label": "Kommunenummer fra eiendomsoppslaget", "type": "tekst", "obligatorisk": false },
+            { "id": "gnr", "label": "Gårdsnummer", "type": "tekst", "obligatorisk": true },
+            { "id": "bnr", "label": "Bruksnummer", "type": "tekst", "obligatorisk": true },
+            { "id": "eiendomBekreftet", "label": "Jeg har valgt og bekreftet min eiendom", "type": "valg", "obligatorisk": true, "alternativer": [{ "verdi": "ja", "label": "Bekreftet" }] },
+            { "id": "lat", "label": "Garasjens skissepunkt: breddegrad", "type": "tekst", "obligatorisk": true },
+            { "id": "lon", "label": "Garasjens skissepunkt: lengdegrad", "type": "tekst", "obligatorisk": true },
+            { "id": "plasseringBekreftet", "label": "Jeg har valgt og bekreftet garasjens skissepunkt", "type": "valg", "obligatorisk": true, "alternativer": [{ "verdi": "ja", "label": "Bekreftet" }] },
+            { "id": "bra", "label": "Bruksareal (BRA) i m²", "type": "tekst", "obligatorisk": true },
+            { "id": "bya", "label": "Bebygd areal (BYA) i m²", "type": "tekst", "obligatorisk": true },
+            { "id": "gesimshoyde", "label": "Gesimshøyde i meter", "type": "tekst", "obligatorisk": true },
+            { "id": "monehoyde", "label": "Mønehøyde i meter", "type": "tekst", "obligatorisk": true },
+            { "id": "etasjer", "label": "Antall etasjer", "type": "tekst", "obligatorisk": true },
+            { "id": "frittliggende", "label": "Er garasjen frittliggende?", "type": "valg", "obligatorisk": true, "alternativer": [{ "verdi": "ja", "label": "Ja" }, { "verdi": "nei", "label": "Nei" }, { "verdi": "vet-ikke", "label": "Vet ikke" }] },
+            { "id": "beboelse", "label": "Skal garasjen brukes til beboelse?", "type": "valg", "obligatorisk": true, "alternativer": [{ "verdi": "ja", "label": "Ja" }, { "verdi": "nei", "label": "Nei" }, { "verdi": "vet-ikke", "label": "Vet ikke" }] },
+            { "id": "kjeller", "label": "Skal garasjen ha kjeller?", "type": "valg", "obligatorisk": true, "alternativer": [{ "verdi": "ja", "label": "Ja" }, { "verdi": "nei", "label": "Nei" }, { "verdi": "vet-ikke", "label": "Vet ikke" }] },
+            { "id": "avstandNabogrense", "label": "Avstand til nabogrensen i meter, eller vet ikke", "type": "tekst", "obligatorisk": true },
+            { "id": "avstandBygning", "label": "Avstand til annen bygning på eiendommen i meter, eller vet ikke", "type": "tekst", "obligatorisk": true },
+            { "id": "overVannAvlop", "label": "Plasseres garasjen over vann- eller avløpsledninger?", "type": "valg", "obligatorisk": true, "alternativer": [{ "verdi": "ja", "label": "Ja" }, { "verdi": "nei", "label": "Nei" }, { "verdi": "vet-ikke", "label": "Vet ikke" }] }
+          ]
+        },
+        {
+          "id": "garasje-vurdering",
+          "type": "DATA_FETCH",
+          "tittel": "Sjekk søknadsplikten",
+          "tekst": "Vi kontrollerer eierforholdet på nytt og vurderer svarene med faste regler. Resultatet viser hva som er kontrollert, hva som er uavklart og kildene du kan følge videre. Ingen søknad sendes.",
+          "api": {
+            "method": "GET",
+            "url": "/api/garasje/prosess/sjekk?personId={personId}"
+          }
+        }
+      ]
     }
   ],
   "maler": [

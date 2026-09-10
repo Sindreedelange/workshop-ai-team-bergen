@@ -93,10 +93,10 @@ Kildedata i `data/`:
 
 | Fil | Innhold |
 |---|---|
-| `kuratert.json` | **Kilden til de 51 håndskrevne terskelfixturene** (`person-001`–`051`, `household-001`–`018`). Bare forfattede felter: navn, fødselsdato, adresse, sivilstand, `barn`, `ektefelle`, kontaktinfo og et valgfritt `krr`-felt (`reservert`, `spraak`). Alt annet utledes |
+| `kuratert.json` | **Kilden til håndskrevne terskelfixturer og garasjecasenes testpersoner.** Bare forfattede felter: navn, fødselsdato, adresse, sivilstand, familie, kontaktinfo og valgfrie overstyringer. Alt annet utledes |
 | `tenor/*.json` | Rå uttrekk fra Skatteetatens Tenor testdatasøk, ett per aldersbånd. Provenansen som gjør uttrekket reproduserbart |
-| `personer.json` | **Generert.** Hele registeret, 394 personer: `navn`, `foedselsdato`, `personstatus`, `doedsdato`, `bostedsadresse`, `sivilstand`, `foreldrebarnrelasjon`, `foreldreansvar`, `skjermet` |
-| `husstander.json` | **Generert.** 200 husstander med `type`, `kommunenummer`, medlemmer og roller, og et `scenario`-felt |
+| `personer.json` | **Generert.** Hele personregisteret. Se [testpersonene](testpersoner.md) for antall og innhold |
+| `husstander.json` | **Generert.** Husstander med kommune, medlemmer, roller og scenario |
 | `folkeregister.seed.json` | **Generert.** Samme befolkning i Folkeregisterets form: `foedselsEllerDNummer`, `personnavn`, `personstatus`, `doedsfall`, `forelderbarnrelasjon`, `familierelasjon`, `foreldreansvar` |
 | `inntekter.json` | **Generert** for de importerte, **forfattet** for de kuraterte. Poster med `kilde` og `medregnes`, og `stadie` (`OPPGJOER`/`UTKAST`) |
 | `krr.json` | **Generert.** Kontaktregisteret: én rad per bosatt person på 15 år eller mer - KRRs reelle aldersgrense - nøklet på fnr. `reservert`, `spraak` og kontaktinfo utledes deterministisk fra fødselsnummeret; kuraterte gjenbruker forfattet kontaktinfo, og forfattet `krr` i `kuratert.json` vinner. `kanVarsles` er utledet. Tenor-personers e-post og telefon finnes **bare her** - `personer.json` røres ikke |
@@ -240,7 +240,7 @@ som navngir de foresatte som kan gjøre det i stedet.
 
 ## Døde, utflyttede og inaktive
 
-Registeret har 394 personer; 369 av dem er `BOSATT`. De 25 andre er der med vilje:
+Registeret omfatter bosatte og personer med andre statuser. De andre er der med vilje:
 
 - **6 døde.** En død forelder er fortsatt forelder - relasjonen står, og barnet har
   en mor. Men de har ingen husstand, ingen inntektsrad og kan ikke være avsender.
@@ -350,9 +350,9 @@ på plass, og `pnpm test` feiler hvis noen «rydder opp» i seeden.
 [`docs/testpersoner.md`](testpersoner.md) har dem i tabell. Bruk dem som kilde, ikke en
 liste her.
 
-- 394 personer i registeret, 369 av dem bosatte
-- 200 husstander, 281 inntektsrader, 298 rader i kontaktregisteret
-- 388 gater og 18 349 eiendommer i 97 kommuner, 176 med registrert eier. `matrikkel-mock` injiserer Bønesheien ved innlasting, så `/helse` sier 389 og 18 350
+- Personer, husstander, inntekter og kontaktregister: se [testpersonene](testpersoner.md).
+- Gater, eiendommer og eierskap: se `matrikkel-mock` på `/helse`. Garasjecasene
+  legger til to reelle adresseidentiteter med syntetiske eiere.
 - 12 ordninger og 237 tjenestetilbud
 - 22 legeerklæringer, én per søker
 - 9 politiattester, én per søker

@@ -12,6 +12,7 @@ import { cors, readRequestBody, svarhjelpere } from "../../shared/http.ts";
 import { feilkode, feilmelding } from "../../shared/errors.ts";
 import { buildEiendomKey, matchesAdresseFields, parseAdresse } from "../../shared/adresse.ts";
 import type { GeonorgeAdresse } from "../../shared/registerdata.ts";
+import { createTeigStore, parseTeigQuery, parseNaboteigQuery, TeigError } from "./teiger.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const openapiFile = path.resolve(__dirname, "../../../openapi/matrikkel-mock.yaml");
@@ -1114,6 +1115,7 @@ function handleSoap(operasjon: string | null, xml: string, matrikkel: Register):
 }
 
 const matrikkelPromise = readMatrikkelData();
+const teigStore = createTeigStore();
 
 const server = createServer(async (request: IncomingMessage, response: ServerResponse) => {
   const url = new URL(request.url!, `http://${request.headers.host}`);
@@ -1124,6 +1126,18 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
   }
 
   try {
+    if (request.method === "GET" && url.pathname === "/mock/matrikkel/naboteiger") {
+      const query = parseNaboteigQuery(url.searchParams);
+      jsonResponse(response, 200, await teigStore.getNaboteiger(query));
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/mock/matrikkel/teiger") {
+      const query = parseTeigQuery(url.searchParams);
+      jsonResponse(response, 200, await teigStore.getTeiger(query));
+      return;
+    }
+
     const register = await matrikkelPromise;
     const matrikkel = register;
 
@@ -1135,6 +1149,7 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
         antallGater: register.gater.length,
         antallEiendommer: register.eiendommer.length,
         eierforhold: register.eierforhold ?? null,
+        teigdatasett: teigStore.getStatus(),
         wsdl: `${wsPath}?wsdl`,
         tidspunkt: new Date().toISOString(),
         lastetTidspunkt: register.lastetTidspunkt
@@ -1344,6 +1359,10 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
 
     jsonResponse(response, 404, { feil: "Fant ikke endepunkt." });
   } catch (error) {
+    if (error instanceof TeigError) {
+      jsonResponse(response, error.status, { feil: feilmelding(error) });
+      return;
+    }
     jsonResponse(response, 500, { feil: "Intern feil i matrikkel-mock.", detalj: feilmelding(error), syntetisk: true });
   }
 });

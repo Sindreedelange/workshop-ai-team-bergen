@@ -15132,5 +15132,69 @@
     "kontakt": {},
     "kilde": "tenor",
     "syntetisk": true
+  },
+  {
+    "personId": "person-395",
+    "syntetiskFodselsnummer": "14838600256",
+    "navn": {
+      "fornavn": "Milda",
+      "mellomnavn": null,
+      "etternavn": "Garasjetest"
+    },
+    "foedselsdato": "1986-03-14",
+    "personstatus": "BOSATT",
+    "doedsdato": null,
+    "bostedsadresse": {
+      "adressenavn": "Litle Milde",
+      "husnummer": 65,
+      "postnummer": "5259",
+      "poststed": "HJELLESTAD",
+      "kommunenummer": "4601",
+      "kommune": "Bergen",
+      "adresseIdentifikatorFraMatrikkelen": "matr-geo-4601-33832-65"
+    },
+    "sivilstand": "UGIFT",
+    "rolle": "foresatt",
+    "husstandId": "household-201",
+    "skjermet": false,
+    "adressebeskyttelse": "UGRADERT",
+    "foreldrebarnrelasjon": [],
+    "foreldreansvar": null,
+    "kontakt": {
+      "epost": "milda.garasjetest@example.test"
+    },
+    "syntetisk": true
+  },
+  {
+    "personId": "person-396",
+    "syntetiskFodselsnummer": "22878900190",
+    "navn": {
+      "fornavn": "Kåre",
+      "mellomnavn": null,
+      "etternavn": "Garasjetest"
+    },
+    "foedselsdato": "1989-07-22",
+    "personstatus": "BOSATT",
+    "doedsdato": null,
+    "bostedsadresse": {
+      "adressenavn": "Kråkenestoppen",
+      "husnummer": 60,
+      "postnummer": "5153",
+      "poststed": "BØNES",
+      "kommunenummer": "4601",
+      "kommune": "Bergen",
+      "adresseIdentifikatorFraMatrikkelen": "matr-geo-4601-33957-60"
+    },
+    "sivilstand": "UGIFT",
+    "rolle": "foresatt",
+    "husstandId": "household-202",
+    "skjermet": false,
+    "adressebeskyttelse": "UGRADERT",
+    "foreldrebarnrelasjon": [],
+    "foreldreansvar": null,
+    "kontakt": {
+      "epost": "kaare.garasjetest@example.test"
+    },
+    "syntetisk": true
   }
 ]

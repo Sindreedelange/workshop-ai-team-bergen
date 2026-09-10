@@ -57,6 +57,7 @@ type SpoersmaalsFelt = {
 type ProsessSteg = {
   id: string;
   type: string;
+  visning?: "garasje";
   tittel?: string;
   tekst?: string;
   felter?: SpoersmaalsFelt[];
@@ -78,6 +79,7 @@ type Prosessoekt = {
   aktivtStegFullfort?: boolean;
   aktivtSamtykkeId?: string | null;
   status?: string;
+  avslutning?: "veiledning";
   avvistMelding?: string;
   svar?: Record<string, unknown>;
   personId?: string;
@@ -90,6 +92,7 @@ type Prosess = {
   navn: string;
   versjon?: string;
   beskrivelse?: string;
+  avslutning?: "veiledning";
   steg?: ProsessSteg[];
 };
 
@@ -110,6 +113,48 @@ type TokenKrav = {
 };
 
 /* eslint-disable no-unused-vars */
+
+type ClientKonfigurasjon = {
+  backendBaseUrl: string;
+  idportenBaseUrl: string;
+  aiBaseUrl: string;
+  agentBaseUrl: string;
+  toolsBaseUrl: string;
+  fiksBaseUrl: string;
+  matrikkelBaseUrl: string;
+  pasientjournalBaseUrl: string;
+  politiattestBaseUrl: string;
+};
+
+// A classic script loaded before this one supplies deployment-specific URLs.
+// Defaults retain the standalone process-builder and existing client behavior.
+var sandkasseKonfigurasjon: ClientKonfigurasjon = globalThis.sandkasseKonfigurasjon || {
+  backendBaseUrl: "http://localhost:8080",
+  idportenBaseUrl: "http://localhost:8086",
+  aiBaseUrl: "http://localhost:8082",
+  agentBaseUrl: "http://localhost:8084",
+  toolsBaseUrl: "http://localhost:8083",
+  fiksBaseUrl: "http://localhost:8081",
+  matrikkelBaseUrl: "http://localhost:8085",
+  pasientjournalBaseUrl: "http://localhost:8087",
+  politiattestBaseUrl: "http://localhost:8088"
+};
+
+function tjenesteBaseUrl(tjeneste: Tjeneste): string {
+  const bases: Record<string, string> = {
+    "sandbox-backend": sandkasseKonfigurasjon.backendBaseUrl,
+    "digdir-mock": sandkasseKonfigurasjon.idportenBaseUrl,
+    "ai-gateway": sandkasseKonfigurasjon.aiBaseUrl,
+    "process-agent": sandkasseKonfigurasjon.agentBaseUrl,
+    "tools-api": sandkasseKonfigurasjon.toolsBaseUrl,
+    "fiks-simulator": sandkasseKonfigurasjon.fiksBaseUrl,
+    "matrikkel-mock": sandkasseKonfigurasjon.matrikkelBaseUrl,
+    "pasientjournal-mock": sandkasseKonfigurasjon.pasientjournalBaseUrl,
+    "politiattest-mock": sandkasseKonfigurasjon.politiattestBaseUrl,
+    "demo-gui": location.origin
+  };
+  return bases[tjeneste.navn] || `http://localhost:${tjeneste.port}`;
+}
 
 // --- Små hjelpere sidescriptene trenger ------------------------------------
 
@@ -335,9 +380,10 @@ function warnAboutFallback(result: { advarsel?: unknown } | null | undefined): v
  * digdir-mock's /idporten/authorize is the picker.
  */
 
-const IDPORTEN_BASE = "http://localhost:8086";
+const IDPORTEN_BASE = sandkasseKonfigurasjon.idportenBaseUrl;
 const TOKEN_KEY = "sandkasse-idporten-token";
 const VERIFIER_KEY = "sandkasse-pkce-verifier";
+const IDPORTEN_BASE_KEY = "sandkasse-pkce-utsteder";
 
 /*
  * ET TOKEN PER AUDIENCE.
@@ -408,6 +454,7 @@ function logOut(): void {
     }
   }
   sessionStorage.removeItem(VERIFIER_KEY);
+  sessionStorage.removeItem(IDPORTEN_BASE_KEY);
 }
 
 /**
@@ -418,15 +465,21 @@ function logOut(): void {
  * PKCE uses crypto.subtle, which browsers only expose in a secure context. That
  * covers localhost, which is where the sandbox runs.
  */
-type LoginValg = { resource?: string };
+type LoginValg = { resource?: string; idportenBaseUrl?: string };
 
 async function requireLogin(valg: LoginValg = {}): Promise<boolean> {
   const audience = valg.resource || STANDARD_AUDIENCE;
+  const idportenBase = valg.idportenBaseUrl || IDPORTEN_BASE;
+  const claims = tokenClaims(audience);
+  if (claims?.iss && claims.iss !== `${idportenBase}/idporten`) {
+    sessionStorage.removeItem(tokenKey(audience));
+  }
   if (tokenValid(audience)) return true;
   sessionStorage.removeItem(tokenKey(audience));
 
   const verifier = base64url(crypto.getRandomValues(new Uint8Array(32)));
   sessionStorage.setItem(VERIFIER_KEY, verifier);
+  sessionStorage.setItem(IDPORTEN_BASE_KEY, idportenBase);
   const challenge = base64url(
     await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))
   );
@@ -444,7 +497,7 @@ async function requireLogin(valg: LoginValg = {}): Promise<boolean> {
     code_challenge: challenge,
     code_challenge_method: "S256"
   });
-  location.assign(`${IDPORTEN_BASE}/idporten/authorize?${parametere}`);
+  location.assign(`${idportenBase}/idporten/authorize?${parametere}`);
   return false;
 }
 
@@ -460,7 +513,8 @@ async function completeLogin(): Promise<string> {
   if (!code) throw new Error("ID-porten sendte ingen code back.");
   if (!verifier) throw new Error("Fant ingen PKCE-verifier. Start innloggingen på nytt.");
 
-  const svar = await fetch(`${IDPORTEN_BASE}/idporten/token`, {
+  const idportenBase = sessionStorage.getItem(IDPORTEN_BASE_KEY) || IDPORTEN_BASE;
+  const svar = await fetch(`${idportenBase}/idporten/token`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
@@ -479,6 +533,7 @@ async function completeLogin(): Promise<string> {
   // fasiten, og da kan ingen audience-forveksling gjemme seg her.
   sessionStorage.setItem(tokenKey(claimsIn(data.access_token)?.aud), data.access_token);
   sessionStorage.removeItem(VERIFIER_KEY);
+  sessionStorage.removeItem(IDPORTEN_BASE_KEY);
   return parametere.get("state") || "/";
 }
 

@@ -1,7 +1,7 @@
 {
   "beskrivelse": "Tinglyst eierforhold. Eierskap hører i grunnboken, ikke i matrikkelen - derfor egen fil. En matrikkelenhet som ikke står her har ingen registrert eier i sandkassen. Forenkling: raden er nøklet på adressen (matrikkelId), mens hjemmel i virkeligheten ligger på matrikkelenheten (gnr/bnr), og flere adresser deler samme gnr/bnr. Utledet av scripts/importer-tenor.ts.",
   "syntetisk": true,
-  "antall": 176,
+  "antall": 178,
   "eierforhold": [
     {
       "matrikkelId": "matr-geo-0301-11115-74",
@@ -1539,6 +1539,26 @@
       ]
     },
     {
+      "matrikkelId": "matr-geo-4601-33832-65",
+      "eiere": [
+        {
+          "eier": "person-395",
+          "eierform": "SELVEIER",
+          "andel": 1
+        }
+      ]
+    },
+    {
+      "matrikkelId": "matr-geo-4601-33957-60",
+      "eiere": [
+        {
+          "eier": "person-396",
+          "eierform": "SELVEIER",
+          "andel": 1
+        }
+      ]
+    },
+    {
       "matrikkelId": "matr-geo-4601-51318-32",
       "eiere": [
         {
@@ -2110,7 +2130,7 @@
     }
   ],
   "statistikk": {
-    "husstanderSomEier": 147,
+    "husstanderSomEier": 149,
     "husstanderSomLeier": 34,
     "ekstraEiendommer": 29,
     "flestEiendommerPerPerson": 3

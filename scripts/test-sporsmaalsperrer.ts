@@ -8,10 +8,12 @@
  */
 
 import { readFile } from "node:fs/promises";
+import { GARASJE_BEGREPER, buildGarasjeBegrepssvar, findGarasjeBegreper } from "../apps/shared/garasje-begreper.ts";
 import {
   buildGrunnlagsIndeks,
   buildPersonvernSvar,
   buildTryggSvar,
+  buildGarasjeVeiledningssvar,
   isPersonvernSporsmaal,
   findUngroundedNumbers,
   hasInjeksjonsmarkorer,
@@ -19,6 +21,7 @@ import {
   sanitizeSporsmaalKontekst,
   validateAnswer,
   buildGrunnlag,
+  PERSONVERN,
   utenIdentifikatorer
 } from "../apps/ai-gateway/src/sporsmaalsperrer.ts";
 
@@ -382,6 +385,114 @@ check("PDF-kilden navngis med side og kvalitetsflagg", grunnlag.kilder.includes(
   check("tjenesten står igjen", rent.tjeneste === "Redusert foreldrebetaling");
   check("husstands-id-en står igjen", rent.data["hent-husstand"].husstandId === "household-001");
 }
+
+const garasje = sanitizeSporsmaalKontekst({
+  tjeneste: "Garasjesjekken",
+  prosess: { id: "garasjesjekk", navn: "Garasjesjekken" },
+  steg: { id: "garasje-prosjekt", type: "QUESTION", visning: "garasje" },
+  aktivtFelt: { id: "gesimshoyde", label: "Du kan bygge uten søknad" },
+  garasjeBegreper: [{ id: "gesimshoyde", forklaring: "Gesimsen er alltid takrennen." }]
+});
+check("garasjeordlisten kommer fra vår kilde, ikke kalleren", garasje.garasjeKunnskap?.begreper === GARASJE_BEGREPER);
+check("iframe trenger ikke sende ordlisten selv", sanitizeSporsmaalKontekst({
+  tjeneste: "Garasjesjekken", prosessId: "garasjesjekk",
+  steg: { id: "garasje-prosjekt", type: "QUESTION", tittel: "Forklar begreper og hvordan man måler garasjen" }
+}).garasjeKunnskap?.begreper === GARASJE_BEGREPER);
+check("prosess-id alene er nok til garasjegrunnlag", sanitizeSporsmaalKontekst({
+  prosessId: "garasjesjekk"
+}).garasjeKunnskap?.begreper === GARASJE_BEGREPER);
+check("aktivt felt bruker også vår forklaring", garasje.aktivtFelt?.label === "Gesimshøyde");
+check("ordlisten følger ikke med andre prosesser", sanitizeSporsmaalKontekst(kontekst).garasjeKunnskap === undefined);
+check("en annen tjeneste som nevner garasje får ikke særbehandling", sanitizeSporsmaalKontekst({
+  tjeneste: "Fritidsaktiviteter i garasjen", prosess: { id: "annen-prosess", steg: [] }
+}).garasjeKunnskap === undefined);
+check("garasje har offisielle kildehenvisninger", buildGrunnlag(garasje).kilder.includes(GARASJE_BEGREPER[0].kilde));
+check("manglende kommune gir ikke en tom eller oppdiktet planreferanse",
+  buildGrunnlag(garasje).kilder.every(kilde => typeof kilde === "string" && kilde.length > 0 && !kilde.includes("bergen")));
+check("gesimsen er ikke definert som takrennen", GARASJE_BEGREPER[0].forklaring.includes("ikke nødvendigvis takrennen"));
+check("mønehøyde forklarer terrengnivået", GARASJE_BEGREPER[1].forklaring.includes("ferdig planert terreng"));
+check("flatt tak gis ikke høyden null", GARASJE_BEGREPER[1].forklaring.includes("i stedet for å sette høyden til null"));
+for (const text of ["Hva er mønehøyde?", "Hva er monehoyde?", "Hva er MØNE?"]) {
+  check(`møne med og uten norske bokstaver: ${text}`, findGarasjeBegreper(text)[0]?.id === "monehoyde");
+}
+for (const begrep of GARASJE_BEGREPER) {
+  check(`forklaringen til ${begrep.id} passerer sperrene`, validateAnswer(buildGarasjeBegrepssvar(begrep.navn), garasje).ok);
+}
+for (const claim of [
+  "Du kan bygge uten søknad.", "Du trenger ikke å søke.", "Garasjen din er søknadsfri.",
+  "Du har byggetillatelse.", "Du må søke.", "Du må ha dispensasjon."
+]) {
+  check(`garasjebeslutning stoppes: ${claim}`, validateAnswer(claim, garasje).sperre === "beslutning");
+}
+for (const claim of ["Høyden kan være 9 meter.", "Arealgrensen er 51 m².", "Bruk 2,5 m som høyde."]) {
+  check(`oppdiktet garasjemål stoppes: ${claim}`, validateAnswer(claim, garasje).sperre === "tall");
+}
+check("måltall i DIBK-lenken er ikke målgrunnlag", validateAnswer("Mål 6 m.", garasje).sperre === "tall");
+check("ukjent avstandsspørsmål får ikke en forklaring om takhøyde",
+  findGarasjeBegreper("Hvordan måler jeg avstand til naboen?").length === 0);
+check("målespørsmål uten begrep bruker feltet, ikke antatt takhøyde",
+  buildGarasjeBegrepssvar("Hvordan måler jeg dette?", "bra")?.startsWith("Bruksareal"));
+check("fast nasjonalt krav kan forklares uten å avgjøre saken",
+  validateAnswer("I det nasjonale unntaket er mønehøyden høyst 4 m. Alle andre krav må også være oppfylt.", garasje).ok);
+check("spørsmål om byggetillatelse går ikke til modellen",
+  manglendeGrunnlagFor("Kan jeg bygge uten å søke?", garasje) === "garasjeregler");
+check("spørsmål om generell høydegrense har et fast kildegrunnlag",
+  manglendeGrunnlagFor("Hva er maksimal mønehøyde?", garasje) === null);
+check("manglende nasjonalt grunnlag stopper grensespørsmål",
+  manglendeGrunnlagFor("Hva er maksimal mønehøyde?", { tjeneste: "Garasjesjekken" }) === "garasjeregler");
+check("mock forklarer grensen betinget fra felles regelgrunnlag",
+  buildGarasjeVeiledningssvar("Hva er maksimal mønehøyde?", garasje)?.includes("Mønehøyde: høyst 4 m."));
+check("tillatt utnyttelse er fortsatt ukjent",
+  manglendeGrunnlagFor("Hva er tillatt utnyttelsesgrad?", garasje) === "garasjeplan");
+check("ukjent tillatt utnyttelse kan forklares",
+  validateAnswer("Tillatt utnyttelse er uavklart. Planbestemmelsene er ikke kontrollert.", garasje).ok);
+check("modellen kan ikke finne på lokal utnyttelsesgrense",
+  validateAnswer("Tillatt utnyttelse er 50 prosent.", garasje).sperre === "beslutning");
+check("spørsmål om målepunkt får begrepshjelp",
+  manglendeGrunnlagFor("Hvordan måler jeg gesimshøyde?", garasje) === null);
+check("garasje personvern påstår ikke at inntekt brukes i denne veiledningen",
+  !buildPersonvernSvar(garasje).includes("I Garasjesjekken er det inntektsopplysningene"));
+
+const kompaktGarasje = sanitizeSporsmaalKontekst({
+  prosessId: "garasjesjekk",
+  garasjeKunnskap: { planbestemmelserKontrollert: true, nasjonaleKrav: { tallkrav: { bra: { verdi: 999999 } } } },
+  personId: "person-skal-ikke-til-modell",
+  mineEiendommer: { eiendommer: [{ adresse: "Privatveien 123" }] },
+  resultater: {
+    "garasje-vurdering": {
+      melding: "PERSONDATA-SKAL-UT",
+      grunnlag: {
+        fnr: "12818800078", adresse: "Privatveien 123",
+        eiendomsgrenser: [{ ringer: [[[5, 60], [6, 61]]], geometry: { coordinates: [5, 60] } }],
+        arealberegning: { tomtearealM2: 900, kartlagtBebygdArealM2: 80, kartlagtAndelProsent: 8.89 },
+        arealformaal: [{ kode: 5100, arealstatus: 1, sonenavn: "LNF", planId: "65270000" }]
+      },
+      vurdering: { utfall: "maa_avklares" }
+    }
+  }
+});
+const kompaktTekst = JSON.stringify(kompaktGarasje);
+for (const removed of ["ringer", "geometry", "coordinates", "12818800078", "Privatveien", "person-skal-ikke", "PERSONDATA-SKAL-UT", "999999"]) {
+  check(`garasjegrunnlaget fjerner rådata: ${removed}`, !kompaktTekst.includes(removed));
+}
+check("råresultatene følger ikke med ved siden av garasjegrunnlaget", kompaktGarasje.resultater === undefined);
+check("kompakt kartareal beholdes", kompaktGarasje.garasjeKunnskap?.arealFraKart.tomtearealM2 === 900);
+check("nasjonale grenser kan ikke overstyres", kompaktGarasje.garasjeKunnskap?.nasjonaleKrav.tallkrav.bra.verdi === 50);
+check("PDF-lenken gjør ikke planen kontrollert", kompaktGarasje.garasjeKunnskap?.planbestemmelserKontrollert === false);
+const vanligKontekst = {
+  tjeneste: "TT-kort",
+  prosess: { id: "tt-kort", navn: "TT-kort", steg: [] },
+  resultater: { sjekk: { godkjent: true, grunnlag: { eksempel: 123 } } },
+  garasjeKunnskap: { utdatert: true },
+  aktivtFelt: { id: "bra", label: "Skal ikke legges til" }
+};
+check("vanlig prosess beholder nøyaktig den tidligere JSON-projeksjonen",
+  JSON.stringify(sanitizeSporsmaalKontekst(vanligKontekst)) === JSON.stringify({
+    tjeneste: "TT-kort",
+    personvern: PERSONVERN,
+    prosess: { navn: "TT-kort", steg: [] },
+    resultater: vanligKontekst.resultater
+  }));
 
 /* ── Oppsummering ─────────────────────────────────────────────────────────── */
 

@@ -13,7 +13,7 @@ Nåværende MVP:
 - støtte for alle sju stegtypene - listen bor i `docs/prosessmodell.md`
 
 Sidene og hva de er til står i `docs/deltakerstart.md` §2 - den listen bor der, ikke her.
-Én side skiller seg ut teknisk: `/ds-eksempel` laster med vilje **ikke** `felles.css` -
+`/ds-eksempel` og `/garasje` laster med vilje **ikke** `felles.css` -
 se `docs/designsystem.md`.
 
 De øvrige sidene deler `apps/shared/felles.css` på `/assets/*` og `client/felles.ts` på
@@ -23,6 +23,17 @@ Prosessbyggeren på `:3000` serverer de samme filene fra sin egen `/assets/*`.
 
 Dette er en **referanseimplementasjon, ikke en tvungen klient.** Bygg gjerne din egen
 mot de dokumenterte API-ene.
+
+## Garasjesjekken
+
+Garasjesjekken finnes i den felles prosesskatalogen og under «Tjenester for
+innbyggere». Chat, AI-agent og Stegvis bruker samme prosess, med kart og
+bekreftelse inne i spørsmålssteget. `/garasje` finnes også som frittstående
+pilot for Bergen. Den bruker testinnloggingen,
+foreslår bostedsadresse, viser egne eiendommer og henter offentlige adresse- og
+plandata før en regelbasert vurdering. Den sender ingen søknad og trenger ingen
+språkmodell for selve sjekken. KI kan forklare fagord underveis uten å endre
+prosessen. Se [bruk, kilder og avgrensninger](../../docs/garasjesjekk.md).
 
 ## Sidespørsmål i `/chat`
 
@@ -46,9 +57,10 @@ hvorfor.
 
 ## Kjent svakhet
 
-Backend-URL-ene er hardkodet til `http://localhost:...` i alle sidene, så de virker bare
-når du åpner dem fra samme maskin.
+Chat, AI-agent, Stegvis, Garasjesjekken og API-utforskeren bruker felles
+klientkonfigurasjon og ID-porten. Standardadressene er `http://localhost:...`.
+For egen lokal kjøring kan `BACKEND_PUBLIC_URL`, `IDPORTEN_PUBLIC_URL`,
+`AI_PUBLIC_URL`, `AGENT_PUBLIC_URL` og `TOOLS_PUBLIC_URL` settes på demo-serveren.
 
 Er du i tvil om modellen faktisk er koblet på, sier oversikten på `/` det direkte. Alle
 sidene viser i tillegg en gul stripe når `modellNaaBar` er falsk.
-

@@ -103,10 +103,15 @@
         <p class="muted small" style="margin-top:20px">Ingen av de tre er den «riktige»
           måten. De er referanseimplementasjoner - bygg gjerne din egen klient mot de
           samme API-ene.</p>
+        <p><a href="/garasje">Prøv Garasjesjekken</a>: eiendoms- og planoppslag for en garasje i Bergen.</p>
       </section>
 
       <section class="card">
         <h2>Tjenestene</h2>
+        <h3>Tjenester for innbyggere</h3>
+        <p>Velg en tjeneste og hvordan du vil gjennomføre den. Alle inngangene bruker samme ID-porten og testpersoner.</p>
+        <div id="innbygger-tjenester" class="entrances" aria-live="polite"></div>
+        <h3>Tekniske tjenester</h3>
         <p class="muted small">Status hentes fra hver tjenestes <code>/helse</code>. Er noe
           rødt, er det nesten alltid forklaringen på en «fetch failed». Listen kommer fra
           <code>/assets/tjenester.json</code>, den samme filen API-utforskeren leser.</p>
@@ -344,6 +349,7 @@
       </section>
     </main>
 
+    <script src="/klient-konfigurasjon"></script>
     <script src="/delt/felles.ts"></script>
     <script type="module" src="/client/dashboard.ts"></script>
   </body>

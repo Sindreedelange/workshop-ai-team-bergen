@@ -5114,5 +5114,33 @@
     "kanVarsles": false,
     "spraak": "nb",
     "syntetisk": true
+  },
+  {
+    "fnr": "14838600256",
+    "epost": {
+      "adresse": "milda.garasjetest@example.test",
+      "sistOppdatert": "2025-03-16",
+      "sistVerifisert": "2025-03-16"
+    },
+    "tlf": null,
+    "status": "AKTIV",
+    "reservert": false,
+    "kanVarsles": true,
+    "spraak": "nb",
+    "syntetisk": true
+  },
+  {
+    "fnr": "22878900190",
+    "epost": {
+      "adresse": "kaare.garasjetest@example.test",
+      "sistOppdatert": "2025-12-26",
+      "sistVerifisert": "2025-12-26"
+    },
+    "tlf": null,
+    "status": "AKTIV",
+    "reservert": false,
+    "kanVarsles": true,
+    "spraak": "nb",
+    "syntetisk": true
   }
 ]

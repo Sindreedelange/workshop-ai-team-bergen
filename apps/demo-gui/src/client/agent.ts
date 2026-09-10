@@ -2,13 +2,13 @@
 // eget scope - to sider kan bruke samme navn på hver sin `backendBase` uten å
 // kollidere. felles.ts lastes som klassisk script foran denne, så funksjonene og
 // typene derfra er globale og trenger ingen import.
-export {};
+import { mountGarasjeProsess } from "./garasje-prosess.ts";
 
 renderTopNav("/agent");
 
-const agentBase  = "http://localhost:8084";
-const backendBase = "http://localhost:8080";
-const aiBase = "http://localhost:8082";
+const agentBase = sandkasseKonfigurasjon.agentBaseUrl;
+const backendBase = sandkasseKonfigurasjon.backendBaseUrl;
+const aiBase = sandkasseKonfigurasjon.aiBaseUrl;
 
 // Svaret fra process-agent. Feltene varierer med hvor i løpet sesjonen er, så
 // alt er valgfritt - det er formen tjenesten faktisk lover.
@@ -18,7 +18,7 @@ type AgentSvar = {
   replies?: string[];
   grunnlag?: Grunnlag;
   awaiting?: string | null;
-  selectedProcess?: { navn?: string };
+  selectedProcess?: { id?: string; navn?: string };
   oektsId?: string | null;
   feil?: string;
   detalj?: string;
@@ -32,10 +32,48 @@ const sessionInfoEl = krevEl("sessionInfo");
 initChat(chatEl);
 
 let sessionId: string | null = null;
+let clearGarasjeView = () => {};
+let garageViewKey = "";
+
+async function showGarasjeView(data: AgentSvar, force = false): Promise<void> {
+  if (!data.oektsId || data.selectedProcess?.id !== "garasjesjekk") {
+    clearGarasjeView();
+    garageViewKey = "";
+    return;
+  }
+  const response = await fetch(`${backendBase}/api/prosessoekter/${encodeURIComponent(data.oektsId)}`, { headers: withToken() });
+  if (!response.ok) throw new Error("Kunne ikke hente garasjesteget. Prøv igjen.");
+  const oekt: Prosessoekt = await response.json();
+  const key = `${oekt.oektsId}:${oekt.aktivtSteg?.id}:${oekt.status}`;
+  // A free question leaves the same iframe alive, preserving unsaved map/form input.
+  if (!force && key === garageViewKey) return;
+  clearGarasjeView();
+  garageViewKey = key;
+  const currentSession = sessionId;
+  clearGarasjeView = mountGarasjeProsess({
+    oekt, container: chatEl,
+    save: async (svar, stegId) => {
+      if (!currentSession || sessionId !== currentSession) throw new Error("Agent-sesjonen er byttet. Start på nytt.");
+      setSending(true);
+      try {
+        const result = await agentReq(`/agent/sessions/${currentSession}/messages`, {
+          method: "POST", body: JSON.stringify({ stegId, svar })
+        });
+        if (sessionId !== currentSession) throw new Error("Agent-sesjonen er byttet. Svaret gjelder den opprinnelige sesjonen.");
+        for (const reply of result.replies || []) addMsg("assistant", reply);
+        updateSessionInfo(result, await readTerminalStatus(result));
+        await showGarasjeView(result, true);
+      } finally {
+        setSending(false);
+      }
+    }
+  });
+}
 
 function setSending(sending: boolean): void {
   krevEl<HTMLButtonElement>("send").disabled = sending;
   krevEl<HTMLButtonElement>("start").disabled = sending;
+  krevEl<HTMLButtonElement>("reset").disabled = sending;
 }
 
 async function agentReq(
@@ -108,6 +146,8 @@ async function loadPeople(): Promise<void> {
 // ── start session ────────────────────────────────────────────────────────
 async function startSession(): Promise<void> {
   setSending(true);
+  clearGarasjeView();
+  garageViewKey = "";
   chatEl.innerHTML = "";
   sessionId = null;
   updateSessionInfo(null);
@@ -124,6 +164,15 @@ async function startSession(): Promise<void> {
     updateSessionInfo(created, "velg prosess");
     addMsg("system", `Sesjon startet for ${personEl.options[personEl.selectedIndex]?.text || personEl.value}`);
     addMsg("assistant", created.message ?? "");
+    const prosess = new URLSearchParams(location.search).get("prosess");
+    if (prosess && sessionId) {
+      const selected = await agentReq(`/agent/sessions/${sessionId}/messages`, {
+        method: "POST", body: JSON.stringify({ message: prosess })
+      });
+      for (const reply of selected.replies || []) addMsg("assistant", reply);
+      updateSessionInfo(selected);
+      await showGarasjeView(selected);
+    }
   } catch (error) {
     removeTyping();
     addMsg("error", `Kunne ikke starte sesjon: ${feilmelding(error)}`);
@@ -164,6 +213,7 @@ async function sendMessage(): Promise<void> {
     if (data.grunnlag) {
       addGrunnlagsfot(data.grunnlag);
     }
+    await showGarasjeView(data);
 
     if (status === "fullført") {
       addMsg("system", "Prosessen er fullført.");
@@ -187,6 +237,8 @@ async function sendMessage(): Promise<void> {
 krevEl("start").onclick = () => startSession();
 krevEl("send").onclick  = () => sendMessage();
 krevEl("reset").onclick = () => {
+  clearGarasjeView();
+  garageViewKey = "";
   sessionId = null;
   chatEl.innerHTML = "";
   updateSessionInfo(null);

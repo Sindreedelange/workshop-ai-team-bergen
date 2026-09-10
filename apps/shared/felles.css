@@ -397,3 +397,11 @@ textarea.dark {
     gap: 20px;
   }
 }
+/* Embedded pages keep the KS design system in a separate document. */
+.garage-process-frame {
+  display: block;
+  width: 100%;
+  min-height: 700px;
+  border: 1px solid var(--farge-kant-svak);
+  border-radius: 10px;
+}

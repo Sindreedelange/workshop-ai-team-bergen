@@ -96,10 +96,10 @@ async function loadTjenesteregister(): Promise<void> {
   if (!svar.ok) throw new Error(`tjenester.json svarte ${svar.status}`);
   TJENESTER = ((await svar.json()) as Tjeneste[])
     .filter((oppforing) => oppforing.spesifikasjon)
-    .map((oppforing) => ({ navn: oppforing.navn, base: `http://localhost:${oppforing.port}` }));
+    .map((oppforing) => ({ navn: oppforing.navn, base: tjenesteBaseUrl(oppforing) }));
 }
 
-const DIGDIR = "http://localhost:8086";
+const DIGDIR = sandkasseKonfigurasjon.idportenBaseUrl;
 
 const hentet = new Map<string, RuteOversikt>();
 let tjeneste: UtforskerTjeneste | null = null;

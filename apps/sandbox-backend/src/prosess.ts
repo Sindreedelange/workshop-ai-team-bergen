@@ -3,6 +3,7 @@ import { maskinportenHeader } from "../../digdir-mock/src/client.ts";
 import { aktorFor, type Caller } from "./autentisering.ts";
 import { aiBaseUrl, fiksBaseUrl, fiksDialogToken } from "./config.ts";
 import { HttpError } from "./errors.ts";
+import { normalizeGarasjeSvar } from "./garasje-prosess.ts";
 import { findRessurs, runRessurs, samtykkekildeFor } from "./ressurser.ts";
 import { hasGyldigSamtykke } from "./regler.ts";
 import { addRevisjon } from "./revisjon.ts";
@@ -97,7 +98,7 @@ export function lagreStegSvar(
   steg: ProsessSteg,
   svar: unknown
 ): unknown {
-  const normalisert = normaliserValgsvar(steg, svar);
+  const normalisert = normalizeStegSvar(prosess, steg, svar);
   const endret = !hasOwn(oekt.svar, steg.id) || !isDeepStrictEqual(oekt.svar[steg.id], normalisert);
   if (steg.type === "QUESTION" && endret) {
     delete oekt.resultaterRaa[steg.id];
@@ -115,6 +116,12 @@ export function lagreStegSvar(
   }
   oekt.svar[steg.id] = normalisert;
   return normalisert;
+}
+
+function normalizeStegSvar(prosess: ProsessDefinisjon, steg: ProsessSteg, svar: unknown): unknown {
+  const garasje = steg.type === "QUESTION" && (steg.visning === "garasje"
+    || (prosess.id === "garasjesjekk" && steg.id === "garasje-prosjekt"));
+  return normaliserValgsvar(steg, garasje ? normalizeGarasjeSvar(svar) : svar);
 }
 
 export function invalidateStegOgSenere(
@@ -437,6 +444,10 @@ export function buildProsessoektRespons(
   const aktivtSteg = prosess?.steg?.[oekt.stegIndex] || null;
   return {
     ...resten,
+    ...(prosess?.avslutning === "veiledning" ? {
+      avslutning: prosess.avslutning,
+      ...(oekt.status === "FULLFORT" ? { sluttmelding: "Veiledningen er ferdig. Ingen søknad er sendt." } : {})
+    } : {}),
     resultater,
     aktivtSteg,
     aktivtStegFullfort: aktivtSteg ? erStegFullfort(oekt, aktivtSteg, resultater) : false,
@@ -697,7 +708,7 @@ export const stegHandlers: { [T in Stegtype]: (k: StegContextFor<T>) => unknown 
 
   QUESTION: ({ oekt, prosess, steg, body }) => {
     const raatt = hasOwn(body, "svar") ? body.svar : oekt.svar[steg.id];
-    const svar = normaliserValgsvar(steg, raatt);
+    const svar = normalizeStegSvar(prosess, steg, raatt);
     if (!erSpoersmaalBesvart(steg, svar)) {
       throw new HttpError("Spørsmålssteget mangler et gyldig svar.", 400);
     }
@@ -765,13 +776,24 @@ export const stegHandlers: { [T in Stegtype]: (k: StegContextFor<T>) => unknown 
     throw new HttpError("Samtykkesteg krever handlingen opprett-samtykke eller samtykkesvar.", 400);
   },
 
-  DATA_FETCH: async ({ tilstand, oekt, steg, kaller }) => {
+  DATA_FETCH: async ({ tilstand, oekt, prosess, steg, kaller }) => {
     const kilder = krevKjentSamtykkekilde(
       finnSamtykkekildeForSteg(tilstand, oekt, steg, kaller),
       steg.id
     );
     const data = await getFraKatalog(tilstand, oekt, steg, kaller);
     lagreResultat(oekt, steg.id, data, kilder);
+    if (prosess.avslutning === "veiledning" && oekt.stegIndex === prosess.steg.length - 1) {
+      await addRevisjon({
+        sporingsId: oekt.sporingsId,
+        handling: "VEILEDNING_FULLFORT",
+        ressurs: "prosessoekt",
+        formaal: "Fullføre veiledning uten å sende søknad",
+        aktor: aktorFor(kaller, oekt.personId),
+        grunnlag: { prosessId: prosess.id, stegId: steg.id }
+      });
+      oekt.status = "FULLFORT";
+    }
     return data;
   },
 

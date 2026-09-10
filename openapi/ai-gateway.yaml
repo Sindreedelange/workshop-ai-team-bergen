@@ -269,6 +269,14 @@ paths:
         og `advarsel`, og `modell` får suffikset `(sperret)` slik at KI-sporet
         fortsatt viser hva modellen faktisk sa.
 
+        I Garasjesjekken brukes et kompakt kunnskapsgrunnlag med begreper, de samme
+        nasjonale tallkravene som regelmotoren og utvalgte kartopplysninger.
+        Rå kartgeometri og komplette eiendomsresultater følger ikke med. Modellen kan
+        forklare generelle krav betinget, men ikke avgjøre om brukerens garasje er
+        tillatt. Tillatt utnyttelse og planbestemmelser er uavklart. Mock-modus og
+        modellfeil gir forklaringer fra de samme kildene. Et spørsmål lagrer aldri
+        et stegsvar og flytter aldri økten.
+
 
         Merk at `tekst` ligger på toppnivå her, som i `/ai/tolk-svar` - ikke under
         `kontekst`.
@@ -506,6 +514,10 @@ components:
           properties:
             tjeneste:
               type: string
+            prosessId:
+              type: string
+              description: Garasjesjekken gjenkjennes også med prosess-id alene, uten at kalleren sender ordliste eller prosessdefinisjon.
+              example: garasjesjekk
             satser:
               type: object
               description: Svaret på `GET /api/regler/satser`. Uten den avvises spørsmål om satser og inntektsgrenser.
@@ -517,6 +529,49 @@ components:
             steg:
               type: object
               additionalProperties: true
+            aktivtFelt:
+              type: object
+              description: Feltet brukeren ber om hjelp til. I Garasjesjekken beholdes bare en kjent begreps-id, og label hentes fra ordlisten.
+              properties:
+                id:
+                  type: string
+                  example: gesimshoyde
+                label:
+                  type: string
+            garasjeKunnskap:
+              type: object
+              readOnly: true
+              description: Bygges av tjenesten fra felles, faste kilder og en avgrenset projeksjon av resultater. Et kunnskapsobjekt sendt av kalleren ignoreres. Returneres i grunnlag.verdier.
+              properties:
+                begreper:
+                  type: array
+                  items:
+                    type: object
+                    required: [id, navn, forklaring, kilde]
+                    properties:
+                      id: { type: string }
+                      navn: { type: string }
+                      forklaring: { type: string }
+                      kilde: { type: string, format: uri }
+                nasjonaleKrav:
+                  type: object
+                  additionalProperties: true
+                  description: Versjonerte tallkrav og øvrige vilkår fra samme modul som regelmotoren bruker.
+                kildeTilPlanbestemmelser:
+                  type: [string, "null"]
+                  format: uri
+                  description: Null når kommunen ikke er valgt eller ikke har et konfigurert planoppsett.
+                planbestemmelserKontrollert: { const: false }
+                soner:
+                  type: array
+                  maxItems: 8
+                  items: { type: object, additionalProperties: true }
+                arealFraKart:
+                  type: object
+                  additionalProperties: true
+                  description: Kartareal er ikke juridisk BYA eller BRA. Juridisk og tillatt utnyttelse er alltid uavklart i denne projeksjonen.
+                regelutfall: { type: string }
+                avgrensning: { type: string }
             flyt:
               type: object
               description: >-
@@ -555,7 +610,7 @@ components:
                     type: string
             resultater:
               type: object
-              description: Resultater per steg. Bare godkjent, melding, grunnlag, tekst og status beholdes.
+              description: Resultater per steg. For garasje erstattes de av garasjeKunnskap, uten rå geometri eller persondata. Ellers beholdes bare godkjent, melding, grunnlag, tekst og status.
               additionalProperties: true
             samtale:
               type: array

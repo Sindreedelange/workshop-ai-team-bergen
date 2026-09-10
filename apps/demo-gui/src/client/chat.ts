@@ -10,11 +10,13 @@ import {
   skalSvareFramfor,
   tolkLokaltSvar
 } from "./fallback-intent.ts";
+import { mountGarasjeProsess } from "./garasje-prosess.ts";
 
 renderTopNav("/chat");
 
-const backendBase = "http://localhost:8080";
-const aiBase = "http://localhost:8082";
+const backendBase = sandkasseKonfigurasjon.backendBaseUrl;
+const aiBase = sandkasseKonfigurasjon.aiBaseUrl;
+let clearGarasjeView = () => {};
 
 /*
  * Formene chat-siden leser fra backend og ai-gateway.
@@ -247,6 +249,7 @@ function promptForStep(steg: ProsessSteg | null | undefined): string {
 
   if (steg.type === "QUESTION") {
     const intro = steg.tekst || steg.tittel;
+    if (steg.visning === "garasje") return `${intro}\n\nDu finner eiendommen og kartet under. Spør gjerne her hvis et ord eller mål er uklart.`;
     return `${intro}\n\n${buildSporsmaalsHjelp(steg)}`;
   }
 
@@ -331,7 +334,9 @@ function renderOektStatus(): void {
     || (isOnSamtykke ? "venter på ditt samtykke" : null)
     || (oekt.aktivtSamtykkeId ? "samtykke opprettet" : "ikke spurt om samtykke ennå");
 
-  const merker = [`🔒 ${samtykketekst}`, "🧪 syntetiske data"];
+  const merker = oekt.prosessId === "garasjesjekk"
+    ? ["🔒 egne eiendommer via innlogging", "🧪 syntetiske personer og eiere · ekte kart og planer"]
+    : [`🔒 ${samtykketekst}`, "🧪 syntetiske data"];
   for (const merke of merker) {
     const span = document.createElement("span");
     span.textContent = merke;
@@ -1046,6 +1051,8 @@ async function autoRunStep(steg: ProsessSteg, successText: string): Promise<void
 }
 
 async function renderStep(): Promise<void> {
+  clearGarasjeView();
+  clearGarasjeView = () => {};
   setQuickActions([]);
   const steg = oekt?.aktivtSteg;
   if (oekt?.status === "AVVIST") {
@@ -1054,7 +1061,10 @@ async function renderStep(): Promise<void> {
     return;
   }
   if (oekt?.status === "FULLFORT") {
-    addMsg("assistant", "Da er vi ferdige. Takk for at du gikk gjennom dette sammen med meg.");
+    addMsg("assistant", oekt.avslutning === "veiledning"
+      ? "Garasjesjekken er gjennomført. Ingen søknad er sendt. Du kan fortsatt spørre om begrepene og vurderingen."
+      : "Da er vi ferdige. Takk for at du gikk gjennom dette sammen med meg.");
+    if (oekt.prosessId === "garasjesjekk") clearGarasjeView = mountGarasjeProsess({ oekt, container: chatEl, save: async () => {} });
     renderQuickActionsFor(steg);
     return;
   }
@@ -1065,6 +1075,32 @@ async function renderStep(): Promise<void> {
 
   addMsg("assistant", promptForStep(steg));
   renderQuickActionsFor(steg);
+  if (steg.type === "QUESTION" && steg.visning === "garasje") {
+    const id = oekt.oektsId;
+    clearGarasjeView = mountGarasjeProsess({
+      oekt, container: chatEl,
+      save: async (svar, stegId) => {
+        if (sending) throw new Error("Vent til handlingen i chatten er ferdig.");
+        if (!oekt || oekt.oektsId !== id || oekt.aktivtSteg?.id !== stegId || oekt.status !== "AKTIV") {
+          throw new Error("Dette steget er ikke aktivt lenger.");
+        }
+        setSending(true);
+        try {
+          const saved = readOekt(await req<unknown>(`/api/prosessoekter/${id}/svar`, {
+            method: "POST", body: JSON.stringify({ stegId, svar })
+          }));
+          if (oekt?.oektsId !== id) throw new Error("Prosessøkten er byttet. Svaret ble lagret i den opprinnelige økten.");
+          oekt = saved;
+          await goNext();
+        } catch (error) {
+          showChatError(error);
+          throw error;
+        } finally {
+          setSending(false);
+        }
+      }
+    });
+  }
 
   if (steg.type === "DATA_FETCH") {
     await autoRunStep(steg, "Jeg henter opplysningene nå.");
@@ -1135,6 +1171,14 @@ function renderQuickActionsFor(steg: ProsessSteg | null | undefined, feilrutetTe
   const oppfolging = oekt?.status === "AVVIST"
     ? ["Hvorfor ble det slik?", "Hvilke opplysninger brukte dere?", "Hva skjer med opplysningene mine?"]
     : ventendeOppfolging;
+  if (oekt?.prosessId === "garasjesjekk") {
+    for (const sporsmaal of ["Hva er gesimshøyde?", "Hva er mønehøyde?", "Hvordan måler jeg høyden?"]) {
+      knapper.push({
+        label: sporsmaal, secondary: true,
+        onClick: () => { addMsg("user", sporsmaal); return answerSidesporsmaal(sporsmaal, true); }
+      });
+    }
+  }
   for (const sporsmaal of oppfolging) {
     knapper.push({
       label: sporsmaal,
@@ -1242,7 +1286,8 @@ async function sendMessage(
   const tvungetSvar = valg.hoppOverSporsmaalsruting || prefiks.harSvarPrefiks;
   const reellTekst = prefiks.tekst;
 
-  if (!tvungetSvar && isSidesporsmaal(text, steg?.type)) {
+  if (!tvungetSvar && (isSidesporsmaal(text, steg?.type)
+    || (steg.visning === "garasje" && (/^(hva|hvordan|hvor|hvilken|hvilke|kan du|forklar|jeg forst[aå]r ikke)\b/i.test(text.trim()))))) {
     await answerSidesporsmaal(text);
     return;
   }
@@ -1274,6 +1319,10 @@ async function sendMessage(
     }
 
     if (steg.type === "QUESTION") {
+      if (steg.visning === "garasje") {
+        addMsg("assistant", "Bruk kartet og feltene for å bekrefte eiendommen, plasseringen og målene. Her i samtalen kan du spørre meg om fagord og hvordan du måler.");
+        return;
+      }
       await svarPaaSpoersmaal(steg, reellTekst);
       return;
     }
@@ -1367,6 +1416,8 @@ async function loadOptions(): Promise<Person[]> {
   // than offering a choice. See showLoggedInPerson in felles.ts.
   showLoggedInPerson(personEl, personer);
   prosessEl.innerHTML = prosesser.map((p) => `<option value="${htmlEscape(p.id)}">${htmlEscape(p.navn)}</option>`).join("");
+  const selected = new URLSearchParams(location.search).get("prosess");
+  if (selected && prosesser.some(p => p.id === selected)) prosessEl.value = selected;
   return personer;
 }
 
@@ -1374,6 +1425,7 @@ krevEl("start").onclick = () => runChatAction(startChat);
 krevEl("send").onclick = () => runChatAction(() => sendMessage());
 krevEl("reset").onclick = () => {
   if (sending) return;
+  clearGarasjeView();
   stopForsendelsespolling();
   oekt = null;
   pendingRetry = null;
