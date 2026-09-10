@@ -49,6 +49,17 @@
         .neighbour { fill: none; stroke: var(--ds-color-neutral-border-strong); stroke-width: 2; stroke-dasharray: 6 4; }
         .neighbour-label { fill: var(--ds-color-neutral-text-default); stroke: var(--ds-color-background-default); stroke-width: 3; paint-order: stroke; font-size: var(--ds-font-size-3); pointer-events: none; }
         .building { fill: var(--ds-color-neutral-surface-active); stroke: var(--ds-color-neutral-border-strong); stroke-width: 1; }
+        .building-neighbour { fill: var(--ds-color-neutral-surface-tinted); stroke: var(--ds-color-neutral-border-strong); stroke-width: 1; stroke-dasharray: 4 3; opacity: 0.7; }
+        /* Planflatene ligger under teiglaget, så de aldri skjuler eiendomsgrensen.
+           Fyllet er gjennomsiktig fordi bakgrunnskartet skal leses gjennom det. */
+        .zone { stroke-width: 2; }
+        .zone-arealformaal { fill: var(--ds-color-info-surface-default); fill-opacity: 0.28; stroke: var(--ds-color-info-border-default); stroke-dasharray: 2 3; }
+        .zone-angitthensyn { fill: var(--ds-color-success-surface-default); fill-opacity: 0.3; stroke: var(--ds-color-success-border-strong); stroke-dasharray: 8 4; }
+        .zone-stoy { fill: var(--ds-color-warning-surface-default); fill-opacity: 0.38; stroke: var(--ds-color-warning-border-strong); stroke-dasharray: 8 4; }
+        .zone-fare { fill: var(--ds-color-danger-surface-default); fill-opacity: 0.38; stroke: var(--ds-color-danger-border-strong); stroke-dasharray: 8 4; }
+        .map-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--ds-size-2) var(--ds-size-4); }
+        .map-legend li { display: flex; align-items: center; gap: var(--ds-size-2); }
+        .map-legend svg { flex: none; }
         .marker { fill: var(--ds-color-base-default); stroke: var(--ds-color-base-contrast-default); stroke-width: 3; }
         .map-label { fill: var(--ds-color-text-default); font-size: var(--ds-font-size-3); }
         .check-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--ds-size-4); }
@@ -129,16 +140,31 @@
             <div id="placement-step" class="stack">
               <section class="panel stack" aria-labelledby="map-heading">
                 <h2 id="map-heading" class="ds-heading" data-size="md" tabindex="-1">2. Hvor vil du bygge?</h2>
-                <p id="map-help" class="ds-paragraph" data-size="sm">Heltrukken rød strek viser valgt tomt. Stiplede grenser viser nabotomter i kartutsnittet. Klikk eller dra markøren for å plassere garasjen, eller bruk retningsknappene under.</p>
+                <p id="map-help" class="ds-paragraph" data-size="sm">Heltrukken rød strek viser valgt tomt. Stiplede grenser viser nabotomter i kartutsnittet. Fargede flater viser hensynssoner og arealformål fra kommuneplanen. Klikk eller dra markøren for å plassere garasjen, eller bruk retningsknappene under.</p>
                 <svg id="placement-map" class="map" data-color-scheme="light" viewBox="0 0 640 480" role="img" aria-label="Kart over valgt eiendom med foreslått plassering">
                   <image id="map-image" width="640" height="480" />
                   <g id="map-neighbours"></g>
+                  <g id="map-zones"></g>
+                  <g id="map-buildings-neighbour"></g>
                   <g id="map-buildings"></g>
                   <g id="map-parcels"></g>
                   <g id="map-neighbour-labels"></g>
                   <rect id="map-marker" class="marker" x="311" y="231" width="18" height="18" />
                   <text x="12" y="24" class="map-label">N ↑</text>
                 </svg>
+                <ul class="map-legend ds-paragraph" data-size="sm" aria-label="Tegnforklaring for kartet">
+                  <li><svg width="18" height="12" aria-hidden="true" viewBox="0 0 18 12" data-color-scheme="light"><rect class="parcel" x="1.5" y="1.5" width="15" height="9" /></svg>Valgt tomt</li>
+                  <li><svg width="18" height="12" aria-hidden="true" viewBox="0 0 18 12" data-color-scheme="light"><rect class="neighbour" x="1" y="1" width="16" height="10" /></svg>Nabotomt</li>
+                  <li><svg width="18" height="12" aria-hidden="true" viewBox="0 0 18 12" data-color-scheme="light"><rect class="building" x="0.5" y="0.5" width="17" height="11" /></svg>Bygg på din tomt</li>
+                  <li><svg width="18" height="12" aria-hidden="true" viewBox="0 0 18 12" data-color-scheme="light"><rect class="building-neighbour" x="0.5" y="0.5" width="17" height="11" /></svg>Bygg på nabotomt</li>
+                  <li><svg width="18" height="12" aria-hidden="true" viewBox="0 0 18 12" data-color-scheme="light"><rect class="marker" x="5" y="2" width="8" height="8" /></svg>Valgt plassering</li>
+                  <li><svg width="18" height="12" aria-hidden="true" viewBox="0 0 18 12" data-color-scheme="light"><rect class="zone zone-stoy" x="1" y="1" width="16" height="10" /></svg>Gul støysone</li>
+                  <li><svg width="18" height="12" aria-hidden="true" viewBox="0 0 18 12" data-color-scheme="light"><rect class="zone zone-fare" x="1" y="1" width="16" height="10" /></svg>Faresone</li>
+                  <li><svg width="18" height="12" aria-hidden="true" viewBox="0 0 18 12" data-color-scheme="light"><rect class="zone zone-angitthensyn" x="1" y="1" width="16" height="10" /></svg>Angitt hensyn</li>
+                  <li><svg width="18" height="12" aria-hidden="true" viewBox="0 0 18 12" data-color-scheme="light"><rect class="zone zone-arealformaal" x="1" y="1" width="16" height="10" /></svg>Arealformål</li>
+                </ul>
+                <p id="zone-status" class="ds-paragraph" data-size="sm" aria-live="polite"></p>
+                <p id="building-status" class="ds-paragraph" data-size="sm" aria-live="polite"></p>
                 <p id="neighbour-status" class="ds-paragraph" data-size="sm" aria-live="polite"></p>
                 <details class="ds-details">
                   <summary>Datakilde for nabogrenser</summary>

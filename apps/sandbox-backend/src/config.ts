@@ -10,6 +10,9 @@ export const fiksBaseUrl = process.env.FIKS_BASE_URL || "http://fiks-simulator:8
 export const aiBaseUrl = process.env.AI_BASE_URL || "http://ai-gateway:8082";
 // matrikkel-mock is the only reader of the matrikkel seed. See matrikkel.ts.
 export const matrikkelBaseUrl = process.env.MATRIKKEL_BASE_URL || "http://matrikkel-mock:8085";
+// plan-mock is the only reader of the eight KPA2018 GeoJSON extracts, the same
+// way matrikkel-mock owns the teig extract. See garasje-data.ts.
+export const planBaseUrl = process.env.PLAN_BASE_URL || "http://plan-mock:8090";
 // pasientjournal-mock is the only reader of data/legeerklaeringer.json, the same
 // way. See pasientjournal.ts, and its README for why the integration is fiction.
 export const pasientjournalBaseUrl =

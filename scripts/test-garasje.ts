@@ -5,9 +5,13 @@ import type { GarasjeAdresse, GarasjeGrunnlag, GarasjePolygon, GarasjeTiltak } f
 import { AREALSONER, classifyArealsone, KPA2018_SONEKILDE, listGarasjeSonetyper } from "../apps/shared/arealsoner.ts";
 import { findGarasjeKommune, findGarasjeKommunekilder, GARASJE_KOMMUNER, getGarasjeKartlagUrl } from "../apps/shared/garasje-kommuner.ts";
 import { calculateGarasjeAreal, getGarasjeGrunnlag, searchGarasjeAdresser } from "../apps/sandbox-backend/src/garasje-data.ts";
-import { evaluateGarasje, validateGarasjePunkt, validateGarasjeTiltak } from "../apps/sandbox-backend/src/garasje.ts";
+import { evaluateGarasje, GARASJE_KPA_URL, validateGarasjePunkt, validateGarasjeTiltak } from "../apps/sandbox-backend/src/garasje.ts";
 import { HttpError } from "../apps/sandbox-backend/src/errors.ts";
 import { createTeigStore, parseNaboteigQuery, parseTeigQuery } from "../apps/matrikkel-mock/src/teiger.ts";
+import { parsePlanQuery } from "../apps/plan-mock/src/planlag.ts";
+import { findHensynssone } from "../apps/shared/hensynssoner.ts";
+import { findArealsone } from "../apps/shared/arealsoner.ts";
+import { fitKartutsnitt } from "../apps/demo-gui/src/client/garasje-kart.ts";
 
 const milde: GarasjeAdresse = {
   adressetekst: "Litle Milde 65", kommunenummer: "4601", kommunenavn: "BERGEN", gardsnummer: 105, bruksnummer: 209,
@@ -144,7 +148,11 @@ type Transform = (source: Source, query: boolean, body: any) => any;
 let transform: Transform = (_source, _query, body) => body;
 const urls: URL[] = [];
 const fetchedMetadata = new Set<Source>();
+// The envelope the building layer was last asked for, so a test can compare it
+// with the extent the map actually draws.
+let bygningsKonvolutt = "";
 let lokaleTeiger: ((url: URL) => unknown) | null = null;
+let lokalePlanflater: ((url: URL) => unknown) | null = null;
 let lokaleNabotomter: ((url: URL) => unknown) | null = null;
 let apiNabotomter: ((url: URL) => unknown) | null = null;
 function localNeighbourResponse(url: URL) {
@@ -161,6 +169,49 @@ function localNeighbourResponse(url: URL) {
     }],
   };
 }
+
+/**
+ * Planmockens svar, klippet til utsnittet, med flatene rundt de to eiendommene.
+ *
+ * Flatene bygges av utsnittet forespørselen ba om, ikke av faste koordinater.
+ * Det er det plan-mock faktisk gjør, og `planflateRinger` avviser nå et svar med
+ * geometri utenfor utsnittet - en fixtur med faste bokser ville testet en kilde
+ * ingen har.
+ *
+ * Litle Milde får en støysone som dekker hele utsnittet, og dermed hele teigen;
+ * Kråkenes en faresone over den vestlige halvparten, som gir «delvis». Begge er
+ * de faktiske treffene i KPA2018-uttrekket, valgt slik at «helt» og «delvis»
+ * hver har en eiendom å oppstå på uten at fixturen finner på et forhold.
+ */
+function planResponse(url: URL, kategori: "hensynssone" | "arealformaal") {
+  const second = Number(url.searchParams.get("sor")) > 60.3;
+  const tall = (navn: string) => Number(url.searchParams.get(navn));
+  const vest = tall("vest"), sor = tall("sor"), ost = tall("ost"), nord = tall("nord");
+  const boks = (ostkant: number): number[][][] =>
+    [[[vest, sor], [ostkant, sor], [ostkant, nord], [vest, nord], [vest, sor]]];
+  const felles = { planId: "65270000", kommunenummer: "4601" };
+  const flater = kategori === "hensynssone"
+    ? second
+      // Kråkenestoppen: faresonen dekker bare den vestlige halvparten av utsnittet.
+      ? [{ id: 41, ringer: boks(vest + (ost - vest) / 2), p: { datasett: "fare", sonekode: 390, sonenavn: "H390_2", arealstatus: null, beskrivelse: "Akutt forurensning" } }]
+      // Litle Milde: støysonen dekker hele utsnittet, og dermed hele teigen.
+      : [{ id: 42, ringer: boks(ost), p: { datasett: "stoy", sonekode: 220, sonenavn: "H220_1", arealstatus: null, beskrivelse: "Sjøflyhavn - gul sone" } }]
+    : [{ id: 43, ringer: boks(ost), p: { datasett: "arealformaal", sonekode: second ? 1001 : 5100, sonenavn: null, arealstatus: 1, beskrivelse: second ? "Øvrig byggesone" : "LNF" } }];
+  return {
+    kommunenummer: url.searchParams.get("kommunenummer"), kildestatus: "tilgjengelig",
+    kilde: {
+      navn: "Bergen kommuneplanens arealdel 2018 (KPA2018)", planId: "65270000", versjon: "KPA2018",
+      filer: ["KpStøySone_gul_2018.geojson"], uttrekksaar: 2018, koordinatsystem: "EPSG:4326", syntetisk: false,
+    },
+    type: "FeatureCollection", klippetTilUtsnitt: true,
+    features: flater.map(flate => ({
+      type: "Feature", id: flate.id,
+      geometry: { type: "Polygon", coordinates: flate.ringer },
+      properties: { ...felles, ...flate.p },
+    })),
+  };
+}
+
 const fakeFetch: typeof fetch = async (input, options) => {
   const url = new URL(input instanceof Request ? input.url : String(input));
   urls.push(url);
@@ -173,6 +224,17 @@ const fakeFetch: typeof fetch = async (input, options) => {
     const result = lokaleNabotomter ? await lokaleNabotomter(url) : url.searchParams.get("kommunenummer") === "4601"
       ? localNeighbourResponse(url) : { ...localNeighbourResponse(url), kildestatus: "ikke_dekket", features: [] };
     return result instanceof Response ? result : Response.json(result);
+  }
+  if (url.pathname.startsWith("/mock/plan/")) {
+    parsePlanQuery(url.searchParams);
+    const kategori = url.pathname === "/mock/plan/hensynssoner" ? "hensynssone" as const : "arealformaal" as const;
+    if (lokalePlanflater) {
+      const overstyrt = await lokalePlanflater(url);
+      return overstyrt instanceof Response ? overstyrt : Response.json(overstyrt);
+    }
+    const svar = planResponse(url, kategori);
+    return Response.json(url.searchParams.get("kommunenummer") === "4601" ? svar
+      : { ...svar, kildestatus: "ikke_dekket", kilde: { ...svar.kilde, planId: null, versjon: null, uttrekksaar: null }, features: [] });
   }
   if (url.pathname === "/mock/matrikkel/teiger") {
     assert.equal(url.searchParams.get("fnr"), "0");
@@ -226,6 +288,7 @@ const fakeFetch: typeof fetch = async (input, options) => {
     };
   } else {
     assert(fetchedMetadata.has(source), "Metadata må kontrolleres før kartoppslaget");
+    if (source === "bygning") bygningsKonvolutt = url.searchParams.get("geometry")!;
     assert.equal(url.searchParams.get("inSR"), "4258");
     assert.equal(url.searchParams.get("outSR"), "4258");
     assert.notEqual(url.searchParams.get("outFields"), "*");
@@ -323,11 +386,19 @@ try {
       assert.equal(source.url, "");
       assert(source.merknad?.includes("0301"));
     }
+    assert.deepEqual(g.planflater, []);
+    const plan = g.kilder.find(k => k.id === "planflater")!;
+    assert.equal(plan.status, "ingen_treff");
+    assert(plan.merknad?.includes("0301"));
     assert.equal(urls.length, 4, "Lokal dekning sjekkes før nasjonale oppslag for eiendom og nabotomter");
     assert.equal(urls[0]!.pathname, "/mock/matrikkel/teiger");
     assert.equal(urls[0]!.searchParams.get("kommunenummer"), "0301");
     assert.equal(urls[1]!.hostname, "api.kartverket.no");
     assert.equal(urls[1]!.searchParams.get("matrikkelnummer"), "0301-209/339");
+    // Ingen planoppslag i det hele tatt: bare Bergen har et uttrekk, og kommunen er
+    // kjent før noe nettverk røres. Et kall ingen kunne brukt svaret på er ikke verdt
+    // turen, uansett hvor kort den er.
+    assert.deepEqual(urls.filter(u => u.pathname.startsWith("/mock/plan/")), []);
     assert(!JSON.stringify(g).includes("bergen.kommune") && !JSON.stringify(g).includes("bergen4601"));
   });
   await test("Kommuneregisteret gir aldri en ukjent kommune Bergens adapter", () => {
@@ -603,10 +674,93 @@ try {
     assert.equal(grunnlag.kilder.find(k => k.id === "reguleringsplan")?.status, "ingen_treff");
     assert.deepEqual(grunnlag.eiendomsgrenser[0]?.ringer, parcelRings);
     assert.deepEqual(grunnlag.bygninger[0]?.ringer, buildingRings);
-    assert.equal(grunnlag.kilder.length, 5);
+    assert.equal(grunnlag.kilder.length, 6);
     assert(grunnlag.kilder.every(k => Number.isFinite(Date.parse(k.hentet))));
     assert(!JSON.stringify(grunnlag).includes("OFFENTLIG_EIER"));
     assert(!("scenario" in grunnlag) && !("datamodus" in grunnlag));
+  });
+  await test("Litle Milde berøres helt av gul støysone, og skissepunktet ligger inni", () => {
+    const soner = grunnlag.planflater.filter(f => f.kategori === "hensynssone");
+    assert.equal(soner.length, 1);
+    assert.deepEqual(
+      { ...soner[0]!, ringer: undefined },
+      {
+        kategori: "hensynssone", datasett: "stoy", sonekode: 220, sonenavn: "H220_1",
+        navn: "Gul støysone", beskrivelse: findHensynssone(220)!.beskrivelse,
+        kildetekst: "Sjøflyhavn - gul sone", berorer: "helt",
+        hensynstype: "stoy", planId: "65270000", ringer: undefined,
+      });
+    const formaal = grunnlag.planflater.filter(f => f.kategori === "arealformaal");
+    assert.equal(formaal[0]?.sonekode, 5100);
+    assert.equal(formaal[0]?.arealstatus, 1);
+    // Navnet kommer fra det kontrollerte soneregisteret, ikke fra kildens fritekst.
+    assert.equal(formaal[0]?.navn, findArealsone(5100, 1, "65270000", "4601")?.navn);
+    assert.equal(formaal[0]?.kildetekst, "LNF");
+    assert.equal(grunnlag.kilder.find(k => k.id === "planflater")?.status, "ok");
+    assert.equal(grunnlag.kilder.find(k => k.id === "planflater")?.uttrekksaar, 2018);
+  });
+  await test("Sonen navngis og avgjør ingenting", () => {
+    const v = evaluateGarasje(tiltak, grunnlag);
+    const sjekk = v.sjekker.find(s => s.id === "hensynssoner")!;
+    assert.equal(sjekk.status, "uavklart");
+    assert(sjekk.forklaring.includes("Gul støysone H220_1"));
+    assert(sjekk.forklaring.includes("Sjøflyhavn - gul sone"));
+    assert(sjekk.forklaring.includes("dekker hele den kartlagte eiendommen"));
+    assert(sjekk.forklaring.includes("Skissepunktet ligger inne i sonen"));
+    // Alt oppfylt nasjonalt, og sonen skal likevel ikke skyve utfallet noen vei.
+    assert.equal(v.nasjonaltUnntak, "oppfylt");
+    assert.equal(v.utfall, "maa_avklares");
+    assert(!v.sjekker.some(s => s.id === "hensynssoner" && s.status !== "uavklart"));
+    // Flatesvaret hører i kommuneplansjekken og ikke i en egen: det er det samme
+    // forholdet sett bredere, og den sjekken siterer allerede planbestemmelsene,
+    // som er der et arealformål får betydningen sin fra.
+    const kommuneplan = v.sjekker.find(s => s.id === "kommuneplan")!;
+    assert.equal(kommuneplan.status, "uavklart");
+    assert(kommuneplan.forklaring.includes("LNF over hele eiendommen"));
+    assert.equal(kommuneplan.kilde, GARASJE_KPA_URL);
+    assert(!v.sjekker.some(s => s.id === "arealformaal-flate"));
+  });
+  await test("En eiendom uten sonetreff får det sagt, ikke fortiet", async () => {
+    lokalePlanflater = url => ({
+      kommunenummer: "4601", kildestatus: "tilgjengelig",
+      kilde: { navn: "KPA2018", planId: "65270000", versjon: "KPA2018", filer: [], uttrekksaar: 2018, koordinatsystem: "EPSG:4326", syntetisk: false },
+      type: "FeatureCollection", klippetTilUtsnitt: true, features: [], sok: url.search,
+    });
+    const g = await getGarasjeGrunnlag(milde);
+    lokalePlanflater = null;
+    assert.deepEqual(g.planflater, []);
+    assert.equal(g.kilder.find(k => k.id === "planflater")?.status, "ingen_treff");
+    const sjekk = evaluateGarasje(tiltak, g).sjekker.find(s => s.id === "hensynssoner")!;
+    assert.equal(sjekk.status, "uavklart");
+    assert(sjekk.forklaring.includes("Ingen hensynssone"));
+    assert(sjekk.forklaring.includes("2018"));
+  });
+  await test("Et usignert plansvar avvises, og feilen skjules ikke som tomt treff", async () => {
+    for (const kropp of [
+      { type: "FeatureCollection", features: [], klippetTilUtsnitt: false, kildestatus: "tilgjengelig", kilde: { koordinatsystem: "EPSG:4326" } },
+      { type: "FeatureCollection", features: [], klippetTilUtsnitt: true, kildestatus: "tilgjengelig", kilde: { koordinatsystem: "EPSG:25833" } },
+      { type: "FeatureCollection", klippetTilUtsnitt: true, kildestatus: "tilgjengelig", kilde: { koordinatsystem: "EPSG:4326" } },
+    ]) {
+      lokalePlanflater = () => kropp;
+      const g = await getGarasjeGrunnlag(milde);
+      assert.equal(g.kilder.find(k => k.id === "planflater")?.status, "feil", JSON.stringify(kropp));
+      assert.deepEqual(g.planflater, []);
+      const sjekk = evaluateGarasje(tiltak, g).sjekker.find(s => s.id === "hensynssoner")!;
+      assert.equal(sjekk.status, "uavklart");
+      assert(sjekk.forklaring.includes("kunne ikke hentes"));
+    }
+    lokalePlanflater = null;
+  });
+  await test("En sonekode kodeverket ikke kjenner navngis ikke, men telles", async () => {
+    lokalePlanflater = url => {
+      const svar = planResponse(url, url.pathname.endsWith("hensynssoner") ? "hensynssone" : "arealformaal");
+      if (url.pathname.endsWith("hensynssoner")) svar.features[0]!.properties.sonekode = 999;
+      return svar;
+    };
+    const g = await getGarasjeGrunnlag(milde);
+    lokalePlanflater = null;
+    assert.deepEqual(g.planflater.filter(f => f.kategori === "hensynssone"), []);
+    assert(g.uavklarteForhold.some(f => f.includes("sonekode sandkassens kodeverk ikke kjenner")));
   });
   await test("Kråkenestoppen bruker faktisk planidentitet, men ingen oppdiktede bestemmelser", async () => {
     const g = await getGarasjeGrunnlag(krakenes);
@@ -618,6 +772,13 @@ try {
     const v = evaluateGarasje(tiltak, g);
     assert.equal(v.utfall, "maa_avklares");
     assert(v.sjekker.find(s => s.id === "reguleringsplan")?.forklaring.includes("ikke lest"));
+    // Faresonen dekker bare deler av teigen her. «Delvis» er svaret på spørsmålet
+    // innbyggeren stiller: går sonegrensen tvers gjennom tomten min.
+    const sone = g.planflater.find(f => f.kategori === "hensynssone")!;
+    assert.equal(sone.sonenavn, "H390_2");
+    assert.equal(sone.navn, "Faresone annen fare");
+    assert.equal(sone.berorer, "delvis");
+    assert(v.sjekker.find(s => s.id === "hensynssoner")?.forklaring.includes("berører deler av den kartlagte eiendommen"));
   });
   await test("Eksisterende bebyggelse hentes automatisk med faktiske registerattributter", () => {
     assert.equal(grunnlag.bebyggelse.status, "bekreftet");
@@ -639,6 +800,26 @@ try {
     assert.equal(g.bebyggelse.bebygd, true);
     assert.deepEqual(g.bebyggelse.bygninger.map(b => b.bygningsnummer), [9521836]);
     assert.equal(g.bebyggelse.bygninger[0]?.bruksareal, 138);
+  });
+  // Kartet polstrer teigen og strekker den korte siden til 4:3. En bred teig gir
+  // derfor et utsnitt som er høyere enn teigen selv, og nabobygg langs over- og
+  // underkanten mangler hvis oppslaget bare dekker teigen.
+  await test("Bygningsoppslaget dekker hele kartutsnittet, ikke bare teigen", async () => {
+    // Rundt Litle Milde 65: omtrent 450 m bred og 45 m høy, altså bredere enn
+    // minsteboksen på 0.002 grader og for flat til å fylle 4:3 av seg selv.
+    const bredTeig = [[5.2512, 60.25344], [5.2592, 60.25344], [5.2592, 60.25388], [5.2512, 60.25388], [5.2512, 60.25344]];
+    for (const teig of [null, bredTeig]) {
+      transform = (source, _query, body) => {
+        if (source === "eiendom" && teig) body.features[0].geometry.coordinates = [teig];
+        return body;
+      };
+      const g = await getGarasjeGrunnlag(milde);
+      const [west, south, east, north] = bygningsKonvolutt.split(",").map(Number) as [number, number, number, number];
+      const utsnitt = fitKartutsnitt(g.eiendomsgrenser, g.adresse.punkt);
+      assert(west <= utsnitt.west && east >= utsnitt.east && south <= utsnitt.south && north >= utsnitt.north,
+        `Konvolutten ${bygningsKonvolutt} må dekke kartutsnittet ${JSON.stringify(utsnitt)}`);
+    }
+    transform = (_source, _query, body) => body;
   });
   await test("Bare nabobygninger kan aldri bli bebyggelse på valgt eiendom", async () => {
     transform = (source, query, body) => source === "bygning" && query
@@ -1035,7 +1216,7 @@ try {
   await test("Manglende kilder og tom liste med ukjente forhold kan aldri gi grønt", () => {
     const g = { ...grunnlag, kilder: [], uavklarteForhold: [] };
     assert.equal(evaluateGarasje(tiltak, g).utfall, "maa_avklares");
-    assert.equal(evaluateGarasje(tiltak, g).sjekker.filter(s => s.id.startsWith("kilde-")).length, 5);
+    assert.equal(evaluateGarasje(tiltak, g).sjekker.filter(s => s.id.startsWith("kilde-")).length, 6);
   });
   await test("Skissepunkt kontrolleres mot valgt eiendom, ikke bare avstand fra adressen", async () => {
     const inside = evaluateGarasje(tiltak, await getGarasjeGrunnlag(milde, milde.punkt));

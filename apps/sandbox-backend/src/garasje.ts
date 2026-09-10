@@ -3,6 +3,7 @@ import { HttpError } from "./errors.ts";
 import { GARASJE_NASJONALE_KRAV } from "../../shared/garasje-regelgrunnlag.ts";
 import { findGarasjeKommunekilder } from "../../shared/garasje-kommuner.ts";
 import { KPA2018_SONEKILDE } from "../../shared/arealsoner.ts";
+import { ringerInneholder } from "../../shared/geometri.ts";
 
 export const GARASJE_SAK10_URL = GARASJE_NASJONALE_KRAV.kilde;
 export const GARASJE_KPA_URL = findGarasjeKommunekilder(KPA2018_SONEKILDE.kommunenummer)!.kpa.bestemmelserUrl;
@@ -55,19 +56,15 @@ function isNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
-export function containsPunkt(p: GarasjePunkt, shape: GarasjePolygon): boolean {
-  let inside = false;
-  for (const ring of shape.ringer) {
-    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-      const a = ring[i]!, b = ring[j]!;
-      const cross = (p.lon - a[0]) * (b[1] - a[1]) - (p.lat - a[1]) * (b[0] - a[0]);
-      if (Math.abs(cross) < 1e-14 && p.lon >= Math.min(a[0], b[0]) && p.lon <= Math.max(a[0], b[0])
-        && p.lat >= Math.min(a[1], b[1]) && p.lat <= Math.max(a[1], b[1])) return true;
-      if ((a[1] > p.lat) !== (b[1] > p.lat)
-        && p.lon < (b[0] - a[0]) * (p.lat - a[1]) / (b[1] - a[1]) + a[0]) inside = !inside;
-    }
-  }
-  return inside;
+/**
+ * Om punktet ligger i flaten.
+ *
+ * Selve strålekastingen ligger i `apps/shared/geometri.ts`, fordi nettleseren
+ * svarer på det samme spørsmålet mens markøren dras. To kopier ga forskjellig
+ * svar for et punkt nøyaktig på grensen, og det var ingen som hadde bestemt.
+ */
+export function containsPunkt(p: GarasjePunkt, shape: Pick<GarasjePolygon, "ringer">): boolean {
+  return ringerInneholder(p.lon, p.lat, shape.ringer);
 }
 
 export function evaluateGarasje(tiltak: GarasjeTiltak, grunnlag: GarasjeGrunnlag): GarasjeVurdering {
@@ -110,15 +107,31 @@ export function evaluateGarasje(tiltak: GarasjeTiltak, grunnlag: GarasjeGrunnlag
         ? "Skissepunktet ligger på den kartlagte eiendomsteigen ved adressen. Dette sier ikke at hele garasjen ligger på eiendommen eller oppfyller avstandskrav. Et adressepunkt er heller ikke en bekreftet garasjeplassering."
         : "Skissepunktet ligger utenfor den kartlagte eiendomsteigen ved valgt adresse. Flytt punktet eller avklar eiendomsgrensen. Dette er ikke en vurdering av søknadsplikt eller byggetillatelse på en annen eiendom.",
   });
+  const plankilde = grunnlag.kilder.find(k => k.id === "planflater");
+  const hensynssoner = grunnlag.planflater.filter(f => f.kategori === "hensynssone");
+  const formaalsflater = grunnlag.planflater.filter(f => f.kategori === "arealformaal");
+  const navngi = (f: typeof hensynssoner[number]) =>
+    `${f.navn}${f.sonenavn ? ` ${f.sonenavn}` : ""}${f.kildetekst ? ` (${f.kildetekst})` : ""}`
+    + `, som ${f.berorer === "helt" ? "dekker hele den kartlagte eiendommen" : "berører deler av den kartlagte eiendommen"}`
+    + `. Skissepunktet ligger ${containsPunkt(grunnlag.punkt, f) ? "inne i" : "utenfor"} sonen.`;
   const kommunekilder = findGarasjeKommunekilder(grunnlag.adresse.kommunenummer);
   const bestemmelseskilde = kommunekilder?.kpa.bestemmelserUrl || GARASJE_SAK10_URL;
   const lnf = grunnlag.adresse.kommunenummer === KPA2018_SONEKILDE.kommunenummer
     && grunnlag.arealformaal.some(formaal => formaal.kode === 5100 && formaal.planId === KPA2018_SONEKILDE.planId);
   sjekker.push({
     id: "kommuneplan", navn: "Kommuneplan og LNF", status: "uavklart", kilde: bestemmelseskilde,
-    forklaring: lnf
+    forklaring: (lnf
       ? "Punktet ligger i LNF. KPA2018 § 31.3 omtaler små tiltak på fradelt og bebygd boligeiendom uten negativ påvirkning på LNF-verdiene. Retningslinjene stiller flere vilkår. Dette er ikke et generelt fritak fra søknad eller dispensasjon. Eiendommens forhold må avklares."
-      : "Et arealformål alene avgjør ikke om en garasje er tillatt. KPA-bestemmelser, byggegrenser og utnyttelsesgrad er ikke kontrollert.",
+      : "Et arealformål alene avgjør ikke om en garasje er tillatt. KPA-bestemmelser, byggegrenser og utnyttelsesgrad er ikke kontrollert.")
+      // Punktoppslaget over svarer for ett punkt. Flatene fra uttrekket svarer for
+      // hele teigen, og et formål som bare dekker deler av eiendommen er nettopp
+      // det innbyggeren ikke ser når svaret gjelder ett punkt. Det hører i denne
+      // sjekken og ikke i en egen: det er det samme forholdet, sett bredere.
+      + (formaalsflater.length
+        ? ` Målt mot hele den kartlagte eiendommen berører den ${formaalsflater.map(f =>
+            `${f.navn}${f.berorer === "helt" ? " over hele eiendommen" : " over deler av eiendommen"}`).join(", ")}`
+          + ". Deler eiendommen seg mellom flere formål, gjelder ikke nødvendigvis det samme for hele garasjen som for skissepunktet."
+        : ""),
   }, {
     id: "reguleringsplan", navn: "Reguleringsplanens bestemmelser", status: "uavklart",
     kilde: grunnlag.reguleringsplaner[0]?.url ?? bestemmelseskilde,
@@ -126,7 +139,23 @@ export function evaluateGarasje(tiltak: GarasjeTiltak, grunnlag: GarasjeGrunnlag
       ? "Planområder er funnet, men bestemmelsene om blant annet garasjer, plassering og gjerder er ikke lest eller kontrollert av piloten."
       : "Ingen funnet reguleringsplan er ikke bevis på at tiltaket er avklart. Kildestatus og øvrige plangrunnlag må kontrolleres.",
   });
-  for (const id of ["adresse", "kpa", "reguleringsplan", "eiendomsgrenser", "bygninger"]) {
+  // Sonen er alltid uavklart. En hensynssone hjemlet i plan- og bygningsloven
+  // § 11-8 sier at et hensyn gjelder for området, ikke om et tiltak er tillatt -
+  // det står i planbestemmelsene, som piloten ikke leser. Sjekken står dessuten
+  // etter at nasjonaltUnntak er regnet ut, så den kan ikke endre utfallet.
+  sjekker.push({
+    id: "hensynssoner", navn: "Hensynssoner i kommuneplanen", status: "uavklart",
+    kilde: plankilde?.url ?? bestemmelseskilde,
+    forklaring: plankilde?.status !== "ok" && plankilde?.status !== "ingen_treff"
+      ? "Hensynssonene kunne ikke hentes. Det er ukjent om eiendommen berøres av en hensynssone."
+      : hensynssoner.length
+        ? `Eiendomsgrensen berører ${hensynssoner.length === 1 ? "én hensynssone" : `${hensynssoner.length} hensynssoner`} i KPA2018: `
+          + `${hensynssoner.map(navngi).join(" ")} Sonen sier at et hensyn gjelder for området, ikke om garasjen er tillatt. `
+          + "Uttrekket er fra 2018; gjeldende plan og bestemmelser må leses."
+        : "Ingen hensynssone i KPA2018-uttrekket berører den kartlagte eiendommen. Uttrekket er fra 2018 og dekker ikke byggegrenser, "
+          + "reguleringsplanens egne soner eller forhold utenfor kommuneplanen.",
+  });
+  for (const id of ["adresse", "kpa", "reguleringsplan", "eiendomsgrenser", "bygninger", "planflater"]) {
     const kilde = grunnlag.kilder.find(k => k.id === id);
     if (!kilde || (kilde.status !== "ok" && !(id === "reguleringsplan" && kilde.status === "ingen_treff"))) {
       sjekker.push({
@@ -137,7 +166,7 @@ export function evaluateGarasje(tiltak: GarasjeTiltak, grunnlag: GarasjeGrunnlag
   }
   const uavklarteForhold = [...new Set([
     ...grunnlag.uavklarteForhold,
-    "Gjeldende planbestemmelser, hensynssoner, byggegrenser og tillatt utnyttelse må avklares for hele tiltaket.",
+    "Gjeldende planbestemmelser, byggegrenser og tillatt utnyttelse må avklares for hele tiltaket. Hensynssonene er navngitt fra et frosset KPA2018-uttrekk, ikke lest ut av bestemmelsene.",
     "Ledningskart, flom, skred, grunnforhold, kulturminner, naturverdier og avstand til vei, sjø og vassdrag er ikke kontrollert.",
     "Kartet viser et punkt, ikke garasjens utstrekning. Grensekvalitet, mål og lovlig etablert bebyggelse er ikke bekreftet.",
     ...sjekker.filter(s => s.status === "uavklart").map(s => s.forklaring),

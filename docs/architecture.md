@@ -99,6 +99,7 @@ flowchart LR
   subgraph mocker["Mockede integrasjoner"]
     FS["fiks-simulator"]
     MM["matrikkel-mock"]
+    PM["plan-mock"]
     PJ["pasientjournal-mock"]
     PA["politiattest-mock"]
     DM["digdir-mock"]
@@ -114,6 +115,7 @@ flowchart LR
   PE --> AG
   SB --> AG
   SB --> MM
+  SB --> PM
   SB -->|"samtykke og beregning"| FS
   SB -->|"bak samtykkeporten"| PJ
   SB -->|"bak samtykkeporten"| PA
@@ -155,7 +157,7 @@ Det betyr at:
 
 ## Status og kjente avvik
 
-Alle tolv tjenestene er implementert og kjører. Samtykkesperre, revisjonslogg,
+Alle tretten tjenestene er implementert og kjører. Samtykkesperre, revisjonslogg,
 deterministisk vilkårsvurdering og sju demo-case er på plass. Det som følger er
 avvik mellom hvordan sandkassen presenterer seg og hva den faktisk gjør - verdt å
 kjenne til før du bygger på den.

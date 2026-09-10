@@ -9,6 +9,7 @@
   { "navn": "pasientjournal-mock", "port": 8087, "rolle": "Mock av elektronisk pasientjournal", "spesifikasjon": true },
   { "navn": "politiattest-mock", "port": 8088, "rolle": "Mock av politiattest", "spesifikasjon": true },
   { "navn": "pdf-extractor", "port": 8089, "rolle": "Kildeforankret uttrekk og søk i generelle, juridiske og planfaglige PDF-er", "spesifikasjon": true },
+  { "navn": "plan-mock", "port": 8090, "rolle": "Offline kopi av Bergens kommuneplan 2018", "spesifikasjon": true },
   { "navn": "demo-gui", "port": 3001, "rolle": "Sidene du er på nå", "spesifikasjon": false },
   { "navn": "process-builder", "port": 3000, "rolle": "Prosessbygger", "spesifikasjon": false }
 ]

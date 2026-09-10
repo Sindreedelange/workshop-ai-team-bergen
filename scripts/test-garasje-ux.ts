@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { stripTypeScriptTypes } from "node:module";
 import { createContext, runInContext } from "node:vm";
+import { ringerInneholder } from "../apps/shared/geometri.ts";
 import { projectGarasjeDialogGrunnlag } from "../apps/shared/garasje-dialog.ts";
 import type { GarasjeGrunnlag } from "../apps/shared/garasje.ts";
 
@@ -224,7 +225,7 @@ assert(!html.includes('id="help-question"') && !html.includes('id="help-form"'))
 const largeGrunnlag: GarasjeGrunnlag = {
   adresse: { adressetekst: "Ikke send adressen", kommunenummer: "4601", gardsnummer: 20, bruksnummer: 1413, festenummer: 0, undernummer: 0, punkt: { lat: 60.33, lon: 5.31 } },
   punkt: { lat: 60.33, lon: 5.31 }, arealformaal: [{ kode: 1001, planId: "65270000", beskrivelse: "Øvrig byggesone", sonenavn: "Øvrig byggesone", arealstatus: 1 }],
-  eiendomsgrenser: [], bygninger: [], reguleringsplaner: [], kilder: [], uavklarteForhold: [],
+  eiendomsgrenser: [], bygninger: [], reguleringsplaner: [], planflater: [], kilder: [], uavklarteForhold: [],
   bebyggelse: { status: "uavklart", bebygd: null, bygninger: [], kilde: "", forklaring: "" },
   arealberegning: { tomtearealM2: 976, kartlagtBebygdArealM2: 200, kartlagtAndelProsent: 20.5, kilde: "", metode: "", forbehold: [] },
   nabotomter: {
@@ -270,6 +271,7 @@ const selection = createContext({
   renderGrunnlag() {},
   renderMap() { maps++; },
   updateMarker() {},
+  updateZoneStatus() {},
   adresse: { ...largeGrunnlag.adresse, adressetekst: "Litle Milde 65", gardsnummer: 105, bruksnummer: 209, kommunenavn: "BERGEN" }
 });
 runInContext(`
@@ -368,6 +370,7 @@ const neighbours = createContext({
     assert.equal(className, "neighbour");
     drawnNeighbours = polygons.length;
   },
+  planflater: [],
   element: (_tag: string, text = "") => { const node = new Element(); node.textContent = text; return node; },
   addLink: (parent: Element, text: string) => { const node = new Element(); node.textContent = text; parent.append(node); },
   findNabotomtLabel: () => ({ x: 50, y: 50, width: 48 }),
@@ -417,7 +420,8 @@ const mapView = createContext({
   fitKartutsnitt: () => ({ west: 5.31, east: 5.312, south: 60.33, north: 60.332 }),
   xy: ({ lon, lat }: { lon: number; lat: number }) => [lon, lat],
   renderGrunnlag: (data: GarasjeGrunnlag) => { displayedGrunnlag = data; },
-  bounds: {}, grunnlag: null, vurdering: null, plassering: mapGrunnlag.punkt
+  ringerInneholder,
+  bounds: {}, grunnlag: null, vurdering: null, planflater: [], plassering: mapGrunnlag.punkt
 });
 runInContext(`
   ${functionBlock("function drawPolygons", "function moveMarker")}
@@ -442,6 +446,92 @@ for (const count of [1, 0, 2]) {
   }
   assert.equal(Boolean(mapEl("map-image").attributes.href), count > 0, "Gammelt bakgrunnskart skal fjernes ved kildefeil");
 }
+// Bygningsflatene dekker hele oppslagskonvolutten. Bare de som bebyggelsen har
+// sammenholdt med teigen er egne bygg; resten er nabobygg og skal se annerledes ut.
+const flate = (id: string) => ({ ...polygon, id });
+const byggGrunnlag = (
+  bygninger: string[], egne: string[], status: GarasjeGrunnlag["kilder"][number]["status"], merknad?: string
+): GarasjeGrunnlag => ({
+  ...mapGrunnlag,
+  bygninger: bygninger.map(flate),
+  bebyggelse: {
+    ...mapGrunnlag.bebyggelse!,
+    bygninger: egne.map(id => ({ id, kobling: "geometri" as const })),
+  },
+  kilder: [...mapGrunnlag.kilder, { id: "bygninger", navn: "Bygningskart", url: "https://kart.test/bygg", status, hentet: "", ...(merknad ? { merknad } : {}) }],
+});
+const tegnetBygg = () => [mapEl("map-buildings").children.length, mapEl("map-buildings-neighbour").children.length];
+
+mapView.data = byggGrunnlag(["1", "2", "3"], ["2"], "ok");
+runInContext("renderMap(data)", mapView);
+assert.deepEqual(tegnetBygg(), [1, 2], "Bare bygg som bebyggelsen har koblet til teigen skal tegnes som egne");
+assert.match(mapEl("building-status").textContent, /1 bygningsflater på din tomt og 2 på nabotomter/);
+
+mapView.data = byggGrunnlag(["1", "2"], [], "ok");
+runInContext("renderMap(data)", mapView);
+assert.deepEqual(tegnetBygg(), [2, 0],
+  "Uten en avklart bebyggelse skal ingen flater påstås å ligge på nabotomt");
+assert.match(mapEl("building-status").textContent, /ikke avklart/);
+
+mapView.data = byggGrunnlag([], [], "ingen_treff");
+runInContext("renderMap(data)", mapView);
+assert.deepEqual(tegnetBygg(), [0, 0]);
+assert.match(mapEl("building-status").textContent, /Ingen bygningsflater/);
+
+mapView.data = byggGrunnlag([], [], "feil", "Kartlaget svarte ikke.");
+runInContext("renderMap(data)", mapView);
+assert.match(mapEl("building-status").textContent, /Bygningskartet kunne ikke hentes\. Kartlaget svarte ikke\./,
+  "En kildefeil skal forklares ved kartet, ikke bare inne i kildelisten");
+
+// Planflatene er eiendommens, ikke punktets. De tegnes under teiglaget, får klasse
+// etter hensynstypen, og statuslinjen skal si både hva eiendommen berører og hvor
+// markøren står - det siste regnet ut i nettleseren mens markøren flyttes.
+const soneRinger: [number, number][][] = [[
+  [5.3105, 60.3305], [5.312, 60.3305], [5.312, 60.332], [5.3105, 60.332], [5.3105, 60.3305]
+]];
+const felles = { sonekode: 220, beskrivelse: "", kildetekst: null, berorer: "delvis" as const, planId: "65270000", ringer: soneRinger };
+const hensynssone = (sonenavn: string, hensynstype: "stoy" | "fare" | "angitthensyn"): GarasjeGrunnlag["planflater"][number] =>
+  ({ ...felles, kategori: "hensynssone", datasett: hensynstype, sonenavn, hensynstype, navn: "Gul støysone" });
+const arealformaal = (): GarasjeGrunnlag["planflater"][number] =>
+  ({ ...felles, kategori: "arealformaal", datasett: "arealformaal", arealstatus: 1, navn: "LNF" });
+const soneKlasser = () => mapEl("map-zones").children.map((barn: Element) => barn.attributes.class);
+
+mapView.data = {
+  ...mapGrunnlag,
+  planflater: [hensynssone("H220_1", "stoy"), arealformaal()],
+  kilder: [...mapGrunnlag.kilder, { id: "planflater", navn: "Plan", url: "http://localhost:8089/mock/plan/hensynssoner", status: "ok", hentet: "" }],
+};
+runInContext("renderMap(data)", mapView);
+assert.deepEqual(soneKlasser(), ["zone zone-arealformaal", "zone zone-stoy"],
+  "Arealformålet skal tegnes først, så en hensynssone aldri blir liggende under det");
+assert.match(mapEl("zone-status").textContent, /Gul støysone H220_1/);
+assert.match(mapEl("zone-status").textContent, /utenfor alle flatene/,
+  "Markøren står utenfor flaten i denne fixturen");
+
+// Markøren inne i flaten: svaret skal snu uten et nytt kall til serveren.
+mapView.plassering = { lat: 60.331, lon: 5.311 };
+runInContext("updateZoneStatus()", mapView);
+// «foreløpig» er ikke pynt: dette er regnet ut i nettleseren mens markøren dras,
+// og serveren fastslår det først ved «Bekreft plassering».
+assert.match(mapEl("zone-status").textContent, /Markøren står foreløpig i LNF, Gul støysone H220_1/);
+
+mapView.data = { ...mapGrunnlag, planflater: [] };
+runInContext("renderMap(data)", mapView);
+assert.deepEqual(soneKlasser(), []);
+assert.match(mapEl("zone-status").textContent, /Ingen hensynssoner eller arealformål/);
+
+mapView.data = {
+  ...mapGrunnlag, planflater: [],
+  kilder: [...mapGrunnlag.kilder, { id: "planflater", navn: "Plan", url: "", status: "feil", hentet: "", merknad: "Plankilden svarte ikke." }],
+};
+mapView.grunnlag = mapView.data;
+runInContext("renderMap(data)", mapView);
+assert.match(mapEl("zone-status").textContent, /kunne ikke hentes\. Plankilden svarte ikke\./,
+  "En kildefeil skal forklares ved kartet, ikke bare inne i kildelisten");
+mapView.grunnlag = null;
+
+console.log("Hensynssoner: flatene tegnes under teigen, i riktig rekkefølge, og markøren melder sone før bekreftelse.");
 console.log("Garasje-UX: tema, ett felt av gangen, modusbytte, agentsvar, tydelig redigering og bevarte utkast besto.");
 console.log("Eiendomsvalg: adresse før kart, bekreftet plassering før utfylling, nytt forsøk og avvisning av foreldede svar besto.");
 console.log("Vurderingskart: teiger, bygninger, nabogrenser og bakgrunn følger det ferske grunnlaget ved feil og gjenoppretting.");
+console.log("Bygningslaget: egne bygg skilles fra nabobygg, og kildestatusen forklares ved kartet.");

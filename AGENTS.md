@@ -74,6 +74,21 @@ chat, or that every service is a søknad.
 - `apps/matrikkel-mock` (`8085`): mock of Kartverket Matrikkel Geointegrasjon BasisService (SOAP + REST helpers). Runs from the shared `node:24-alpine` image on the same `./:/workspace` bind mount as every other service; `apps/matrikkel-mock/Dockerfile` exists only for running it standalone.
 - `apps/pasientjournal-mock` (`8087`): mock of an elektronisk pasientjournal, serving the legeerklæringer the TT-kort case is assessed against. **This integration does not exist in reality** - a journal is owned by the virksomhet that provided the care, there is no national API for a legeerklæring, and today the citizen carries a stamped PDF and uploads it. The mock is the structured form of that attachment, and its README says so first. Two things are deliberate: `fnr` is required, so the surface never answers a bulk query, and it is behind Maskinporten rather than ID-porten - real health data sits behind HelseID at Norsk helsenett, which the sandbox does not have. The only *service* that reads `data/legeerklaeringer.json`; the gate reads it too.
 - `apps/brreg-mcp`, `apps/folkeregister-mcp` (no port): **these two are real MCP** - JSON-RPC 2.0 over stdio, newline-delimited, verified against `@modelcontextprotocol/inspector`. They are standalone servers for an external client (Claude Code, Cursor) to spawn; nothing in the sandbox talks to them. In particular `tools-api` does **not** - it reads the same `data/brreg.seed.json` and `data/folkeregister.seed.json` off disk and exposes its own REST equivalents, so the four brreg/folkeregister tools exist twice, in two protocols. Their compose entries only keep the containers alive on an idle stdin; they are not a dependency of anything.
+- `apps/plan-mock` (`8090`): offline kopi av Bergens kommuneplan, arealdelen 2018
+  (KPA2018). **Motsatt av de to mockene over: dette er ekte, åpne data.** Kilden
+  finnes på `kart.bergen.kommune.no`, og `sandbox-backend` slår faktisk opp mot den
+  live for arealformål og reguleringsplaner. Kopien finnes fordi et hackathon uten
+  nett ikke skal miste kartsteget, og fordi live-oppslaget spør om ett punkt uten
+  geometri og derfor ikke kan svare på om en sonegrense går tvers gjennom tomten.
+  Eneste leser av de sju `data/Kp*_2018.geojson`-filene; svarer på et kartutsnitt,
+  aldri på en eiendom eller en person, og står åpen uten token av samme grunn som
+  `matrikkel-mock`. Tre ting som ikke er tilfeldige, og som hver har en sjekk i
+  `pnpm test:plan-mock`: flatene er **klippet til utsnittet** (den største
+  enkeltdelen i støysonefilen har 106 860 punkter), indeksen ligger på
+  **polygondelen** og ikke på objektet (to landskapsflater har et omsluttende
+  rektangel som dekker hele kommunen), og `geometry: null` telles i stedet for å
+  feile. Selve skjæringen mot teigen gjøres i `sandbox-backend`, der reglene bor -
+  mocken er en ren datakilde og har ingen regel å holdes i takt med.
 - `apps/politiattest-mock` (`8088`): mock of a politiattest, serving the attest the vandelskontroll case is assessed against. **This integration does not exist in reality** - there is no API for a politiattest, the attest is a locked PDF with no machine-readable content, it is issued to the citizen rather than to the kommune, and nobody can look it up. The mock is the structured form of the document the citizen presents, and its README says so first. It does not model politiets reaksjonsregister: it answers only for attests already issued for a stated formål. Three things are deliberate: `fnr` is required, so the surface never answers a bulk query; `formaal` is required too, because an attest exists for one purpose and a lookup without one is «what does this person have on them»; and it is behind Maskinporten rather than ID-porten. The only *service* that reads `data/politiattester.json`; the gate reads it too.
 - `apps/ai-gateway` (`8082`): AI provider abstraction (`mock|ollama|openrouter|bedrock`). Switch live, no restart, at `GET /admin` (or `POST /admin/provider`) - persisted to `state/ai-provider-override.json`, which overrides `AI_PROVIDER`/`BEDROCK_MODEL_ID` on next boot. Also exposes `POST /ai/velg-verktoy` for dynamic step-tool discovery.
 - `apps/tools-api` (`8083`): 25 tool endpoints wrapping backend + AI + matrikkel, over REST. Includes `suggest_step_tools`, `matrikkel_finn_veger`, `matrikkel_hent_eiendom`, `matrikkel_hent_eiere`. The catalogue is `GET /verktoy`; a tool is invoked over `POST /verktoy/invoke` or `POST /verktoy/{name}/invoke`.
@@ -138,6 +153,13 @@ chat, or that every service is a søknad.
   whoever needs them: `assets.ts` (static files and type stripping - the two frontends),
   `registerdata.ts` (the shapes of `brreg.seed.json` and `folkeregister.seed.json` -
   `tools-api`, `fiks-simulator`, `matrikkel-mock` and `skjerming.ts`),
+  `geometri.ts` (the map extent, the GeoJSON guards and the ray cast -
+  `matrikkel-mock` and `plan-mock` both index by bounding box and validate the same
+  way, the rule and the browser both answer whether a point is inside a flate, and
+  the old names in `matrikkelteig.ts` promised matrikkel about plain geometry),
+  `hensynssoner.ts` (the KPA2018 sone kodeverk, the datasett ids and the wire shape -
+  which file and column each dataset has is plan-mock's own, in
+  `apps/plan-mock/src/datasett.ts`),
   `innbyggerdata.ts` (the shapes of `personer.json`,
   `husstander.json`, the two plass-datasets and `samtykker.json` - `sandbox-backend` and
   `fiks-simulator`), `jsonstore.ts` (`seedDir`/`stateDir`, `readJson`, `updateJson` - the
@@ -332,6 +354,19 @@ when anything was gated away, before the model is called: a summary or a
 søknadsdokument built on a withdrawn basis is a record that does not say what the
 decision rests on, and the honest answer is to stop rather than to emit a partial
 one. `pnpm test:revisjon` pins all of it.
+
+- **En hensynssone navngis, den avgjør ikke.** Sjekken `hensynssoner` i
+  `evaluateGarasje` er alltid `uavklart`, og den står etter at `nasjonaltUnntak` er
+  regnet ut, så den kan ikke flytte `utfall`. Grunnen er ikke forsiktighet: en
+  hensynssone hjemlet i plan- og bygningsloven § 11-8 sier at et hensyn gjelder for
+  området, mens om tiltaket er tillatt står i planbestemmelsene, som piloten ikke
+  leser - og uttrekket er dessuten frosset i 2018. Det samme gjelder
+  `arealformaal-flate`. `pnpm test:garasje` pinner at et treff ikke endrer utfallet.
+- **Flatene fra `plan-mock` er klippet til kartutsnittet, og det står på tråden.**
+  `klippetTilUtsnitt: true` er påkrevd, og `sandbox-backend` avviser et svar uten
+  det. Ringene har derfor kanter langs utsnittet som ikke er sonegrenser: de kan
+  tegnes og brukes til å svare på om sonen berører eiendommen, men ingen avstand
+  skal måles mot dem.
 
 ## Language
 
@@ -636,6 +671,7 @@ pnpm test:agent:dialog     # starts isolated services with the AI mock, through 
 pnpm test:tools-matrikkel  # starts tools-api, matrikkel-mock and a fake Geonorge service
 pnpm test:agent:matrikkel  # starts process-agent and a fake tools-api
 pnpm test:matrikkel-mock   # starts its own matrikkel-mock
+pnpm test:plan-mock        # starts its own plan-mock against the real KPA2018 files
 ```
 - After editing source files in `apps/`, restart the affected containers so Node picks up the changes:
 ```bash
@@ -643,9 +679,9 @@ pnpm test:matrikkel-mock   # starts its own matrikkel-mock
 docker compose restart sandbox-backend demo-gui   # targeted restart if you only changed those two
 ```
   Source files are volume-mounted (`./:/workspace`), so no image rebuild is needed - a restart is enough.
-- All eleven Node services (`sandbox-backend`, `demo-gui`, `ai-gateway`, `tools-api`,
+- All thirteen Node services (`sandbox-backend`, `demo-gui`, `ai-gateway`, `tools-api`,
   `process-agent`, `fiks-simulator`, `process-builder`, `matrikkel-mock`, `digdir-mock`,
-  `pasientjournal-mock`, `politiattest-mock`) are volume-mounted and run via `scripts/dev.sh`, which selects the right watcher automatically:
+  `pasientjournal-mock`, `politiattest-mock`, `plan-mock`) are volume-mounted and run via `scripts/dev.sh`, which selects the right watcher automatically:
   - **Linux** and **macOS with Docker Desktop 4.15+** (VirtioFS default): `node --watch` - inotify
     events propagate natively; restarts are immediate.
   - **Windows** (Docker Desktop with project on Windows filesystem, `C:\...`): `nodemon --legacy-watch`
@@ -687,13 +723,13 @@ pnpm test:bergen-matrikkel
   actual submission. Running `test:agent` or `test:agent:nl` on its own needs the
   stack. `test:tools-matrikkel`, `test:agent:matrikkel` and `test:matrikkel-mock` start their own
   services; they need neither a running stack nor a model.
-- All eleven services have a `healthcheck` in `docker-compose.yml`, and `tools-api`
+- All thirteen services have a `healthcheck` in `docker-compose.yml`, and `tools-api`
   and `process-agent` wait on `condition: service_healthy`. `./start.sh` still polls
   `/helse` itself, since the macOS path uses `--no-deps`.
 
 ## Integration edges and env vars
 - In Compose, services call each other by container DNS (`http://sandbox-backend:8080`, etc.).
-- Common env vars: `BACKEND_BASE_URL`, `AI_BASE_URL`, `TOOLS_BASE_URL`, `MATRIKKEL_BASE_URL`, `AI_PROVIDER`, `OLLAMA_BASE_URL`, `OLLAMA_MODEL`, `BEDROCK_AWS_REGION`, `BEDROCK_AWS_ACCESS_KEY_ID`, `BEDROCK_AWS_SECRET_ACCESS_KEY`, `BEDROCK_AWS_SESSION_TOKEN`, `BEDROCK_MODEL_ID`, `PASIENTJOURNAL_BASE_URL`, `POLITIATTEST_BASE_URL`, `STATE_DIR` - which
+- Common env vars: `BACKEND_BASE_URL`, `AI_BASE_URL`, `TOOLS_BASE_URL`, `MATRIKKEL_BASE_URL`, `PLAN_BASE_URL`, `AI_PROVIDER`, `OLLAMA_BASE_URL`, `OLLAMA_MODEL`, `BEDROCK_AWS_REGION`, `BEDROCK_AWS_ACCESS_KEY_ID`, `BEDROCK_AWS_SECRET_ACCESS_KEY`, `BEDROCK_AWS_SESSION_TOKEN`, `BEDROCK_MODEL_ID`, `PASIENTJOURNAL_BASE_URL`, `POLITIATTEST_BASE_URL`, `STATE_DIR` - which
   `docker-compose.yml` never passes on, so it is read only by scripts you start
   yourself, never by a service under compose.
 - `tools-api` uses `MATRIKKEL_BASE_URL` (default `http://matrikkel-mock:8085`) to reach the Matrikkel mock.

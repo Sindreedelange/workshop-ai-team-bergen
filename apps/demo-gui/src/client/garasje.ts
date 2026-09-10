@@ -1,7 +1,9 @@
 import type {
-  GarasjeAdresse, GarasjeGrunnlag, GarasjePolygon, GarasjePunkt, GarasjeTiltak, GarasjeVurdering
+  GarasjeAdresse, GarasjeGrunnlag, GarasjePlanflate, GarasjePolygon, GarasjePunkt, GarasjeTiltak, GarasjeVurdering
 } from "../../../shared/garasje.ts";
+import type { Hensynssonetype } from "../../../shared/hensynssoner.ts";
 import { findNabotomtLabel, fitKartutsnitt, projectGarasjePunkt, unprojectGarasjePunkt, type KartLabel } from "./garasje-kart.ts";
+import { ringerInneholder } from "../../../shared/geometri.ts";
 import { createGarasjeUtfylling, type GarasjeDialogReply } from "./garasje-utfylling.ts";
 import { GARASJE_DIALOGFELTER, projectGarasjeDialogGrunnlag } from "../../../shared/garasje-dialog.ts";
 
@@ -34,6 +36,11 @@ let placementConfirmed = false;
 let valgtAdresse: GarasjeAdresse | null = null;
 let plassering: GarasjePunkt | null = null;
 let grunnlag: GarasjeGrunnlag | null = null;
+// Planflatene hører til eiendommen og ikke til punktet, så de blir stående når
+// markøren flyttes og plangrunnlaget for punktet forkastes. Bare svaret på om
+// punktet ligger inne i en flate regnes om, og serveren bekrefter det etterpå.
+let planflater: GarasjePlanflate[] = [];
+let plankilde: GarasjeGrunnlag["kilder"][number] | undefined;
 let vurdering: GarasjeSvar | null = null;
 let adressevalg: Adressevalg[] = [];
 let bounds = { west: 0, east: 0, south: 0, north: 0 };
@@ -100,6 +107,8 @@ function clearConfirmation(): void {
   krevEl("plan-facts").replaceChildren();
   krevEl("sources").replaceChildren();
   svg.querySelector("#map-image")!.removeAttribute("href");
+  krevEl("building-status").textContent = "";
+  krevEl("neighbour-status").textContent = "";
   renderPropertySteps();
   krevEl("confirm-property").hidden = true;
   krevEl("confirm-note").textContent = "";
@@ -360,12 +369,21 @@ function xy(punkt: GarasjePunkt): [number, number] {
   return projectGarasjePunkt(punkt, bounds);
 }
 
-function drawPolygons(id: string, polygons: GarasjePolygon[], className: string): void {
+/**
+ * `className` kan være en funksjon når lagets flater ikke deler klasse.
+ *
+ * Alternativet var å tegne alt med én klasse og så overskrive hver path etter
+ * indeks fra kalleren, som bandt kalleren til at drawPolygons legger igjen
+ * nøyaktig ett barn per flate i samme rekkefølge.
+ */
+function drawPolygons(
+  id: string, polygons: { ringer: [number, number][][] }[], className: string | ((index: number) => string)
+): void {
   const group = svg.querySelector(`#${id}`)!;
   group.replaceChildren();
-  for (const polygon of polygons) {
+  for (const [index, polygon] of polygons.entries()) {
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    path.setAttribute("class", className);
+    path.setAttribute("class", typeof className === "string" ? className : className(index));
     path.setAttribute("fill-rule", "evenodd");
     path.setAttribute("d", polygon.ringer.map(ring => ring.map(([lon, lat], index) => {
       const [x, y] = xy({ lon, lat });
@@ -373,6 +391,36 @@ function drawPolygons(id: string, polygons: GarasjePolygon[], className: string)
     }).join(" ") + " Z").join(" "));
     group.append(path);
   }
+}
+
+function renderBuildings(data: GarasjeGrunnlag): void {
+  // Bygningsflatene dekker hele oppslagskonvolutten, ikke bare valgt teig. Bare
+  // flatene i bebyggelsen er sammenholdt med teigen, så bare de kan tegnes som
+  // egne bygg. Er bebyggelsen uavklart, vet kartet ingenting om tilknytningen,
+  // og da skal det ikke påstå at alt er nabobygg.
+  const kilde = data.kilder.find(kilde => kilde.id === "bygninger");
+  const kobletTilTeig = data.bebyggelse !== undefined && data.bebyggelse.bygninger.length > 0;
+  const egne = new Set(data.bebyggelse?.bygninger.map(bygning => bygning.id) ?? []);
+  const eier = kobletTilTeig ? data.bygninger.filter(flate => egne.has(flate.id)) : data.bygninger;
+  const naboer = kobletTilTeig ? data.bygninger.filter(flate => !egne.has(flate.id)) : [];
+  drawPolygons("map-buildings", eier, "building");
+  drawPolygons("map-buildings-neighbour", naboer, "building-neighbour");
+  const status = krevEl("building-status");
+  if (!kilde || kilde.status === "ikke_sjekket") {
+    status.textContent = "Bygningsdata er ikke hentet for dette kartutsnittet.";
+    return;
+  }
+  if (kilde.status === "feil") {
+    status.textContent = `Bygningskartet kunne ikke hentes. ${kilde.merknad ?? ""}`.trim();
+    return;
+  }
+  if (kilde.status === "ingen_treff" || !data.bygninger.length) {
+    status.textContent = "Ingen bygningsflater ble funnet i dette kartutsnittet. Kartet er ikke et bevis på at området er ubebygd.";
+    return;
+  }
+  status.textContent = kobletTilTeig
+    ? `${eier.length} bygningsflater på din tomt og ${naboer.length} på nabotomter i kartutsnittet.`
+    : `${data.bygninger.length} bygningsflater i kartutsnittet. Hvilke av dem som ligger på din tomt er ikke avklart, så de er ikke skilt fra hverandre i kartet.`;
 }
 
 function renderNeighbours(data: GarasjeGrunnlag): void {
@@ -411,6 +459,58 @@ function renderNeighbours(data: GarasjeGrunnlag): void {
   }
 }
 
+const ZONE_CLASS: Record<Hensynssonetype, string> = {
+  stoy: "zone-stoy", fare: "zone-fare", angitthensyn: "zone-angitthensyn",
+};
+
+// Ingen reservefarge: unionen på GarasjePlanflate gjør at hensynstypen alltid er
+// der for en hensynssone. Reserven som sto her kunne ikke inntreffe, og ville
+// uansett tegnet en faresone grønn.
+function zoneClass(flate: GarasjePlanflate): string {
+  return `zone ${flate.kategori === "arealformaal" ? "zone-arealformaal" : ZONE_CLASS[flate.hensynstype]}`;
+}
+
+function zoneName(flate: GarasjePlanflate): string {
+  return flate.kategori === "hensynssone" ? `${flate.navn} ${flate.sonenavn}` : flate.navn;
+}
+
+function renderZones(data: GarasjeGrunnlag): void {
+  // Arealformålene først, så en hensynssone aldri blir liggende under et formål
+  // som dekker hele tomten.
+  planflater = [...data.planflater ?? []].sort((a, b) =>
+    Number(a.kategori === "hensynssone") - Number(b.kategori === "hensynssone"));
+  // Kilden lagres ved siden av flatene, ikke leses fra `grunnlag`: moveMarker
+  // nuller grunnlaget, så en feilet plankilde ble stille til «ingen soner» fra
+  // andre markørflytting og utover.
+  plankilde = data.kilder.find(kilde => kilde.id === "planflater");
+  drawPolygons("map-zones", planflater, index => zoneClass(planflater[index]!));
+  updateZoneStatus();
+}
+
+function updateZoneStatus(): void {
+  const status = krevEl("zone-status");
+  if (plankilde && plankilde.status !== "ok" && plankilde.status !== "ingen_treff") {
+    status.textContent = `Hensynssoner og arealformål kunne ikke hentes. ${plankilde.merknad ?? ""}`.trim();
+    return;
+  }
+  const soner = planflater.filter(flate => flate.kategori === "hensynssone");
+  if (!planflater.length) {
+    status.textContent = "Ingen hensynssoner eller arealformål fra kommuneplanen berører den kartlagte eiendommen.";
+    return;
+  }
+  const iPunktet = plassering
+    ? planflater.filter(flate => ringerInneholder(plassering!.lon, plassering!.lat, flate.ringer))
+    : [];
+  const berorer = soner.length
+    ? `Eiendommen berører ${soner.map(zoneName).join(", ")}.`
+    : "Ingen hensynssone berører eiendommen.";
+  // «Foreløpig» er ikke et forbehold for syns skyld: dette er regnet ut i
+  // nettleseren mens markøren flyttes, og det er serveren som fastslår det.
+  status.textContent = `${berorer} Markøren står foreløpig ${iPunktet.length
+    ? `i ${iPunktet.map(zoneName).join(", ")}` : "utenfor alle flatene"}. `
+    + "Kommuneplanens bestemmelser avgjør hva som gjelder; sonen alene sier det ikke.";
+}
+
 function renderMap(data: GarasjeGrunnlag): void {
   bounds = fitKartutsnitt(data.eiendomsgrenser, data.adresse.punkt);
   const query = new URLSearchParams({
@@ -423,7 +523,8 @@ function renderMap(data: GarasjeGrunnlag): void {
   if (background) svg.querySelector("#map-image")!.setAttribute("href", `${background}?${query}`);
   else svg.querySelector("#map-image")!.removeAttribute("href");
   drawPolygons("map-parcels", data.eiendomsgrenser, "parcel");
-  drawPolygons("map-buildings", data.bygninger, "building");
+  renderZones(data);
+  renderBuildings(data);
   renderNeighbours(data);
 }
 
@@ -445,6 +546,7 @@ function moveMarker(punkt: GarasjePunkt): void {
   placementChosen = true;
   invalidateResult();
   updateMarker();
+  updateZoneStatus();
   krevEl("placement-note").textContent = "Plasseringen er endret. Velg «Bekreft plassering og fortsett» for å hente planer for punktet og beskrive garasjen.";
   krevEl("plan-facts").replaceChildren(element("p", "Tidligere planopplysninger er skjult fordi plasseringen er endret.", "ds-paragraph"));
   krevEl("sources").replaceChildren();

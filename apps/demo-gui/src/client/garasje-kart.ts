@@ -1,4 +1,5 @@
 import type { GarasjePolygon, GarasjePunkt } from "../../../shared/garasje.ts";
+import { ringerInneholder } from "../../../shared/geometri.ts";
 
 export type Kartutsnitt = { west: number; east: number; south: number; north: number };
 const metersPerDegree = 111320;
@@ -60,14 +61,6 @@ export function findNabotomtLabel(
 ): KartLabel | null {
   const rings = polygon.ringer.map(ring => ring.map(([lon, lat]) => projectGarasjePunkt({ lon, lat }, bounds)));
   const excluded = selected.map(shape => shape.ringer.map(ring => ring.map(([lon, lat]) => projectGarasjePunkt({ lon, lat }, bounds))));
-  const inside = (x: number, y: number, rings: [number, number][][]): boolean => {
-    let contained = false;
-    for (const ring of rings) for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-      const a = ring[i], b = ring[j];
-      if ((a[1] > y) !== (b[1] > y) && x < (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1]) + a[0]) contained = !contained;
-    }
-    return contained;
-  };
   let xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity;
   for (const ring of rings) for (const [x, y] of ring) {
     xmin = Math.min(xmin, x); xmax = Math.max(xmax, x);
@@ -84,7 +77,7 @@ export function findNabotomtLabel(
     const { x, y } = candidate;
     if (occupied.some(other => Math.abs(x - other.x) < (width + other.width) / 2 + 6 && Math.abs(y - other.y) < 26)) continue;
     const samples = [[x, y], [x - width / 2, y - 10], [x + width / 2, y - 10], [x - width / 2, y + 8], [x + width / 2, y + 8]];
-    if (samples.every(([sx, sy]) => inside(sx, sy, rings) && !excluded.some(shape => inside(sx, sy, shape)))) return candidate;
+    if (samples.every(([sx, sy]) => ringerInneholder(sx!, sy!, rings) && !excluded.some(shape => ringerInneholder(sx!, sy!, shape)))) return candidate;
   }
   return null;
 }

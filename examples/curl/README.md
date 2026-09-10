@@ -50,13 +50,13 @@ Bruk API-utforskeren for et kall til disse tjenestene.
 ## 2. Er sandkassen i live?
 
 ```bash
-for p in 8080 8081 8082 8083 8084 8085 8086 8087 8088 8089; do
+for p in 8080 8081 8082 8083 8084 8085 8086 8087 8088 8089 8090; do
   printf "%s " $p
   curl -s -o /dev/null -w "%{http_code}\n" --max-time 2 "http://localhost:$p/helse"
 done
 ```
 
-Ti svar, alle `200`. **`8086` er `digdir-mock`**, som utsteder tokener. Er den nede,
+Elleve svar, alle `200`. **`8086` er `digdir-mock`**, som utsteder tokener. Er den nede,
 kan du ikke hente nye tokener, selv om de andre tjenestene er friske.
 
 `8082` svarer alltid `200` selv om modellen er nede. Les `modellNaaBar` i kroppen, ikke

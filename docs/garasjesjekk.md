@@ -23,6 +23,15 @@ videre. Med `--mock` får du faste, kildebaserte forklaringer. Med en konfigurer
 språkmodell kan KI formulere forklaringene. Selve vurderingen bruker alltid faste
 regler, ikke modellen.
 
+Etter vurderingen kan KI gi et **råd** i tillegg: `POST /ai/garasje-raad` leser hele
+grunnlaget, måler det mot plangrunnlaget og sier hva som må avklares og hvorfor.
+Rådet er et tillegg til vurderingen, ikke en erstatning for den, og det er den ene
+oppgaven i sandkassen som ber om en reasoning-modell - de øvrige ble ikke bedre av
+tenkingen. To grenser ligger i kode og ikke i prompten, fordi en prompt kan modellen
+overse: rådet kan aldri sette «ikke søknadspliktig» når reglene ikke gjorde det, og
+reglenes uavklarte forhold står alltid i rådets liste uansett hva modellen svarte.
+`pnpm test:garasje-raad` fester begge, uten modell og uten tjenester.
+
 Garasjesjekken starter i mørkt tema. Valget av lyst eller mørkt tema lagres lokalt
 i nettleseren og gjenbrukes ved omlasting og i den innebygde garasjevisningen.
 Bare temavalget lagres der, ikke opplysninger om eiendommen eller garasjen.
@@ -41,8 +50,8 @@ forhold, aldri Bergen-data som reserve.
 
 | Adresse | Eiendom i Bergen | Hva casen skal synliggjøre |
 |---|---|---|
-| Litle Milde 65 | Gnr. 105, bnr. 209 | LNF er ikke i seg selv et automatisk avslag eller bevis på søknadsplikt. |
-| Kråkenestoppen 60 | Gnr. 20, bnr. 1413 | Kommuneplanens formål er ikke nok: lokale planbestemmelser om blant annet garasje og gjerde må undersøkes. |
+| Litle Milde 65 | Gnr. 105, bnr. 209 | LNF er ikke i seg selv et automatisk avslag eller bevis på søknadsplikt. Eiendommen ligger dessuten helt inne i gul støysone H220_1. |
+| Kråkenestoppen 60 | Gnr. 20, bnr. 1413 | Kommuneplanens formål er ikke nok: lokale planbestemmelser om blant annet garasje og gjerde må undersøkes. Faresone H390_2 berører deler av eiendommen. |
 
 Logg inn som **Milda Garasjetest** (`person-395`) for Litle Milde, eller
 **Kåre Garasjetest** (`person-396`) for Kråkenestoppen. Bosted, husstand og eierskap
@@ -102,6 +111,15 @@ over nabotomtenes areal og kvalitet. Eieropplysninger hentes ikke. Dette er
 tomter i utsnittet, ikke en fullstendig eller juridisk bekreftet naboliste.
 Naboflatene inngår ikke i arealberegningen eller reglene for valgt eiendom.
 
+Bygningsflatene i kartutsnittet tegnes på samme måte. Bygg som er sammenholdt
+med den valgte teigen har heltrukket fyll; bygg på nabotomter er stiplet og
+nedtonet, og de inngår ikke i bebyggelsen eller arealberegningen for eiendommen.
+Er tilknytningen til teigen uavklart, skilles flatene ikke, fordi kartet ikke
+skal påstå mer enn bebyggelsen faktisk vet. En tegnforklaring under kartet
+navngir flatetypene, og en statuslinje sier hvor mange flater som vises eller
+hvorfor bygningskartet mangler. Uten den så et mislykket bygningsoppslag ut som
+et tomt kart.
+
 Endrer du adressen, skjules kartet og det gamle grunnlaget til den nye
 eiendommen er bekreftet. Feiler hentingen, vises en knapp for å prøve igjen.
 
@@ -124,6 +142,7 @@ samme; en slik avklaring må gjøres mot det konkrete plangrunnlaget.
 |---|---|
 | [`garasje-kommuner.ts`](../apps/shared/garasje-kommuner.ts) | Kobler kommunenummer til kommunens kartlag, planportal, plan-ID, versjon og bestemmelser. Bergen-PDF-en hører bare til `4601`. |
 | [`arealsoner.ts`](../apps/shared/arealsoner.ts) | Kontrollerte sonetyper, nøklet på kommune, plan, versjon, arealformål og arealstatus. Ukjente kombinasjoner forblir ukjente. |
+| [`hensynssoner.ts`](../apps/shared/hensynssoner.ts) | Sonekodene i KPA2018 med klarspråksnavn, datasett-id-ene og formen på tråden. Hvilken fil og kolonne hvert datasett har er `plan-mock` sin egen sak. |
 | [`garasje-regelgrunnlag.ts`](../apps/shared/garasje-regelgrunnlag.ts) | Nasjonale tallkrav, enheter og kilder. Den samme definisjonen brukes av reglene og KI-grunnlaget. |
 | [`garasje-begreper.ts`](../apps/shared/garasje-begreper.ts) | Kildebaserte forklaringer av fagord. |
 | [`garasje-dialog.ts`](../apps/shared/garasje-dialog.ts) | Felles utfyllingsfelter, enheter og validering for samtale og stegvis utfylling. |
@@ -162,6 +181,35 @@ planbestemte måleregler kan påvirke BYA/BRA. Tillatt utnyttelse for hver sone 
 ikke lagt inn som antatte prosentgrenser; det må komme fra de relevante
 planbestemmelsene.
 
+### Hensynssoner og arealformål over hele eiendommen
+
+Kommuneplanoppslaget mot Bergens kart spør om **ett punkt** og får ingen geometri
+tilbake. Det kan ikke svare på om en sonegrense går tvers gjennom tomten, som er
+spørsmålet innbyggeren stiller når hun setter garasjen i kartet.
+
+Derfor leses KPA2018 også som flater, fra et frosset uttrekk hos
+[`plan-mock`](../apps/plan-mock/README.md): de seks hensynssonene - gule støysoner,
+faresoner og de fire angitte hensynene - og arealformålene. Flatene sammenlignes med
+den kartlagte teigen, ikke med adressepunktet, og resultatet sier om sonen dekker
+eiendommen **helt** eller berører den **delvis**, og om skissepunktet ligger inne i
+den. Flatene tegnes i kartet under eiendomsgrensen, og markøren melder sonen med én
+gang den flyttes; serveren fastslår det ved «Bekreft plassering».
+
+**Sonen avgjør ingenting.** Sjekken `hensynssoner` er alltid `uavklart`, og den står
+etter at det nasjonale unntaket er regnet ut, så den kan ikke flytte utfallet. En
+hensynssone er hjemlet i plan- og bygningsloven § 11-8 og sier at et hensyn gjelder
+for området; om tiltaket er tillatt, står i planbestemmelsene, som piloten ikke
+leser. Uttrekket er dessuten fra 2018 og er ikke gjeldende plan.
+
+Navnet på flaten kommer fra et kontrollert register - kodeverket for
+hensynssonene, [`arealsoner.ts`](../apps/shared/arealsoner.ts) for formålene - og
+ikke fra kildens fritekst; ellers svarte det samme grunnlaget på det samme
+spørsmålet to ganger. Kildens egen `BESKRIVELSE` går likevel ordrett videre ved
+siden av - «Sjøflyhavn - gul sone», «Akutt forurensning» - fordi den sier hva
+hensynet konkret gjelder. Flatene er klippet til
+kartutsnittet, så ringene har kanter som ikke er sonegrenser: ingen avstand måles mot
+dem.
+
 ### Offentlige kilder
 
 - [`matrikkel_bk_25.json`](../data/matrikkel_bk_25.json): lokalt Bergen-uttrekk,
@@ -173,6 +221,10 @@ planbestemmelsene.
 - [Geonorge: Matrikkelen - Eiendomskart Teig](https://kartkatalog.geonorge.no/metadata/uuid/74340c24-1c8a-4454-b813-bfe498e80f16):
   eiendomsgeometri via Kartverkets dokumenterte eiendoms-API. GeoJSON-geometrien
   hentes for den konkrete matrikkelidentiteten, ikke fra et generisk eksempel.
+- KPA2018-uttrekket under [`data/`](../data): sju GeoJSON-filer med hensynssoner og
+  arealformål, omtrent 62 MB. `plan-mock` er eneste tjeneste som leser dem;
+  garasjesjekken slår opp på kartutsnitt gjennom API-et. Frosset i 2018, og ikke
+  gjeldende plan.
 - [Bergens karttjenester](https://kart.bergen.kommune.no/arcgis/rest/services):
   tilgjengelige arealformål, reguleringsplanområder og bygninger.
   Tilgjengelig geometri er ikke en garanti for nøyaktige grenser.

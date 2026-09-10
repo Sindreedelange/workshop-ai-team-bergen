@@ -2,9 +2,14 @@ import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type {
-  MatrikkelTeigFeature, MatrikkelTeigGeometri, MatrikkelTeigSvar, MatrikkelNaboteigSvar, MatrikkelKartutsnitt
+  MatrikkelTeigFeature, MatrikkelTeigGeometri, MatrikkelTeigSvar, MatrikkelNaboteigSvar
 } from "../../shared/matrikkelteig.ts";
-import { getTeigBounds, intersectsKartutsnitt, isBoundedKartutsnitt, NABOTEIG_MAX_TREFF } from "../../shared/matrikkelteig.ts";
+import { NABOTEIG_MAX_TREFF } from "../../shared/matrikkelteig.ts";
+import type { Kartutsnitt } from "../../shared/geometri.ts";
+import {
+  getGeometriBounds, intersectsKartutsnitt, isBoundedKartutsnitt, isNonnegativeInteger, isNonnegativeNumber,
+  isObject, parseKartutsnittQuery, projectGeometri
+} from "../../shared/geometri.ts";
 
 const defaultFile = fileURLToPath(new URL("../../../data/matrikkel_bk_25.json", import.meta.url));
 const kommunenummerBergen = "4601";
@@ -42,30 +47,15 @@ export function parseTeigQuery(params: URLSearchParams): TeigQuery {
   return { kommunenummer, gnr: readNumber("gnr", 1), bnr: readNumber("bnr", 0), fnr: readNumber("fnr", 0, 0) };
 }
 
-export type NaboteigQuery = MatrikkelKartutsnitt & { kommunenummer: string };
+export type NaboteigQuery = Kartutsnitt & { kommunenummer: string };
 
 export function parseNaboteigQuery(params: URLSearchParams): NaboteigQuery {
-  const fields = ["kommunenummer", "vest", "sor", "ost", "nord"];
-  for (const name of params.keys()) {
-    if (!fields.includes(name) || params.getAll(name).length !== 1) {
-      throw new TeigError(400, "Bruk bare kommunenummer, vest, sor, ost og nord, én gang hver.");
-    }
-  }
-  const kommunenummer = params.get("kommunenummer") || "";
-  if (!/^\d{4}$/.test(kommunenummer) || kommunenummer === "0000") throw new TeigError(400, "kommunenummer må være fire sifre og kan ikke være 0000.");
-  const coordinate = (name: string): number => {
-    const raw = params.get(name);
-    if (raw === null || !/^-?\d+(?:\.\d+)?$/.test(raw)) throw new TeigError(400, `${name} må være en endelig koordinat.`);
-    return Number(raw);
-  };
-  const bounds = { vest: coordinate("vest"), sor: coordinate("sor"), ost: coordinate("ost"), nord: coordinate("nord") };
-  if (!isBoundedKartutsnitt(bounds)) throw new TeigError(400, "Kartutsnittet må være gyldige lengde- og breddegrader, høyst 500 meter langs hver side.");
-  return { kommunenummer, ...bounds };
+  return parseKartutsnittQuery(params, melding => new TeigError(400, melding));
 }
 
 type TeigIndex = {
   perEiendom: Map<string, MatrikkelTeigFeature[]>;
-  spatial: { bounds: MatrikkelKartutsnitt; feature: MatrikkelTeigFeature }[];
+  spatial: { bounds: Kartutsnitt; feature: MatrikkelTeigFeature }[];
   antallTeiger: number;
 };
 type TeigStatus = {
@@ -76,48 +66,6 @@ type TeigStatus = {
   antallEiendommer?: number;
   lastetTidspunkt?: string;
 };
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isNonnegativeNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0;
-}
-
-function isNonnegativeInteger(value: unknown): value is number {
-  return isNonnegativeNumber(value) && Number.isSafeInteger(value);
-}
-
-function isRing(value: unknown): value is number[][] {
-  if (!Array.isArray(value) || value.length < 4) return false;
-  const distinct = new Set<string>();
-  for (const position of value) {
-    if (!Array.isArray(position) || (position.length !== 2 && position.length !== 3)
-      || !position.every((coordinate: unknown) => typeof coordinate === "number" && Number.isFinite(coordinate))
-      || position[0] < -180 || position[0] > 180 || position[1] < -90 || position[1] > 90) return false;
-    distinct.add(`${position[0]},${position[1]}`);
-  }
-  const first: number[] = value[0];
-  const last: number[] = value[value.length - 1];
-  return distinct.size >= 3 && first.length === last.length && first.every((coordinate, i) => coordinate === last[i]);
-}
-
-function isPolygon(value: unknown): value is number[][][] {
-  return Array.isArray(value) && value.length > 0 && value.every(isRing);
-}
-
-function projectGeometry(value: unknown): MatrikkelTeigGeometri | null {
-  if (!isObject(value)) return null;
-  if (value.type === "Polygon" && isPolygon(value.coordinates)) {
-    return { type: "Polygon", coordinates: value.coordinates };
-  }
-  if (value.type === "MultiPolygon" && Array.isArray(value.coordinates)
-    && value.coordinates.length > 0 && value.coordinates.every(isPolygon)) {
-    return { type: "MultiPolygon", coordinates: value.coordinates };
-  }
-  return null;
-}
 
 function eiendomKey(gnr: number, bnr: number, fnr: number): string {
   return `${gnr}/${bnr}/${fnr}`;
@@ -135,7 +83,7 @@ function buildIndex(value: unknown): TeigIndex {
     const invalid = () => new TeigError(502, `Teigdatasettet har ugyldige felter eller koordinater i objekt ${index + 1}.`);
     if (!isObject(feature) || feature.type !== "Feature" || !isObject(feature.properties)) throw invalid();
     const p = feature.properties;
-    const geometry = projectGeometry(feature.geometry);
+    const geometry = projectGeometri(feature.geometry);
     if (!geometry || !isNonnegativeInteger(p.OBJECTID) || feature.id !== p.OBJECTID || ids.has(p.OBJECTID)
       || p.OBJTYPE !== "Teig" || !isNonnegativeInteger(p.GNR) || !isNonnegativeInteger(p.BNR)
       || !isNonnegativeInteger(p.FNR) || !isNonnegativeInteger(p.SNR)
@@ -158,7 +106,7 @@ function buildIndex(value: unknown): TeigIndex {
     const features = perEiendom.get(key);
     if (features) features.push(projected);
     else perEiendom.set(key, [projected]);
-    spatial.push({ bounds: getTeigBounds(geometry), feature: projected });
+    spatial.push({ bounds: getGeometriBounds(geometry), feature: projected });
   }
   return { perEiendom, spatial, antallTeiger: value.features.length };
 }
