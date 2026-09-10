@@ -60,6 +60,10 @@ jobs:
       # unlike test:eval it can gate every PR.
       - name: Sperrer på frie spørsmål
         run: pnpm test:sperrer
+      - name: Reasoning - hvilke oppgaver som tenker, og hvilke modeller som kan
+        run: pnpm test:reasoning
+      - name: Tiltaksråd - regelutfall, dokumentkilder og visning
+        run: pnpm test:garasje-raad
 
       # The deterministic traffic summary must preserve structured answers and
       # distinguish an explicit no from an unknown answer without using a model.
@@ -82,7 +86,7 @@ jobs:
       - name: Vilkårsvurderingen
         run: pnpm test:vilkaar
 
-      - name: Garasjesjekk, adresser og plangrunnlag
+      - name: Tiltakssjekk, adresser og plangrunnlag
         run: pnpm test:garasje
 
       # Modulus 11 and Skatteetaten's +80 marker, as pure functions. The seed only

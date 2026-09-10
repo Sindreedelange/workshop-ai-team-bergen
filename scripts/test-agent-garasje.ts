@@ -7,6 +7,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as wait } from "node:timers/promises";
 import { readRequestBody, svarhjelpere } from "../apps/shared/http.ts";
+import { BYGGETILTAK_KATALOG } from "../apps/shared/byggetiltak.ts";
+import { selectGarasjeProsessfelter } from "../apps/shared/garasje-dialog.ts";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const toolsPort = Number(process.env.AGENT_GARASJE_TOOLS_PORT || 21983);
@@ -40,8 +42,18 @@ const steps: {
 }[] = garasje.steg;
 assert.deepEqual(steps.map(step => step.type), ["INFO", "DATA_FETCH", "QUESTION", "DATA_FETCH"]);
 assert.equal(steps[2].visning, "garasje");
-assert.deepEqual(steps[2].felter!.map(field => field.id).sort(), Object.keys(svar).sort());
-const requiredFields = steps[2].felter!.filter(field => field.obligatorisk);
+assert.deepEqual(steps[2].felter!.map(field => field.id).sort(), [...new Set([
+  ...Object.keys(svar), "tiltakstype", "tiltaksbeskrivelse", "tiltakstypeBekreftet",
+  ...BYGGETILTAK_KATALOG.flatMap(entry => entry.sporsmaal.map(field => field.id)),
+])].sort());
+const requiredFields = selectGarasjeProsessfelter(steps[2].felter!, "garasje");
+assert.deepEqual(requiredFields.map(field => field.id).sort(), Object.keys(svar).filter(id => id !== "kommunenummer").sort(),
+  "Eldre dialog uten tiltakstype skal fortsatt spørre om alle garasjeopplysningene.");
+const fenceFields = selectGarasjeProsessfelter(steps[2].felter!, "garasje", "gjerde");
+assert.deepEqual(fenceFields.filter(field => !field.obligatorisk).map(field => field.id).sort(),
+  ["hoyde", "motVeg", "friSikt", "aapenLett"].sort());
+assert(!fenceFields.some(field => ["bra", "bya", "etasjer", "monehoyde", "gesimshoyde"].includes(field.id)),
+  "Gjerder skal ikke arve garasjens mål.");
 const ordinarySteps = [
   { id: "intro", type: "INFO", tekst: "En vanlig søknad." },
   { id: "navn", type: "QUESTION", tekst: "Hva heter prosjektet?", felter: [{ id: "navn", label: "Navn", obligatorisk: true, type: "tekst" }] },

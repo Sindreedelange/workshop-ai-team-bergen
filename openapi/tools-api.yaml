@@ -223,7 +223,11 @@ components:
             matrikkel_hent_eiendom, matrikkel_hent_eiere, brreg_search_organisations,
             brreg_get_organisation, folkeregister_search_persons,
             folkeregister_get_person, pdf_reprocess_document, pdf_get_job_status, pdf_get_extraction_result,
-            pdf_read_document, pdf_search_chunks, suggest_step_tools, answer_citizen_question.
+            pdf_read_document, pdf_search_chunks, pdf_list_documents, get_garasje_raad,
+            suggest_step_tools, answer_citizen_question.
+            pdf_list_documents gir kildemetadata og uttrekksstatus fra /dokumenter.
+            get_garasje_raad videresender kontekst og valgfri sporingsId til
+            /ai/garasje-raad uten å endre vurderingen; process-agent henter dokumentgrunnlaget først.
 
 
             answer_citizen_question besvarer et fritt spørsmål fra innbygger midt i

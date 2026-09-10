@@ -32,6 +32,11 @@ valgenes verdier. Valgfrie felt samles ikke inn i denne klienten. Et tall i en
 behovsbeskrivelse velger ikke et menypunkt; skriv for eksempel «2» eller «den andre»
 for å velge fra listen.
 
+Byggesjekken har ett unntak: tiltaksspesifikke felt er valgfrie i den felles
+prosessdefinisjonen, men må likevel samles inn for valgt tiltak. Dialogen velger
+bare den aktuelle kataloggrenen. Uten tiltakstype beholder den de opprinnelige
+garasjespørsmålene, slik at eldre samtaleklienter ikke hopper over mål og avstander.
+
 Et «nei» til oppsummeringen går tilbake til nærmeste tidligere `QUESTION`, også
 når det ligger samtykke, oppslag og sjekker mellom spørsmålet og oppsummeringen.
 Endrede svar gjør at grunnlaget hentes og vurderes på nytt. Hvis prosessen ikke har
@@ -55,9 +60,48 @@ går tilbake til det opprinnelige feltet uten å lagre meldingen som et svar.
 ## Endepunkter
 
 - `GET /helse`
+- `POST /agent/garasje/dialog` forklarer ett felt uten å lagre svaret
+- `POST /agent/garasje/raad` forklarer en oppgitt regelbasert vurdering uten å endre den
 - `POST /agent/sessions` oppretter en ny agentøkt
 - `GET /agent/sessions/{sessionId}` henter status for økten
 - `POST /agent/sessions/{sessionId}/messages` sender en brukermelding
+
+Garasjedialogen og sluttrådet henter PDF-kunnskap gjennom `tools-api`: først
+dokumentlisten med kildemetadata, deretter et søk avgrenset til dokumenter som
+passer kjent kommune og plan. Svaret har høyst tre utdrag på 1800 tegn med
+sidehenvisninger og kvalitetsvarsler. Et søketreff bekrefter ikke at planen
+gjelder eiendommen, at hele bestemmelsen er lest eller at tiltaket er tillatt.
+Kildeadressen hentes fra dokumentlisten. Et utdrag med en annen kildehash enn
+dokumentet utelates; manglende hash og varsler fra søket følger svaret.
+Høyst tre dokumenter søkes. Ulike kjente planer prioriteres før flere dokumenter
+for samme plan, og hvert dokument med treff får ett utdrag før et dokument får
+flere. Manglende planutdrag og dokumenter eller treff som budsjettet utelater,
+oppgis som begrenset dekning.
+Kartgrunnlaget sender også høyst åtte planflater som metadata: sonekode, navn,
+plan, overlapp med eiendommen og om skissepunktet ligger i flaten. Punktkontrollen
+bruker samme geometri som backend og kartet, inkludert hull og punkter på kanten.
+Ringer, koordinater og adresser sendes ikke videre. Kildestatus og eventuelle
+utelatte flater eller forkortede tekster følger grunnlaget og vises som varsler.
+En kilde som feiler er ukjent dekning, ikke fravær av hensynssoner.
+Manglende dokument, ukjent kommune og oppslagsfeil gir et synlig varsel og et
+neste steg hos kommunens byggesaksveileder.
+
+Dialogen støtter også gjerde, tilbygg og fasade. Oppgi `tiltakstype` på toppnivå
+eller i `kontekst.prosjekt.tiltakstype`; hvis begge er oppgitt, må de stemme.
+Felt, etiketter og grenser kommer da fra
+`BYGGETILTAK_KATALOG`. Et gjerdespørsmål skal ikke få garasjens høydegrenser.
+For andre tiltak enn frittliggende bygning utelates disse nasjonale tallkravene
+fra modellgrunnlaget. Katalogteksten og DIBK-henvisningen beholdes, og manglende
+kildebekreftede grenser omtales som ukjente.
+Den opprinnelige garasjedialogen beholder sine felt og grenser.
+
+Sluttrådet tar den deterministiske vurderingen fra backend i
+`kontekst.resultater["garasje-vurdering"]`, med vurderingen og det offentlige
+grunnlaget. Dette er en forklaring av innsendte data, ikke en autentisert
+vurderingsreferanse. Klienten må vise alle regelvilkår, kilder og varsler.
+Se `openapi/process-agent.yaml` for hele kontrakten.
+`pnpm test:garasje-raad` kjører agent, tools-api og gateway isolert med falsk
+dokumenttjeneste og modell, og kontrollerer både dialogen og sluttrådet.
 
 ## Rask test
 

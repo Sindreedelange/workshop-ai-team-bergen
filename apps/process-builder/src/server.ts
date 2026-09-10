@@ -15,7 +15,9 @@ const ASSETS: Record<string, string> = {
   "felles.css": "text/css; charset=utf-8",
   // Vendored design system - see apps/demo-gui/src/server.ts for the flat-filename rule.
   "ds-base.css": "text/css; charset=utf-8",
-  "ds-ksdigital.css": "text/css; charset=utf-8"
+  "ds-ksdigital.css": "text/css; charset=utf-8",
+  // Ours, not vendored: dark-theme colour corrections on top of the theme.
+  "ds-morketema.css": "text/css; charset=utf-8"
 };
 
 // Delt klientkode - se apps/demo-gui/src/server.ts for begrunnelsen.

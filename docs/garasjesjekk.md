@@ -1,17 +1,25 @@
-# Garasjesjekken
+# Kan du bygge uten å søke?
 
 En felles prosess i Chat, AI-agent og Stegvis, med Bergen som pilot.
-Innbyggeren beskriver garasjen, mens tjenesten henter adresse, eiendomsidentitet og
+Innbyggeren beskriver tiltaket, mens tjenesten henter adresse, eiendomsidentitet og
 tilgjengelig plangrunnlag. Dette er veiledning, ikke et kommunalt vedtak eller en
 byggesøknad.
 
 ## Start
 
-Start sandkassen med `./start.sh --mock` og velg **Garasjesjekken** under
+Start sandkassen med `./start.sh --mock` og velg **Kan du bygge uten å søke?** under
 «Tjenester for innbyggere» på oversikten. Velg Chat, AI-agent eller Stegvis.
 Kartet og eiendomsbekreftelsen er innebygd i alle tre inngangene, og vurderingen
 lagres i den vanlige prosessøkten. `/garasje` er fortsatt tilgjengelig som frittstående
 veiviser.
+
+Dette er fortsatt den samme casen. Prosess-ID, endepunkter og filnavn som inneholder
+`garasje` er beholdt for eksisterende klienter. Den synlige tjenesten omfatter
+frittliggende bygg, tilbygg, gjerde og fasadeendring, slik
+[fagpersonens flytkart](../data/Flytkart%20Hackathon.jpg) beskriver.
+En beskrivelse gir bare et forslag til tiltakstype. Innbyggeren bekrefter eller
+retter typen før de relevante spørsmålene åpnes. Uklare eller sammensatte tiltak
+skal ikke presses inn i regelen for et frittliggende bygg.
 
 Bruk ID-porten-testinnloggingen. Bostedsadressen foreslås først, og egne
 eiendommer vises som alternativer. Bosted og eierskap er forskjellige opplysninger.
@@ -23,16 +31,36 @@ videre. Med `--mock` får du faste, kildebaserte forklaringer. Med en konfigurer
 språkmodell kan KI formulere forklaringene. Selve vurderingen bruker alltid faste
 regler, ikke modellen.
 
-Garasjesjekken starter i mørkt tema. Valget av lyst eller mørkt tema lagres lokalt
+Etter vurderingen henter siden et **råd** via `POST /agent/garasje/raad`, både
+frittstående og i prosessøkten. Agenten bruker PDF-verktøyene til å finne
+dokumenter for kommunen og planen, og henter avgrensede søketreff før den ber
+`POST /ai/garasje-raad` formulere et råd. Modellen får relevante offentlige fakta
+og vurderingen, ikke rå kartgeometri eller personidentitet. Dokument, side,
+kildelenke og forbehold vises sammen med rådet. Et søketreff er ikke bevis på at
+hele planen er gjennomgått eller at bestemmelsen gjelder tiltaket.
+
+Rådet er et tillegg, ikke en erstatning for den deterministiske vurderingen.
+Et modelldrevet forslag om et mildere utfall kan ikke bli stående som en
+byggetillatelse i teksten. Alle uavklarte forhold fra reglene beholdes, uten å
+kutte bort de siste punktene. I mock-modus brukes et regelbasert råd. Feil i
+dokumenttjenesten eller modellen vises uttrykkelig; de blir ikke et automatisk ja.
+Siden viser alltid et konkret neste steg, også når svaret er å kontakte kommunens
+plan- og byggesaksrådgivere. Et ferdig hentet råd og kildehenvisningene følger med
+i den lokale nedlastingen.
+`pnpm test:garasje-raad` kontrollerer kodegrensene uten en ekstern modell.
+
+Tiltakssjekken starter i mørkt tema. Valget av lyst eller mørkt tema lagres lokalt
 i nettleseren og gjenbrukes ved omlasting og i den innebygde garasjevisningen.
-Bare temavalget lagres der, ikke opplysninger om eiendommen eller garasjen.
+Bare temavalget lagres der, ikke opplysninger om eiendommen eller tiltaket.
+Den lokale rettelsen i `apps/shared/ds-morketema.css` lastes etter de vendorede
+stilarkene, også i den innebygde visningen.
 
 Innloggingen og eieropplysningene er syntetiske. Testpersonen eier **ikke**
 dermed en virkelig eiendom. Adresse- og kartoppslag bruker offentlige tjenester,
 og bare søketekst og geografiske opplysninger sendes dit, ikke personidentitet,
 token eller eierlister. En syntetisk bostedsadresse finnes ikke nødvendigvis i det
 virkelige adresseregisteret. Da kan innbyggeren søke selv i den frittstående
-Garasjesjekken.
+tiltakssjekken.
 Adresse- og eiendomsoppslag er nasjonale. Bare Bergen har et kommunalt plan- og
 bygningsoppsett i workshopen. Andre kommuner får derfor uavklarte kommunale
 forhold, aldri Bergen-data som reserve.
@@ -41,8 +69,8 @@ forhold, aldri Bergen-data som reserve.
 
 | Adresse | Eiendom i Bergen | Hva casen skal synliggjøre |
 |---|---|---|
-| Litle Milde 65 | Gnr. 105, bnr. 209 | LNF er ikke i seg selv et automatisk avslag eller bevis på søknadsplikt. |
-| Kråkenestoppen 60 | Gnr. 20, bnr. 1413 | Kommuneplanens formål er ikke nok: lokale planbestemmelser om blant annet garasje og gjerde må undersøkes. |
+| Litle Milde 65 | Gnr. 105, bnr. 209 | LNF er ikke i seg selv et automatisk avslag eller bevis på søknadsplikt. Eiendommen ligger dessuten helt inne i gul støysone H220_1. |
+| Kråkenestoppen 60 | Gnr. 20, bnr. 1413 | Kommuneplanens formål er ikke nok: lokale planbestemmelser om blant annet bygg og gjerde må undersøkes. Faresone H390_2 berører eiendommen; kartgeometrien avgjør hvor mye. |
 
 Logg inn som **Milda Garasjetest** (`person-395`) for Litle Milde, eller
 **Kåre Garasjetest** (`person-396`) for Kråkenestoppen. Bosted, husstand og eierskap
@@ -64,23 +92,30 @@ kan endre vurderingen.
 
 ## Slik brukes resultatet
 
-1. Velg en eid eiendom eller et konkret adressetreff. Bosted foreslås først når
+1. Beskriv tiltaket og bekreft typen. Velg en eid eiendom eller et konkret adressetreff. Bosted foreslås først når
    adressen også finnes blant de eide eiendommene. Kommunenummer og gnr./bnr.
    følger med fra kilden.
 2. Kontroller adressen og gnr./bnr., og trykk «Bekreft eiendom». Før dette vises
    bare eiendomsvalget. Kart, nabotomter, bebyggelse og planopplysninger hentes
    først etter bekreftelsen, slik at feil adresser ikke utløser tunge kartoppslag.
    Kartet tilpasses eiendomsgeometrien med omtrent ti meter eller mer rundt.
-3. Plasser garasjen ved å klikke eller dra markøren, eller bruk retningsknappene.
-   Adressepunktet regnes ikke automatisk som en valgt garasjeplassering.
+3. Plasser tiltaket ved å klikke eller dra markøren. Tastaturbrukere kan fokusere
+   kartet og bruke piltastene. Adressepunktet er ikke en bekreftet plassering.
+   Et punkt utenfor den kartlagte eiendommen stopper overgangen til neste side.
+   Linjen til nærmeste tomtegrense viser kartavstanden fra punktet, ikke et
+   dokumentert avstandskrav fra hele bygget. Manglende grensedata vises som ukjent.
+   Nedtrekksmenyen lar deg vise eller skjule soner; den endrer ikke regelgrunnlaget.
    Trykk «Bekreft plassering og fortsett». Vi henter planer for punktet før
-   spørsmålene om garasjen vises. Kartet og spørsmålene vises ikke samtidig.
+   spørsmålene om tiltaket vises. Kartet og spørsmålene vises ikke samtidig.
    Du kan gå tilbake med «Endre eiendom» eller «Endre plassering» uten å miste
    svarutkastet, men den nye plasseringen må bekreftes før du kan fortsette.
-4. Velg «Chat med AI-agent» eller «Stegvis utfylling». Agenten ber om
-   ett svar om gangen, forklarer spørsmål underveis og foreslår en tolket verdi
-   som du bekrefter med «Bruk svaret». Stegvis vises ett felt om gangen.
-   Begge bruker samme svarutkast, så du kan bytte uten å miste svar.
+4. Velg «Chat med AI-agent» eller «Stegvis utfylling». Spørsmålene vises på egne
+   sider, med BYA/BRA og gesims/møne samlet. «Bekreft svar» lagrer et forslag;
+   «Jeg har flere spørsmål» åpner hjelpen uten å bekrefte det.
+   Ja/nei-spørsmål har knapper og mulighet for å be om hjelp. Eksempelteksten
+   følger det aktuelle feltet. Begge moduser beholder svarutkastet, men chatloggen
+   følger ikke med til neste spørsmål eller til stegvis modus.
+   «Forrige» og «Neste» lar deg kontrollere lagrede svar uten å skrive dem på nytt.
 5. Les den regelbaserte vurderingen, begrunnelsene og kildenes dekningsstatus.
 6. Last ned vurderingen med grunnlaget, eller skriv den ut.
 
@@ -94,6 +129,9 @@ i oppsummeringen vises det nåværende svaret og feltet du redigerer.
 
 Svar og fagspørsmål skrives i den samme tekstboksen. Den er også tilgjengelig
 under stegvis utfylling og når du ser over svarene, uten et separat hjelpeskjema.
+Forklaringen viser dokumentkilder med sidetall og lenker, og varsler om manglende
+dekning eller usikkert uttrekk. Disse opplysningene gjelder bare det aktuelle
+svaret og fjernes ved nytt spørsmål, navigering eller modusbytte.
 
 Nabotomter i kartutsnittet vises med stiplede grenser, mens valgt eiendom har
 heltrukken rød grense. Eiendomsnumre vises på kartet der det er plass.
@@ -101,6 +139,15 @@ Kilden er tilgjengelig under «Datakilde for nabogrenser», uten en detaljliste
 over nabotomtenes areal og kvalitet. Eieropplysninger hentes ikke. Dette er
 tomter i utsnittet, ikke en fullstendig eller juridisk bekreftet naboliste.
 Naboflatene inngår ikke i arealberegningen eller reglene for valgt eiendom.
+
+Bygningsflatene i kartutsnittet tegnes på samme måte. Bygg som er sammenholdt
+med den valgte teigen har heltrukket fyll; bygg på nabotomter er stiplet og
+nedtonet, og de inngår ikke i bebyggelsen eller arealberegningen for eiendommen.
+Er tilknytningen til teigen uavklart, skilles flatene ikke, fordi kartet ikke
+skal påstå mer enn bebyggelsen faktisk vet. En tegnforklaring under kartet
+navngir flatetypene, og en statuslinje sier hvor mange flater som vises eller
+hvorfor bygningskartet mangler. Uten den så et mislykket bygningsoppslag ut som
+et tomt kart.
 
 Endrer du adressen, skjules kartet og det gamle grunnlaget til den nye
 eiendommen er bekreftet. Feiler hentingen, vises en knapp for å prøve igjen.
@@ -124,6 +171,7 @@ samme; en slik avklaring må gjøres mot det konkrete plangrunnlaget.
 |---|---|
 | [`garasje-kommuner.ts`](../apps/shared/garasje-kommuner.ts) | Kobler kommunenummer til kommunens kartlag, planportal, plan-ID, versjon og bestemmelser. Bergen-PDF-en hører bare til `4601`. |
 | [`arealsoner.ts`](../apps/shared/arealsoner.ts) | Kontrollerte sonetyper, nøklet på kommune, plan, versjon, arealformål og arealstatus. Ukjente kombinasjoner forblir ukjente. |
+| [`hensynssoner.ts`](../apps/shared/hensynssoner.ts) | Sonekodene i KPA2018 med klarspråksnavn, datasett-id-ene og formen på tråden. Hvilken fil og kolonne hvert datasett har er `plan-mock` sin egen sak. |
 | [`garasje-regelgrunnlag.ts`](../apps/shared/garasje-regelgrunnlag.ts) | Nasjonale tallkrav, enheter og kilder. Den samme definisjonen brukes av reglene og KI-grunnlaget. |
 | [`garasje-begreper.ts`](../apps/shared/garasje-begreper.ts) | Kildebaserte forklaringer av fagord. |
 | [`garasje-dialog.ts`](../apps/shared/garasje-dialog.ts) | Felles utfyllingsfelter, enheter og validering for samtale og stegvis utfylling. |
@@ -162,6 +210,35 @@ planbestemte måleregler kan påvirke BYA/BRA. Tillatt utnyttelse for hver sone 
 ikke lagt inn som antatte prosentgrenser; det må komme fra de relevante
 planbestemmelsene.
 
+### Hensynssoner og arealformål over hele eiendommen
+
+Kommuneplanoppslaget mot Bergens kart spør om **ett punkt** og får ingen geometri
+tilbake. Det kan ikke svare på om en sonegrense går tvers gjennom tomten, som er
+spørsmålet innbyggeren stiller når hun setter garasjen i kartet.
+
+Derfor leses KPA2018 også som flater, fra et frosset uttrekk hos
+[`plan-mock`](../apps/plan-mock/README.md): de seks hensynssonene - gule støysoner,
+faresoner og de fire angitte hensynene - og arealformålene. Flatene sammenlignes med
+den kartlagte teigen, ikke med adressepunktet, og resultatet sier om sonen dekker
+eiendommen **helt** eller berører den **delvis**, og om skissepunktet ligger inne i
+den. Flatene tegnes i kartet under eiendomsgrensen, og markøren melder sonen med én
+gang den flyttes; serveren fastslår det ved «Bekreft plassering».
+
+**Sonen avgjør ingenting.** Sjekken `hensynssoner` er alltid `uavklart`, og den står
+etter at det nasjonale unntaket er regnet ut, så den kan ikke flytte utfallet. En
+hensynssone er hjemlet i plan- og bygningsloven § 11-8 og sier at et hensyn gjelder
+for området; om tiltaket er tillatt, står i planbestemmelsene, som piloten ikke
+leser. Uttrekket er dessuten fra 2018 og er ikke gjeldende plan.
+
+Navnet på flaten kommer fra et kontrollert register - kodeverket for
+hensynssonene, [`arealsoner.ts`](../apps/shared/arealsoner.ts) for formålene - og
+ikke fra kildens fritekst; ellers svarte det samme grunnlaget på det samme
+spørsmålet to ganger. Kildens egen `BESKRIVELSE` går likevel ordrett videre ved
+siden av - «Sjøflyhavn - gul sone», «Akutt forurensning» - fordi den sier hva
+hensynet konkret gjelder. Flatene er klippet til
+kartutsnittet, så ringene har kanter som ikke er sonegrenser: ingen avstand måles mot
+dem.
+
 ### Offentlige kilder
 
 - [`matrikkel_bk_25.json`](../data/matrikkel_bk_25.json): lokalt Bergen-uttrekk,
@@ -173,6 +250,10 @@ planbestemmelsene.
 - [Geonorge: Matrikkelen - Eiendomskart Teig](https://kartkatalog.geonorge.no/metadata/uuid/74340c24-1c8a-4454-b813-bfe498e80f16):
   eiendomsgeometri via Kartverkets dokumenterte eiendoms-API. GeoJSON-geometrien
   hentes for den konkrete matrikkelidentiteten, ikke fra et generisk eksempel.
+- KPA2018-uttrekket under [`data/`](../data): sju GeoJSON-filer med hensynssoner og
+  arealformål, omtrent 62 MB. `plan-mock` er eneste tjeneste som leser dem;
+  garasjesjekken slår opp på kartutsnitt gjennom API-et. Frosset i 2018, og ikke
+  gjeldende plan.
 - [Bergens karttjenester](https://kart.bergen.kommune.no/arcgis/rest/services):
   tilgjengelige arealformål, reguleringsplanområder og bygninger.
   Tilgjengelig geometri er ikke en garanti for nøyaktige grenser.
@@ -208,7 +289,7 @@ kartgrunnlag med kildeangivelse. Arealer er fortsatt kartanslag, ikke
 oppmålingsbevis eller juridisk utnyttelsesgrad.
 
 Kartet er en plasseringsskisse, ikke en situasjonsplan. Ett punkt kan ikke kontrollere
-hele garasjens omriss. Avstander, terrenginngrep, ferdig planert terreng og høyder
+hele tiltakets omriss. Avstander, terrenginngrep, ferdig planert terreng og høyder
 må fortsatt dokumenteres. Bygningsflater alene gir ikke en sikker beregning av
 tomtens utnyttelse eller bevis på lovlig bruk.
 
@@ -220,7 +301,7 @@ ikke i seg selv rett til å hente opplysninger fra grunnboken.
 
 ## Teknisk
 
-Garasjesjekken er en prosess med veiledning som avslutning, ikke innsending.
+Tiltakssjekken er en prosess med veiledning som avslutning, ikke innsending.
 Prosessdefinisjonen er felles for alle klientene. Den henter egne eiendommer,
 samler eiendomsbekreftelse, plassering og prosjektopplysninger, og kjører
 den deterministiske vurderingen. En fullført sjekk oppretter ingen søknad,

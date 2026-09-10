@@ -1,0 +1,331 @@
+openapi: 3.1.0
+info:
+  title: Plan Mock API
+  version: 0.1.0
+  description: |
+    Offline kopi av Bergen kommunes kommuneplan, arealdelen 2018 (KPA2018, PlanID 65270000).
+    Tjenesten svarer på et kartutsnitt og ikke på en eiendom eller en person.
+
+    Flatene er klippet til utsnittet det spørres om. Det er nødvendig, ikke pynt:
+    den største enkeltdelen i støysonefilen har 106 860 punkter, og LNF-flaten
+    86 027. Klippingen gir ringene kanter langs utsnittet som ikke er sonegrenser,
+    så ingen avstand kan måles mot dem.
+
+    En hensynssone er hjemlet i plan- og bygningsloven § 11-8 og sier at et hensyn
+    gjelder for området. Den sier ikke om et tiltak er tillatt; det står i
+    planbestemmelsene, som denne tjenesten ikke leser.
+servers:
+  - url: http://localhost:8090
+# Ingen av rutene her krever token, og det er et valg, ikke en glipp.
+# Kommuneplanen er et åpent datasett uten personopplysninger, og oppslagene har
+# ikke noe personsubjekt - de svarer på et kartutsnitt. Matrikkel-mock står åpen
+# av samme grunn.
+security: []
+
+paths:
+  /helse:
+    get:
+      summary: Helsesjekk
+      responses:
+        "200":
+          description: Tjenesten svarer
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+                  tjeneste:
+                    type: string
+                  plan:
+                    type: string
+                  kommunenummer:
+                    type: string
+                  tidspunkt:
+                    type: string
+                    format: date-time
+                  datasett:
+                    type: array
+                    description: >
+                      Siste kjente tilstand per fil, uten å lese eller laste dem.
+                      antallUtenGeometri teller objekter med geometry null, som er
+                      gyldig GeoJSON; arealformålsfilen har ett slikt objekt.
+                    items:
+                      $ref: "#/components/schemas/Datasettstatus"
+  /mock/plan/hensynssoner:
+    get:
+      summary: Hensynssoner i et avgrenset kartutsnitt
+      description: >
+        Leser de seks hensynssonefilene fra KPA2018-uttrekket: gule støysoner,
+        faresoner og de fire angitte hensynene friluftsliv, landskap, naturmiljø
+        og kulturmiljø. Alle fem parametere kreves én gang hver; andre parametere
+        avvises. Utsnittet er lengdegrad/breddegrad og må være høyst 3000 meter
+        langs hver side. Indeksen velger polygondeler med omsluttende rektangel som
+        berører utsnittet, og hver del klippes til utsnittet. Høyst 400 flater
+        returneres; flere treff gir 400, aldri en avkortet liste. Uttrekket er
+        frosset i 2018 og er ikke gjeldende plan. Andre kommuner enn 4601 gir
+        ikke_dekket og tom liste uten å lese filene.
+      parameters:
+        - $ref: "#/components/parameters/PlanKommunenummer"
+        - $ref: "#/components/parameters/UtsnittVest"
+        - $ref: "#/components/parameters/UtsnittSor"
+        - $ref: "#/components/parameters/UtsnittOst"
+        - $ref: "#/components/parameters/UtsnittNord"
+      responses:
+        "200":
+          description: >
+            Alle indekstreff, klippet til utsnittet. tilgjengelig betyr at filene
+            kan leses, ikke at uttrekket er gjeldende plan.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlansoneSvar"
+        "400":
+          description: Manglende eller ugyldige parametere, for stort utsnitt eller over 400 treff.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlanFeil"
+        "502":
+          description: Uleselig, endret eller ugyldig lokal kilde. Ingen gammel indeks eller tom liste skjuler feilen.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlanFeil"
+  /mock/plan/arealformaal:
+    get:
+      summary: Arealformål i et avgrenset kartutsnitt
+      description: >
+        Leser arealformålsfilen fra det samme uttrekket. Et arealformål er ikke en
+        hensynssone: det sier hva området er satt av til, mens en hensynssone
+        legger et hensyn på det. Parametere, taket på 400 flater, klippingen og
+        dekningen er som for hensynssonene. Sonenavnet i kommunens tegnforklaring
+        følger ikke med uttrekket, så sonetypen kan ikke utledes herfra; det
+        oppslaget gjør sandbox-backend mot kommunens eget kart.
+      parameters:
+        - $ref: "#/components/parameters/PlanKommunenummer"
+        - $ref: "#/components/parameters/UtsnittVest"
+        - $ref: "#/components/parameters/UtsnittSor"
+        - $ref: "#/components/parameters/UtsnittOst"
+        - $ref: "#/components/parameters/UtsnittNord"
+      responses:
+        "200":
+          description: Alle indekstreff, klippet til utsnittet.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlansoneSvar"
+        "400":
+          description: Manglende eller ugyldige parametere, for stort utsnitt eller over 400 treff.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlanFeil"
+        "502":
+          description: Uleselig, endret eller ugyldig lokal kilde.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlanFeil"
+
+  /openapi.yaml:
+    get:
+      summary: Spesifikasjonen slik den ligger i repoet
+      responses:
+        "200":
+          description: YAML
+  /openapi-ruter.json:
+    get:
+      summary: Den samme spesifikasjonen, lest, som JSON
+      responses:
+        "200":
+          description: Ruteoversikt
+  /docs:
+    get:
+      summary: Kort rutedokumentasjon
+      responses:
+        "200":
+          description: HTML
+
+components:
+  parameters:
+    # Ett sted, fordi `example:`-verdiene er dem test:parametere faktisk kaller med.
+    # To kopier ville vært den samme påstanden sjekket på én rute - se AGENTS.md.
+    PlanKommunenummer:
+      in: query
+      name: kommunenummer
+      required: true
+      description: Fire sifre, unntatt 0000. Bare Bergen 4601 har lokalt uttrekk.
+      schema:
+        type: string
+        pattern: '^\d{4}$'
+      example: "4601"
+    UtsnittVest:
+      in: query
+      name: vest
+      required: true
+      description: Vestlig lengdegrad, mindre enn ost.
+      schema: { type: number, minimum: -180, maximum: 180 }
+      example: 5.2547
+    UtsnittSor:
+      in: query
+      name: sor
+      required: true
+      description: Sørlig breddegrad, mindre enn nord og ikke på en pol.
+      schema: { type: number, exclusiveMinimum: -90, exclusiveMaximum: 90 }
+      example: 60.2534
+    UtsnittOst:
+      in: query
+      name: ost
+      required: true
+      description: Østlig lengdegrad.
+      schema: { type: number, minimum: -180, maximum: 180 }
+      example: 5.2556
+    UtsnittNord:
+      in: query
+      name: nord
+      required: true
+      description: Nordlig breddegrad, ikke på en pol.
+      schema: { type: number, exclusiveMinimum: -90, exclusiveMaximum: 90 }
+      example: 60.2540
+  schemas:
+    Plandatasett:
+      type: string
+      description: >
+        Datasettene uttrekket er delt i. Registeret som holder filnavn og feltnavn
+        for hvert av dem er apps/shared/hensynssoner.ts.
+      enum: [stoy, fare, friluftsliv, landskap, naturmiljoe, kulturmiljoe, arealformaal]
+    Datasettstatus:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/Plandatasett"
+        status:
+          type: string
+          enum: [ikke_lastet, laster, tilgjengelig, feil]
+        fil:
+          type: string
+        antallObjekter:
+          type: integer
+        antallDeler:
+          type: integer
+        antallUtenGeometri:
+          type: integer
+        lastetTidspunkt:
+          type: string
+          format: date-time
+    PlansoneSvar:
+      type: object
+      required: [kommunenummer, kildestatus, kilde, type, features, klippetTilUtsnitt]
+      properties:
+        kommunenummer:
+          type: string
+        kildestatus:
+          type: string
+          enum: [tilgjengelig, ikke_dekket]
+        kilde:
+          type: object
+          properties:
+            navn:
+              type: string
+            planId:
+              type: string
+              nullable: true
+            versjon:
+              type: string
+              nullable: true
+            filer:
+              type: array
+              items:
+                type: string
+            uttrekksaar:
+              type: integer
+              nullable: true
+              description: Året i filnavnene, ikke en måledato.
+            koordinatsystem:
+              type: string
+              enum: ["EPSG:4326"]
+              description: >
+                Filene har ikke et eget CRS-medlem; GeoJSON-standardens EPSG:4326
+                gjelder. En fil med CRS-overstyring avvises med 502 i stedet for å
+                merkes om.
+            syntetisk:
+              type: boolean
+              enum: [false]
+              description: Ekte, åpne plandata fra Bergen kommune. Ikke syntetisk.
+        type:
+          type: string
+          enum: [FeatureCollection]
+        klippetTilUtsnitt:
+          type: boolean
+          enum: [true]
+          description: >
+            Alltid true. Kantene langs utsnittet er ikke sonegrenser, og ingen
+            avstand kan måles mot dem.
+        features:
+          type: array
+          items:
+            $ref: "#/components/schemas/Plansone"
+    Plansone:
+      type: object
+      required: [type, id, geometry, properties]
+      properties:
+        type:
+          type: string
+          enum: [Feature]
+        id:
+          type: integer
+          description: Uttrekkets OBJECTID. Unik i sitt datasett, ikke på tvers av dem.
+        geometry:
+          type: object
+          description: >
+            Alltid Polygon. En MultiPolygon i kilden er delt i sine deler, fordi
+            indeksen ligger på delen - to av landskapsflatene har et omsluttende
+            rektangel som dekker hele kommunen.
+          properties:
+            type:
+              type: string
+              enum: [Polygon]
+            coordinates:
+              type: array
+              items:
+                type: array
+                items:
+                  type: array
+                  items:
+                    type: number
+        properties:
+          type: object
+          properties:
+            datasett:
+              $ref: "#/components/schemas/Plandatasett"
+            sonekode:
+              type: integer
+              description: >
+                Nasjonal sonekode uten H-en og uten kommunens løpenummer, eller
+                arealformålskoden for arealformål.
+            sonenavn:
+              type: string
+              nullable: true
+              description: HENSYNSONENAVN, for eksempel H220_1. Arealformål har ingen.
+            arealstatus:
+              type: integer
+              nullable: true
+              description: AREALST. Bare arealformål har den.
+            beskrivelse:
+              type: string
+              nullable: true
+              description: >
+                Kildens egen BESKRIVELSE, ordrett - «Eikås motorsport - gul sone».
+                Kilden har skrivefeil; de rettes ikke, fordi teksten er kommunens.
+            planId:
+              type: string
+            kommunenummer:
+              type: string
+    PlanFeil:
+      type: object
+      properties:
+        feil:
+          type: string

@@ -495,6 +495,25 @@ const tjenester: Tjeneste[] = [
     kilde: "apps/matrikkel-mock/src/server.ts"
   },
   {
+    navn: "plan-mock",
+    spesifikasjon: "openapi/plan-mock.yaml",
+    // Systemrutene. En helsesjekk som krever legitimasjon kan ikke si fra at
+    // tjenesten er syk, og dokumentasjon er ikke data. Her står dessuten alle
+    // ruter åpne, av grunnen som står øverst i spesifikasjonen.
+    aapneRuter: ["/helse", "/docs", "/openapi.yaml", "/openapi-ruter.json",
+      "/mock/plan/hensynssoner", "/mock/plan/arealformaal"],
+    kilde: "apps/plan-mock/src/server.ts",
+    // Datasett-id-ene er kodeverket her: de står i spesifikasjonens enum og i
+    // apps/shared/hensynssoner.ts. Hvilken fil hver av dem har er plan-mockens
+    // egen sak og står i apps/plan-mock/src/datasett.ts.
+    kodeverk: [
+      {
+        skjema: "Plandatasett",
+        verdier: async () => (await import("../apps/shared/hensynssoner.ts")).DATASETTIDER
+      }
+    ]
+  },
+  {
     navn: "pasientjournal-mock",
     spesifikasjon: "openapi/pasientjournal-mock.yaml",
     // Systemrutene. En helsesjekk som krever legitimasjon kan ikke si fra at

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="nb" data-color-scheme="light">
+<html lang="nb" data-color-scheme="auto">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -16,6 +16,29 @@
     />
     <link rel="stylesheet" href="/assets/ds-base.css" />
     <link rel="stylesheet" href="/assets/ds-ksdigital.css" />
+    <!--
+      Ours, not vendored. Corrects the three colour families whose solid `base-*` ramps
+      the theme inverts into grey or into something below the 3:1 WCAG 1.4.11 wants for
+      a component boundary. Must load after the theme: it writes into @layer side.
+    -->
+    <link rel="stylesheet" href="/assets/ds-morketema.css" />
+
+    <!--
+      Blocking on purpose, and inline on purpose. A stored choice has to be on <html>
+      before the first paint, or the page paints in `auto` and then repaints - the flash
+      of the wrong theme. Everything else on this page is in client/ds-eksempel.ts,
+      which is a module and therefore deferred, so it runs too late for this one job.
+    -->
+    <script>
+      try {
+        var valgt = localStorage.getItem("ksd-fargemodus");
+        if (valgt === "light" || valgt === "dark" || valgt === "auto") {
+          document.documentElement.setAttribute("data-color-scheme", valgt);
+        }
+      } catch (e) {
+        /* Private vindu eller blokkerte cookies: da står `auto` fra markupen. */
+      }
+    </script>
 
     <style>
       /*
@@ -113,12 +136,13 @@
         <div class="ds-field">
           <label class="ds-label" for="mode">Fargemodus</label>
           <select class="ds-input" id="mode">
+            <option value="auto" selected>Auto (følger systemet)</option>
             <option value="light">Lys</option>
             <option value="dark">Mørk</option>
-            <option value="auto">Auto (følger systemet)</option>
           </select>
           <p class="ds-paragraph" data-size="xs" data-field="description">
-            Settes som <code>data-color-scheme</code> på <code>&lt;html&gt;</code>.
+            Settes som <code>data-color-scheme</code> på <code>&lt;html&gt;</code>, og huskes.
+            <code>auto</code> er den eneste verdien som følger systemet.
           </p>
         </div>
 

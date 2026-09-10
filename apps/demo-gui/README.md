@@ -24,16 +24,20 @@ Prosessbyggeren på `:3000` serverer de samme filene fra sin egen `/assets/*`.
 Dette er en **referanseimplementasjon, ikke en tvungen klient.** Bygg gjerne din egen
 mot de dokumenterte API-ene.
 
-## Garasjesjekken
+## Kan du bygge uten å søke?
 
-Garasjesjekken finnes i den felles prosesskatalogen og under «Tjenester for
+Tiltakssjekken finnes i den felles prosesskatalogen og under «Tjenester for
 innbyggere». Chat, AI-agent og Stegvis bruker samme prosess, med kart og
 bekreftelse inne i spørsmålssteget. `/garasje` finnes også som frittstående
 pilot for Bergen. Den bruker testinnloggingen,
 foreslår bostedsadresse, viser egne eiendommer og henter offentlige adresse- og
 plandata før en regelbasert vurdering. Den sender ingen søknad og trenger ingen
 språkmodell for selve sjekken. KI kan forklare fagord underveis uten å endre
-prosessen. Se [bruk, kilder og avgrensninger](../../docs/garasjesjekk.md).
+prosessen. Beskrivelsen av tiltaket følges av et uttrykkelig valg av type, slik
+at et gjerde ikke vurderes med målene for et frittliggende bygg. Relaterte
+spørsmål vises samlet, med bekreftede svar og egen hjelp på hver side.
+Prosess-ID-en `garasjesjekk` og de eksisterende endepunktene er beholdt.
+Se [bruk, kilder og avgrensninger](../../docs/garasjesjekk.md).
 
 ## Sidespørsmål i `/chat`
 
@@ -57,7 +61,7 @@ hvorfor.
 
 ## Kjent svakhet
 
-Chat, AI-agent, Stegvis, Garasjesjekken og API-utforskeren bruker felles
+Chat, AI-agent, Stegvis, tiltakssjekken og API-utforskeren bruker felles
 klientkonfigurasjon og ID-porten. Standardadressene er `http://localhost:...`.
 For egen lokal kjøring kan `BACKEND_PUBLIC_URL`, `IDPORTEN_PUBLIC_URL`,
 `AI_PUBLIC_URL`, `AGENT_PUBLIC_URL` og `TOOLS_PUBLIC_URL` settes på demo-serveren.
