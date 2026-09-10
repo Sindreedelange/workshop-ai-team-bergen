@@ -171,39 +171,39 @@ Kallet setter med vilje ingen `max_tokens`: taket gjelder tenketokenene også, s
 lavt tak spiser hele budsjettet på tenkingen og lar svaret stå tomt med
 `finish_reason: "length"` - et tomt svar som ser ut som en modellfeil.
 
-Tenkingen havner i `reasoningResponse` i KI-sporet. En reasoning-modell uten den i
-sporet er mindre etterprøvbar enn en modell uten tenking, ikke mer.
+Tenkingen havner i `reasoningResponse` i KI-sporet og vises som en egen blokk i
+`/trace`. En reasoning-modell uten tenkingen i sporet er mindre etterprøvbar enn en
+modell uten tenking, ikke mer - og et felt ingen ser oppfyller ikke den
+begrunnelsen.
 
 `TELENOR_AI_FACTORY_REASONING_MODEL` er modellen de oppgavene bruker, uavhengig av
 hva som er valgt ellers. Den er skilt ut fordi GLM-5.2 med reasoning ikke rakk
 gjennom en full garasjevurdering: kallet ble kuttet etter 30 sekunder i tre av tre
 forsøk, mens Nemotron svarte på 8,4 sekunder. Står variabelen tom, brukes den
-modellen som er merket `reasoningAnbefalt` i modellisten - ikke den første som kan
-tenke, for det er GLM. Peker variabelen på en modell uten tenkemodus, byttes den ut
+modellen som er merket `reasoningAnbefalt` i `AI_FACTORY_MODELS` - ikke den første
+som kan tenke, for det er GLM. Peker variabelen på en modell uten tenkemodus, byttes den ut
 med en som har det, og advarselen står i `/helse` og `/admin` i stedet for at
 oppgaven svarer uten å tenke. Et uttrykt ønske om en annen modell som *kan* tenke
 respekteres.
 
 #### Slik legger du til en tung oppgave
 
-Policyen er to tabeller i `apps/ai-gateway/src/reasoning.ts`, og `callModel` leser
-dem ut fra `task`. Et kallsted skal derfor ikke sette `reasoning` selv.
+Policyen er `OPPGAVE_REASONING` i `apps/ai-gateway/src/reasoning.ts`, og `callModel`
+leser den ut fra `task`. Et kallsted bestemmer derfor ikke selv.
 
-1. Legg oppgaven i `REASONING_OPPGAVER` med **målingen** som er grunnen, ikke en
-   antakelse. En oppgave som står i `IKKE_REASONING_OPPGAVER` har også en måling
-   ved siden av seg.
+1. Legg oppgaven i tabellen med `tenker` og **målingen** som er grunnen, ikke en
+   antakelse. Et `tenker: false` har en måling ved siden av seg på samme måte.
 2. Kall `callModel` med `task: "<navnet>"`. Ingenting mer.
 
-`pnpm test:reasoning` krever at hver oppgave i `server.ts` står i én av de to
-tabellene. En ny oppgave som ingen har vurdert gjør testen rød i stedet for å arve
+`pnpm test:reasoning` krever at hver oppgave i `server.ts` står i tabellen. En ny oppgave som ingen har vurdert gjør testen rød i stedet for å arve
 «tenker ikke» i stillhet, og en oppgave som får nytt navn mister ikke policyen sin
 uten at noen ser det.
 
 Bare providere med **målt** støtte tenker: i dag `telenor-ai-factory` alene.
-`REASONING_PROVIDERE` sier hvorfor de andre ikke gjør det - Ollama har et
+`PROVIDER_REASONING` sier hvorfor de andre ikke gjør det - Ollama har et
 `think`-felt, OpenRouter et `reasoning`-felt og Bedrock extended thinking, men ingen
 av dem er prøvd her. En reasoning-oppgave hos en slik provider kjører uten tenking,
-og sporet har både `reasoningOensket` og `reasoning`, så et svar som ikke tenkte ser
+og både `/helse` og `reasoning` i sporet sier det, så et svar som ikke tenkte ser
 ikke ut som ett som gjorde det. Å påstå støtte vi ikke har prøvd er verre enn å
 mangle den.
 

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { buildGarasjeRaadPrompt, validateGarasjeRaad, GARASJE_RAAD_UTFALL } from "../apps/ai-gateway/src/garasje-raad.ts";
+import { buildGarasjeRaadPrompt, validateGarasjeRaad } from "../apps/ai-gateway/src/garasje-raad.ts";
+import { GARASJE_UTFALL, GARASJE_UTFALL_FRITAR } from "../apps/shared/garasje.ts";
 
 /** validateGarasjeRaad svarer null når det ikke er noe råd. Her er det alltid ett. */
 function kreves<T>(verdi: T | null, hva: string): T {
@@ -65,8 +66,11 @@ assert.equal(validateGarasjeRaad({ antattUtfall: "maa_avklares", raad: "   " }, 
 assert.equal(validateGarasjeRaad(null, uavklart), null);
 assert.equal(validateGarasjeRaad("maa_avklares", uavklart), null);
 
-assert.deepEqual([...GARASJE_RAAD_UTFALL], ["ikke_soknadspliktig", "soknadspliktig", "maa_avklares"],
-  "kodeverket skal være det samme som GarasjeVurdering.utfall");
+// Kodeverket bor i apps/shared og er derivert til typen, så det finnes ingen kopi
+// å holde i takt. Det som er verdt å feste er at det ene fritakende utfallet er med
+// i listen: en omdøping som gjør dem uenige ville gjort klemmen til en no-op.
+assert(GARASJE_UTFALL.includes(GARASJE_UTFALL_FRITAR),
+  "det fritakende utfallet må være et gyldig utfall, ellers klemmer klemmen ingenting");
 
 // Prompten: den regelbaserte vurderingen skal stå der, og persondata skal ikke.
 // Kallstedet projiserer gjennom buildGarasjeKunnskapsgrunnlag, så det som sendes

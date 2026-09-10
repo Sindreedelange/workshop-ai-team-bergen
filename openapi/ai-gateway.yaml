@@ -427,7 +427,9 @@ paths:
                     description: Satt bare når klemmen overstyrte modellens utfall.
                   tenkte:
                     type: boolean
-                    description: Om modellen faktisk svarte med en tenkedel.
+                    description: >
+                      Om kallet faktisk tenkte. Satt av callModel, som er det ene
+                      stedet som vet både hva oppgaven ba om og hva provideren kan.
                   modell: { type: string }
                   syntetisk: { type: boolean }
         "500":

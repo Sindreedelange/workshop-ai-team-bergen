@@ -1,6 +1,7 @@
 import { GARASJE_BEGREPER } from "./garasje-begreper.ts";
 import { GARASJE_NASJONALE_KRAV } from "./garasje-regelgrunnlag.ts";
 import { listGarasjeSonetyper } from "./arealsoner.ts";
+import { GARASJE_UTFALL } from "./garasje.ts";
 import { GARASJE_KOMMUNER, findGarasjeKommunekilder } from "./garasje-kommuner.ts";
 
 function record(value: unknown): Record<string, unknown> {
@@ -47,7 +48,7 @@ export function buildGarasjeKunnskapsgrunnlag(context: unknown = {}) {
       tillattUtnyttelse: "uavklart",
       forklaring: "Kartlagt fotavtrykk er ikke juridisk BYA eller BRA. Parkering, overbygg, måleregler og gjeldende planbestemmelser må avklares."
     },
-    regelutfall: ["ikke_soknadspliktig", "soknadspliktig", "maa_avklares"].includes(String(vurdering.utfall))
+    regelutfall: (GARASJE_UTFALL as readonly string[]).includes(String(vurdering.utfall))
       ? String(vurdering.utfall) : "ikke_vurdert",
     avgrensning: "Forklar bare grunnlaget. Ingen søknad er sendt. Sonenavn alene avgjør ikke om det er lov å bygge, og en PDF-lenke er ikke en gjennomgått bestemmelse."
   };

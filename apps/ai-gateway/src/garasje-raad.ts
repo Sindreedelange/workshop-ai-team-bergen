@@ -1,4 +1,4 @@
-import type { GarasjeVurdering } from "../../shared/garasje.ts";
+import { GARASJE_UTFALL, GARASJE_UTFALL_FRITAR, type GarasjeUtfall } from "../../shared/garasje.ts";
 
 /**
  * Rådet på slutten av garasjesjekken: modellen leser hele grunnlaget, måler det mot
@@ -21,16 +21,8 @@ import type { GarasjeVurdering } from "../../shared/garasje.ts";
  * setning i prompten: en prompt kan modellen overse.
  */
 
-export type GarasjeRegelutfall = GarasjeVurdering["utfall"];
-
-export const GARASJE_RAAD_UTFALL: readonly GarasjeRegelutfall[] = [
-  "ikke_soknadspliktig",
-  "soknadspliktig",
-  "maa_avklares"
-];
-
 export type GarasjeRaad = {
-  antattUtfall: GarasjeRegelutfall;
+  antattUtfall: GarasjeUtfall;
   raad: string;
   maaAvklares: string[];
   /**
@@ -54,13 +46,10 @@ function punktliste(verdi: unknown): string[] {
   return verdi.map(punkt => tekst(punkt, 300)).filter(Boolean);
 }
 
-/**
- * Det ene utfallet som slipper innbyggeren fri fra å søke. Alt annet er en beskjed
- * om å gjøre mer arbeid, og et strengere råd enn regelen er trygt - ofte riktig, når
- * planbestemmelsene ikke er lest. Et mildere råd er det som ikke er trygt, og det er
- * det denne funksjonen finnes for.
- */
-const GROENT_UTFALL: GarasjeRegelutfall = "ikke_soknadspliktig";
+/** Et utfall fra en ukontrollert kilde, eller null. Kalleren velger reserven. */
+function tilUtfall(verdi: unknown): GarasjeUtfall | null {
+  return GARASJE_UTFALL.includes(verdi as GarasjeUtfall) ? verdi as GarasjeUtfall : null;
+}
 
 export function validateGarasjeRaad(svar: unknown, vurdering: unknown): GarasjeRaad | null {
   if (!svar || typeof svar !== "object" || Array.isArray(svar)) return null;
@@ -69,16 +58,13 @@ export function validateGarasjeRaad(svar: unknown, vurdering: unknown): GarasjeR
   if (!raad) return null;
 
   const regel = record(vurdering);
-  const regelutfall = GARASJE_RAAD_UTFALL.includes(regel.utfall as GarasjeRegelutfall)
-    ? regel.utfall as GarasjeRegelutfall
-    : "maa_avklares";
+  const regelutfall = tilUtfall(regel.utfall) ?? "maa_avklares";
+  const oensket = tilUtfall(felt.antattUtfall) ?? regelutfall;
 
-  const oensket = GARASJE_RAAD_UTFALL.includes(felt.antattUtfall as GarasjeRegelutfall)
-    ? felt.antattUtfall as GarasjeRegelutfall
-    : regelutfall;
-
-  // Klemmen: bare reglene kan si at noe ikke er søknadspliktig.
-  const groent = oensket === GROENT_UTFALL && regelutfall !== GROENT_UTFALL;
+  // Klemmen: bare reglene kan si at noe ikke er søknadspliktig. Et strengere råd enn
+  // regelen er trygt - ofte riktig, når planbestemmelsene ikke er lest. Et mildere
+  // råd er det som ikke er trygt, og det er dette som stopper det.
+  const groent = oensket === GARASJE_UTFALL_FRITAR && regelutfall !== GARASJE_UTFALL_FRITAR;
   const antattUtfall = groent ? regelutfall : oensket;
 
   // Reglenes uavklarte forhold står alltid i lista, uansett hva modellen svarte.
@@ -94,7 +80,7 @@ export function validateGarasjeRaad(svar: unknown, vurdering: unknown): GarasjeR
     fraRegler: Math.min(fraRegel.length, maaAvklares.length),
     begrunnelse: tekst(felt.begrunnelse, 600),
     ...(groent
-      ? { overstyrt: `Modellen foreslo «${GROENT_UTFALL}», men den regelbaserte vurderingen ga «${regelutfall}». Rådet kan ikke gjøre utfallet mildere enn reglene.` }
+      ? { overstyrt: `Modellen foreslo «${GARASJE_UTFALL_FRITAR}», men den regelbaserte vurderingen ga «${regelutfall}». Rådet kan ikke gjøre utfallet mildere enn reglene.` }
       : {})
   };
 }

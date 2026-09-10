@@ -173,8 +173,22 @@ export type GarasjeSjekk = {
   kilde: string;
 };
 
+/**
+ * Utfallene vurderingen kan gi. En as const-liste og ikke bare en union, fordi en
+ * union er borte ved kjøretid: hver kaller som skulle validere et utfall skrev
+ * verdiene av på nytt, og en fjerde verdi i unionen gjorde ingenting rødt.
+ *
+ * `GARASJE_UTFALL_FRITAR` er det ene utfallet som slipper innbyggeren fri fra å
+ * søke. Alvorsordenen bor her, ved kodeverket, av samme grunn som `SLIPPER_GJENNOM`
+ * i `vilkaar.ts` bor ved regelen: en kaller skal kunne sammenligne uten å
+ * klassifisere selv.
+ */
+export const GARASJE_UTFALL = ["ikke_soknadspliktig", "soknadspliktig", "maa_avklares"] as const;
+export type GarasjeUtfall = (typeof GARASJE_UTFALL)[number];
+export const GARASJE_UTFALL_FRITAR = "ikke_soknadspliktig" as const;
+
 export type GarasjeVurdering = {
-  utfall: "ikke_soknadspliktig" | "soknadspliktig" | "maa_avklares";
+  utfall: GarasjeUtfall;
   nasjonaltUnntak: "oppfylt" | "brudd" | "uavklart";
   forklaring: string;
   sjekker: GarasjeSjekk[];

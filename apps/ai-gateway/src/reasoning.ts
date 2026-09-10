@@ -1,62 +1,68 @@
 /*
  * Hvilke oppgaver som er verdt en reasoning-modell, og hvilke modeller som kan.
  *
- * Reasoning er en egenskap ved oppgaven, ikke en innstilling for tjenesten. Det er
- * målt og ikke antatt: på den tunge garasjevurderingen var reasoning-svaret det ene
- * som rekkefølget tiltakene og fanget servitutter, mens `oppsummering` ble
- * dårligere - modellen skrev om teksten den skulle gjengi - og `tolk-svar` fikk
- * samme treff til opptil 12 ganger latensen. En global innstilling ville derfor
- * gjort de fleste kallene dårligere for å hjelpe ett.
+ * Reasoning er en egenskap ved oppgaven, ikke en innstilling for tjenesten: en
+ * global innstilling ville gjort de fleste kallene dårligere for å hjelpe ett.
+ * Hvilken vei hver oppgave falt, og hva som ble målt, står i tabellen under.
  *
  * Modulen ligger her og ikke i `server.ts` av samme grunn som `sporsmaalsperrer.ts`
  * og `garasje-raad.ts` gjør: `server.ts` kaller `server.listen` på toppnivå og kan
  * ikke importeres av en test. Den har ingen avhengigheter, så `pnpm test:reasoning`
  * kjører uten modell og uten tjenester.
- *
- * Å legge til en tung oppgave er én linje i `REASONING_OPPGAVER`. Å la den stå
- * utenfor begge tabellene er også et valg, men et som ingen har tatt: da er den
- * ukjent, og `pnpm test:reasoning` sier hvilken det gjelder.
  */
-
-/** Oppgaver som ber om reasoning, med målingen som er grunnen. */
-export const REASONING_OPPGAVER: Record<string, string> = {
-  "garasje-raad":
-    "Måler hele grunnlaget mot plangrunnlaget og gir et råd. Reasoning-svaret var det ene som rekkefølget tiltakene og fanget forhold som ikke sto i grunnlaget."
-};
 
 /**
- * Oppgaver som med vilje ikke ber om reasoning, med målingen som er grunnen.
+ * Oppgavene, og om hver av dem tenker, med målingen som er grunnen.
  *
- * Tabellen finnes for at et «av» skal være et valg noen har tatt og begrunnet,
- * ikke en oppgave noen glemte. En oppgave som mangler i begge er en oppgave
- * ingen har vurdert.
+ * Én tabell og ikke to lister, av samme form som `PROVIDER_REASONING` under: et
+ * «av» skal være et valg noen har tatt og begrunnet, ikke en oppgave noen glemte,
+ * og med to tabeller måtte en test i tillegg passe på at ingen oppgave sto i begge.
+ * En oppgave som mangler her er en oppgave ingen har vurdert, og
+ * `pnpm test:reasoning` sier hvilken.
  */
-export const IKKE_REASONING_OPPGAVER: Record<string, string> = {
-  oppsummering:
-    "Skal gjengi tall og utfall uendret. Med reasoning skrev Nemotron «innvilgt» der utfallet var «innvilget», og GLM la på overskrifter.",
-  "tolk-svar":
-    "Samme treffsikkerhet med og uten, men opptil 12 ganger latensen. Oppgaven står midt i en dialog der noen venter.",
-  "velg-prosess": "Kort valg fra en hviteliste. Heuristikken tar de fleste, og modellen trenger ikke tenke på resten.",
-  "velg-verktoy": "Samme som velg-prosess: et valg fra en hviteliste, ikke en syntese.",
-  sporsmaal:
-    "Innbyggeren venter på svar mens flyten står stille, og svaret skal komme fra grunnlaget i stedet for fra en utledning.",
-  dommer:
-    "Utviklerverktøy for evalene. Reasoning ga samme score på de fire prøvesakene, og en dommer som er tre ganger tregere gjør et helt datasett tregere.",
-  dialogforslag: "Kort formulering, ingen syntese.",
-  "forklar-databruk": "Kort formulering av noe som allerede står i katalogen.",
-  klarsprak: "Skriver om en tekst som allerede finnes.",
-  risikosjekk: "Kort formulering, og ingen avgjørelse ligger hos modellen."
+export const OPPGAVE_REASONING: Record<string, { tenker: boolean; grunn: string }> = {
+  "garasje-raad": {
+    tenker: true,
+    grunn: "Måler hele grunnlaget mot plangrunnlaget og gir et råd. Reasoning-svaret var det ene som rekkefølget tiltakene og fanget forhold som ikke sto i grunnlaget."
+  },
+  oppsummering: {
+    tenker: false,
+    grunn: "Skal gjengi tall og utfall uendret. Med reasoning skrev Nemotron «innvilgt» der utfallet var «innvilget», og GLM la på overskrifter."
+  },
+  "tolk-svar": {
+    tenker: false,
+    grunn: "Samme treffsikkerhet med og uten, men opptil 12 ganger latensen. Oppgaven står midt i en dialog der noen venter."
+  },
+  "velg-prosess": {
+    tenker: false,
+    grunn: "Kort valg fra en hviteliste. Heuristikken tar de fleste, og modellen trenger ikke tenke på resten."
+  },
+  "velg-verktoy": {
+    tenker: false,
+    grunn: "Samme som velg-prosess: et valg fra en hviteliste, ikke en syntese."
+  },
+  sporsmaal: {
+    tenker: false,
+    grunn: "Innbyggeren venter mens flyten står stille, og svaret skal komme fra grunnlaget i stedet for fra en utledning."
+  },
+  dommer: {
+    tenker: false,
+    grunn: "Utviklerverktøy for evalene. Reasoning ga samme score på de fire prøvesakene, og en dommer som er tre ganger tregere gjør et helt datasett tregere."
+  },
+  dialogforslag: { tenker: false, grunn: "Kort formulering, ingen syntese." },
+  "forklar-databruk": { tenker: false, grunn: "Kort formulering av noe som allerede står i katalogen." },
+  klarsprak: { tenker: false, grunn: "Skriver om en tekst som allerede finnes." },
+  risikosjekk: { tenker: false, grunn: "Kort formulering, og ingen avgjørelse ligger hos modellen." }
 };
 
 /** Om oppgaven ber om reasoning. En ukjent oppgave gjør det ikke. */
 export function reasoningForOppgave(task?: string | null): boolean {
-  return Boolean(task) && Object.hasOwn(REASONING_OPPGAVER, String(task));
+  return OPPGAVE_REASONING[String(task)]?.tenker === true;
 }
 
 /** Oppgaver ingen har vurdert. `pnpm test:reasoning` bruker denne. */
 export function uvurderteOppgaver(alleOppgaver: readonly string[]): string[] {
-  return alleOppgaver.filter(oppgave =>
-    !Object.hasOwn(REASONING_OPPGAVER, oppgave) && !Object.hasOwn(IKKE_REASONING_OPPGAVER, oppgave));
+  return alleOppgaver.filter(oppgave => !Object.hasOwn(OPPGAVE_REASONING, oppgave));
 }
 
 /**
@@ -68,7 +74,7 @@ export function uvurderteOppgaver(alleOppgaver: readonly string[]): string[] {
  * støtte vi ikke har prøvd er verre enn å mangle den: da ser en oppgave ut som den
  * tenker uten å gjøre det.
  */
-export const REASONING_PROVIDERE: Record<string, { stotter: boolean; grunn: string }> = {
+export const PROVIDER_REASONING: Record<string, { stotter: boolean; grunn: string }> = {
   mock: { stotter: false, grunn: "Maltekst, ingen modell." },
   ollama: {
     stotter: false,
@@ -89,17 +95,27 @@ export const REASONING_PROVIDERE: Record<string, { stotter: boolean; grunn: stri
 };
 
 export function providerKanReasoning(provider: string): boolean {
-  return REASONING_PROVIDERE[provider]?.stotter === true;
+  return PROVIDER_REASONING[provider]?.stotter === true;
 }
 
-/**
- * `reasoning` er om modellen kan tenke. `reasoningAnbefalt` er om den er den målt
- * beste til det, og de to er ikke det samme: GLM-5.2 kan tenke og er likevel gal
- * som standard, fordi den ble kuttet av taket på en full garasjevurdering i tre av
- * tre forsøk. «Den første som kan» er derfor feil regel - rekkefølgen i listen
- * styres av hvilken modell som er standard ellers.
- */
+/** `reasoning` er om modellen kan tenke, `reasoningAnbefalt` om den er best til det. */
 export type Reasoningmodell = { id: string; reasoning?: boolean; reasoningAnbefalt?: boolean };
+
+/**
+ * Modellene nøkkelen gir tilgang til, med `label` og `merknad` til /admin.
+ *
+ * Kuratert og ikke hentet: endepunktet svarer ikke på `/v1/models`. `reasoning` er
+ * målt mot endepunktet, ikke lest av et modellkort - begge de to første svarer med
+ * `reasoning_content`, og Qwen3-Coder-Next svarer likt med og uten
+ * `enable_thinking`. Første oppføring er standarden når `TELENOR_AI_FACTORY_MODEL`
+ * er helt usatt; hold den lik det `.env.example` og `docker-compose.yml`
+ * dokumenterer, så de tre ikke sier ulike ting.
+ */
+export const AI_FACTORY_MODELS: readonly (Reasoningmodell & { label: string; merknad: string })[] = [
+  { id: "GLM-5.2-FP8", label: "GLM-5.2-FP8", reasoning: true, merknad: "Tenker, men ble kuttet av taket på en full garasjevurdering i tre av tre forsøk." },
+  { id: "NVIDIA-Nemotron-3-Super-120B-A12B-FP8", label: "NVIDIA-Nemotron-3-Super-120B-A12B-FP8", reasoning: true, reasoningAnbefalt: true, merknad: "Tenker, og rakk den tunge oppgaven på 8,4 sekunder." },
+  { id: "Qwen3-Coder-Next-FP8", label: "Qwen3-Coder-Next-FP8", reasoning: false, merknad: "Ingen tenkemodus: svarer likt med og uten enable_thinking." }
+];
 
 /**
  * Modellen en reasoning-oppgave skal kjøre på.
@@ -118,20 +134,15 @@ export function velgReasoningModell(
   if (kandidater.length === 0) {
     return { modell: null, advarsel: "Ingen av de tilgjengelige modellene har en tenkemodus." };
   }
+  // Den anbefalte, ikke den første som kan: GLM-5.2 kan tenke og er likevel gal som
+  // standard, fordi den ble kuttet av taket i tre av tre forsøk. Rekkefølgen i
+  // listen styres av hvilken modell som er standard ellers.
   const standard = kandidater.find(modell => modell.reasoningAnbefalt === true) ?? kandidater[0];
-  if (!oensket) {
-    return { modell: standard.id };
-  }
   // Et uttrykt ønske om en modell som kan tenke respekteres, også når en annen er
   // anbefalt: den som setter variabelen vet noe om oppgaven vi ikke vet.
-  if (kandidater.some(modell => modell.id === oensket)) {
-    return { modell: oensket };
+  if (!oensket || kandidater.some(modell => modell.id === oensket)) {
+    return { modell: oensket || standard.id };
   }
-  const kjent = modeller.some(modell => modell.id === oensket);
-  return {
-    modell: standard.id,
-    advarsel: kjent
-      ? `${oensket} har ingen tenkemodus. Reasoning-oppgaver bruker ${standard.id} i stedet.`
-      : `${oensket} er ikke en kjent modell. Reasoning-oppgaver bruker ${standard.id} i stedet.`
-  };
+  const hvorfor = modeller.some(modell => modell.id === oensket) ? "har ingen tenkemodus" : "er ikke en kjent modell";
+  return { modell: standard.id, advarsel: `${oensket} ${hvorfor}. Reasoning-oppgaver bruker ${standard.id} i stedet.` };
 }
