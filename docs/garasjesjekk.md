@@ -23,6 +23,15 @@ videre. Med `--mock` får du faste, kildebaserte forklaringer. Med en konfigurer
 språkmodell kan KI formulere forklaringene. Selve vurderingen bruker alltid faste
 regler, ikke modellen.
 
+Etter vurderingen kan KI gi et **råd** i tillegg: `POST /ai/garasje-raad` leser hele
+grunnlaget, måler det mot plangrunnlaget og sier hva som må avklares og hvorfor.
+Rådet er et tillegg til vurderingen, ikke en erstatning for den, og det er den ene
+oppgaven i sandkassen som ber om en reasoning-modell - de øvrige ble ikke bedre av
+tenkingen. To grenser ligger i kode og ikke i prompten, fordi en prompt kan modellen
+overse: rådet kan aldri sette «ikke søknadspliktig» når reglene ikke gjorde det, og
+reglenes uavklarte forhold står alltid i rådets liste uansett hva modellen svarte.
+`pnpm test:garasje-raad` fester begge, uten modell og uten tjenester.
+
 Garasjesjekken starter i mørkt tema. Valget av lyst eller mørkt tema lagres lokalt
 i nettleseren og gjenbrukes ved omlasting og i den innebygde garasjevisningen.
 Bare temavalget lagres der, ikke opplysninger om eiendommen eller garasjen.

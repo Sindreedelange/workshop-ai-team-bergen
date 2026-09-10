@@ -10,6 +10,14 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { cors, readRequestBody, sammeOpphav, svarhjelpere } from "../../shared/http.ts";
 import { feilkode, feilmelding } from "../../shared/errors.ts";
 import { buildFartsdempendeOppsummering } from "./fartsdempende-oppsummering.ts";
+import { buildGarasjeRaadPrompt, validateGarasjeRaad } from "./garasje-raad.ts";
+import {
+  REASONING_PROVIDERE,
+  providerKanReasoning,
+  reasoningForOppgave,
+  velgReasoningModell
+} from "./reasoning.ts";
+import { buildGarasjeKunnskapsgrunnlag } from "../../shared/garasje-kunnskap.ts";
 import type { Sporsmaalskontekst } from "./sporsmaalsperrer.ts";
 import {
   buildGrunnlag,
@@ -106,7 +114,7 @@ type Revisjonshendelse = {
 };
 
 /** Svaret fra en provider: teksten og hvilken modell som ga den. */
-type Modellsvar = { tekst: string; modell: string };
+type Modellsvar = { tekst: string; modell: string; reasoning?: string };
 
 /** Valgene et modellkall kan overstyre. */
 type Modellvalg = {
@@ -115,6 +123,12 @@ type Modellvalg = {
   timeoutMs?: number;
   sporingsId?: string | null;
   task?: string;
+  /**
+   * Overstyrer reasoning for dette ene kallet. Normalt skal den stå tom: hvilke
+   * oppgaver som ber om tenking er en tabell i `reasoning.ts`, ikke noe hvert
+   * kallsted bestemmer selv, og `callModel` leser den ut fra `task`.
+   */
+  reasoning?: boolean;
 };
 
 const AI_PROVIDERS = ["mock", "ollama", "openrouter", "telenor-ai-factory", "bedrock"];
@@ -130,12 +144,31 @@ const aiFactoryApiKey = process.env.TELENOR_AI_FACTORY_API_KEY || "";
 // from. First entry is the fallback when TELENOR_AI_FACTORY_MODEL is unset entirely
 // (not just commented out in .env) - keep it the same model .env.example and
 // docker-compose.yml document as the default, so the three do not silently disagree.
+//
+// `reasoning` er målt mot endepunktet, ikke lest av et modellkort: begge de to
+// første svarer med `reasoning_content`, og Qwen3-Coder-Next svarer likt med og uten
+// `enable_thinking`. `merknad` er tallene fra den samme målingen, og de er grunnen
+// til at GLM ikke kan være reasoning-modellen selv om den kan tenke.
 const AI_FACTORY_MODELS = [
-  { id: "GLM-5.2-FP8", label: "GLM-5.2-FP8" },
-  { id: "NVIDIA-Nemotron-3-Super-120B-A12B-FP8", label: "NVIDIA-Nemotron-3-Super-120B-A12B-FP8" },
-  { id: "Qwen3-Coder-Next-FP8", label: "Qwen3-Coder-Next-FP8" }
+  { id: "GLM-5.2-FP8", label: "GLM-5.2-FP8", reasoning: true, merknad: "Tenker, men ble kuttet av taket på en full garasjevurdering i tre av tre forsøk." },
+  { id: "NVIDIA-Nemotron-3-Super-120B-A12B-FP8", label: "NVIDIA-Nemotron-3-Super-120B-A12B-FP8", reasoning: true, reasoningAnbefalt: true, merknad: "Tenker, og rakk den tunge oppgaven på 8,4 sekunder." },
+  { id: "Qwen3-Coder-Next-FP8", label: "Qwen3-Coder-Next-FP8", reasoning: false, merknad: "Ingen tenkemodus: svarer likt med og uten enable_thinking." }
 ];
 let aiFactoryModel = process.env.TELENOR_AI_FACTORY_MODEL || AI_FACTORY_MODELS[0].id;
+// Modellen reasoning-oppgavene bruker, uavhengig av hvilken som er valgt ellers.
+// Et ønske om en modell uten tenkemodus blir byttet ut med en advarsel her, i stedet
+// for å svare uten å tenke: en oppgave som ser ut som den tenker uten å gjøre det er
+// verre enn en som sier at den ikke kan.
+const reasoningValg = velgReasoningModell(AI_FACTORY_MODELS, process.env.TELENOR_AI_FACTORY_REASONING_MODEL);
+const aiFactoryReasoningModel = reasoningValg.modell ?? aiFactoryModel;
+if (reasoningValg.advarsel) {
+  console.warn(`Reasoning-modell: ${reasoningValg.advarsel}`);
+}
+// Endepunktet ligger bak en API Gateway som kutter forbindelsen etter 30 sekunder
+// og svarer «Service Unavailable». AI_TIMEOUT_MS er 180000, så uten dette taket
+// venter sandkassen i et halvt minutt og rapporterer så en 503 som om modellen
+// hadde avslått kallet. Med det får den en feilmelding som sier hva som skjedde.
+const aiFactoryTimeoutMs = Number(process.env.TELENOR_AI_FACTORY_TIMEOUT_MS) || 30000;
 // AI Factory recommends a cache salt on every request to isolate the shared KV
 // cache. A process-local value is safer than omitting it when no stable salt is set.
 const aiFactoryCacheSalt = process.env.TELENOR_AI_FACTORY_CACHE_SALT || randomUUID();
@@ -601,6 +634,8 @@ function adminHtml(): string {
         }).join("");
         document.getElementById("aiFactoryCreds").textContent = data["telenor-ai-factory"].keyConfigured
           ? "Base-URL: " + data["telenor-ai-factory"].baseUrl
+            + " · Reasoning-oppgaver bruker " + data["telenor-ai-factory"].reasoningModel
+            + " · Taket er " + data["telenor-ai-factory"].timeoutMs + " ms"
           : "TELENOR_AI_FACTORY_API_KEY er ikke satt i miljøet.";
 
         var bedrockSelect = document.getElementById("bedrockModellValg");
@@ -1468,10 +1503,22 @@ async function callOpenRouter(prompt: string, temperature: number, systemMessage
   };
 }
 
-async function callAiFactory(prompt: string, temperature: number, systemMessage: string, signal: AbortSignal): Promise<Modellsvar> {
+/**
+ * Reasoning styres med `chat_template_kwargs.enable_thinking`, ikke med
+ * `reasoning_effort`: LiteLLM avviser det siste med 400 og
+ * «openai does not support parameters: ['reasoning_effort']» med mindre kallet
+ * også sender `allowed_openai_params`. Flagget sendes alltid, også når det er
+ * `false`, fordi GLM-5.2 og Nemotron begge tenker som standard.
+ *
+ * Merk at det ikke finnes noe `max_tokens` her. Taket gjelder reasoning-tokenene
+ * også, så et lavt tak spiser hele budsjettet på tenkingen og lar `content` stå
+ * tom med `finish_reason: "length"` - et tomt svar som ser ut som en modellfeil.
+ */
+async function callAiFactory(prompt: string, temperature: number, systemMessage: string, signal: AbortSignal, reasoning = false): Promise<Modellsvar> {
   if (!aiFactoryApiKey) {
     throw new Error("TELENOR_AI_FACTORY_API_KEY mangler");
   }
+  const modell = reasoning ? aiFactoryReasoningModel : aiFactoryModel;
   const svar = await fetch(`${aiFactoryBaseUrl}/v1/chat/completions`, {
     method: "POST",
     headers: {
@@ -1479,9 +1526,10 @@ async function callAiFactory(prompt: string, temperature: number, systemMessage:
       Authorization: `Bearer ${aiFactoryApiKey}`
     },
     body: JSON.stringify({
-      model: aiFactoryModel,
+      model: modell,
       temperature,
       cache_salt: aiFactoryCacheSalt,
+      chat_template_kwargs: { enable_thinking: reasoning },
       messages: [
         { role: "system", content: systemMessage },
         { role: "user", content: prompt }
@@ -1490,12 +1538,17 @@ async function callAiFactory(prompt: string, temperature: number, systemMessage:
     signal
   });
   if (!svar.ok) {
-    throw new Error(`Telenor AI Factory svarte med status ${svar.status}`);
+    // 503 herfra er nesten alltid taket foran tjenesten, ikke modellen som nekter.
+    throw new Error(svar.status === 503
+      ? `Telenor AI Factory svarte med status 503. Kallet brukte trolig mer enn ${aiFactoryTimeoutMs} ms hos ${modell}.`
+      : `Telenor AI Factory svarte med status ${svar.status}`);
   }
-  const data = (await svar.json()) as { choices?: { message?: { content?: string } }[] };
+  const data = (await svar.json()) as { choices?: { message?: { content?: string; reasoning_content?: string } }[] };
+  const melding = data?.choices?.[0]?.message;
   return {
-    tekst: data?.choices?.[0]?.message?.content?.trim() || "",
-    modell: `telenor-ai-factory:${aiFactoryModel}`
+    tekst: melding?.content?.trim() || "",
+    modell: `telenor-ai-factory:${modell}`,
+    reasoning: melding?.reasoning_content?.trim() || undefined
   };
 }
 
@@ -1681,6 +1734,11 @@ async function buildProviderStatus() {
     "telenor-ai-factory": {
       models: AI_FACTORY_MODELS,
       currentModel: aiFactoryModel,
+      // Ikke valgbar i nedtrekkslisten: den gjelder bare de oppgavene som ber om
+      // reasoning, og hvilken modell som klarer dem er målt, ikke en smakssak.
+      reasoningModel: aiFactoryReasoningModel,
+      ...(reasoningValg.advarsel ? { reasoningAdvarsel: reasoningValg.advarsel } : {}),
+      timeoutMs: aiFactoryTimeoutMs,
       baseUrl: aiFactoryBaseUrl,
       keyConfigured: Boolean(aiFactoryApiKey)
     }
@@ -1761,11 +1819,23 @@ async function callModel(prompt: string, valg: Modellvalg = {}): Promise<Modells
   const systemMessage = valg.systemMessage || SYSTEM_FREETEXT;
   const start = Date.now();
 
+  // Oppgaven bestemmer om det skal tenkes, provideren om det kan. En reasoning-
+  // oppgave hos en provider uten målt støtte kjører uten tenking, og sporet sier
+  // begge tallene, så et svar som ikke tenkte ikke ser ut som ett som gjorde det.
+  const reasoningOensket = valg.reasoning ?? reasoningForOppgave(valg.task);
+  const reasoning = reasoningOensket && providerKanReasoning(aiProvider);
+
   // Without a timeout a call hangs indefinitely when Ollama is slow or half-started,
   // and it looks like the sandbox itself has frozen. The default ceiling is
   // generous because a SUMMARY may legitimately take a minute; a task that sits
   // mid-conversation passes a shorter one, since a user will not wait.
-  const signal = AbortSignal.timeout(valg.timeoutMs || modelTimeoutMs);
+  // Provideren med det laveste taket bestemmer: å vente i 180 sekunder på et
+  // endepunkt som kutter etter 30 gir bare en senere og mer forvirrende feil.
+  const oensketTimeout = valg.timeoutMs || modelTimeoutMs;
+  const effektivTimeout = aiProvider === "telenor-ai-factory"
+    ? Math.min(oensketTimeout, aiFactoryTimeoutMs)
+    : oensketTimeout;
+  const signal = AbortSignal.timeout(effektivTimeout);
 
   const baseEntry = {
     timestamp: new Date().toISOString(),
@@ -1773,6 +1843,8 @@ async function callModel(prompt: string, valg: Modellvalg = {}): Promise<Modells
     task: valg.task || "ukjent",
     provider: aiProvider,
     temperature,
+    reasoning,
+    reasoningOensket,
     prompt
   };
 
@@ -1783,7 +1855,7 @@ async function callModel(prompt: string, valg: Modellvalg = {}): Promise<Modells
     } else if (aiProvider === "openrouter") {
       svar = await callOpenRouter(prompt, temperature, systemMessage, signal);
     } else if (aiProvider === "telenor-ai-factory") {
-      svar = await callAiFactory(prompt, temperature, systemMessage, signal);
+      svar = await callAiFactory(prompt, temperature, systemMessage, signal, reasoning);
     } else if (aiProvider === "bedrock") {
       svar = await callBedrock(prompt, temperature, systemMessage, signal);
     } else {
@@ -1794,6 +1866,10 @@ async function callModel(prompt: string, valg: Modellvalg = {}): Promise<Modells
       ...baseEntry,
       model: svar.modell,
       response: svar.tekst,
+      // Tenkingen er ikke svaret, men den er det eneste stedet man ser hvorfor
+      // svaret ble som det ble. Uten den i sporet er en reasoning-modell mindre
+      // etterprøvbar enn en uten, ikke mer.
+      reasoningResponse: svar.reasoning ?? null,
       durationMs: Date.now() - start,
       failed: false
     });
@@ -1802,7 +1878,7 @@ async function callModel(prompt: string, valg: Modellvalg = {}): Promise<Modells
     const navn = feil instanceof Error ? feil.name : "";
     const melding =
       navn === "TimeoutError" || navn === "AbortError"
-        ? `Modellen svarte ikke innen ${valg.timeoutMs || modelTimeoutMs} ms`
+        ? `Modellen svarte ikke innen ${effektivTimeout} ms`
         : feilmelding(feil);
 
     await writeTrace({
@@ -1859,6 +1935,41 @@ async function judgeWithAi(body: AiKropp) {
     modell,
     syntetisk: true
   };
+}
+
+/**
+ * Slutten av garasjesjekken: modellen leser hele grunnlaget, måler det mot
+ * plangrunnlaget og gir et råd med et antatt utfall.
+ *
+ * Dette er den ene oppgaven i `REASONING_OPPGAVER` i dag. Oppgaven er tung nok til
+ * å tjene på tenking - målt mot Litle Milde-casen var reasoning-svaret det ene som
+ * rekkefølget tiltakene - mens `oppsummering` og `tolk-svar` ble like gode eller
+ * dårligere, og står med den målingen i `IKKE_REASONING_OPPGAVER`.
+ *
+ * Grunnlaget projiseres gjennom `buildGarasjeKunnskapsgrunnlag`, så persondata og rå
+ * kartgeometri når aldri modellen, og utfallet klemmes i `validateGarasjeRaad`, så et
+ * råd ikke kan gjøre den regelbaserte vurderingen mildere.
+ */
+async function adviseGarasjeWithAi(body: AiKropp) {
+  const kontekst = body?.kontekst ?? {};
+  const resultater = kontekst.resultater as Record<string, { vurdering?: unknown }> | undefined;
+  const vurdering = resultater?.["garasje-vurdering"]?.vurdering ?? {};
+  const kunnskap = buildGarasjeKunnskapsgrunnlag(kontekst);
+
+  const { tekst, modell, reasoning } = await callModel(buildGarasjeRaadPrompt(kunnskap, vurdering), {
+    temperature: 0,
+    systemMessage: SYSTEM_JSON,
+    // Ingen `reasoning: true` her: REASONING_OPPGAVER i reasoning.ts sier at denne
+    // oppgaven tenker, og to steder som sier det samme er ett som kan bli glemt.
+    task: "garasje-raad",
+    sporingsId: body?.sporingsId
+  });
+
+  const raad = validateGarasjeRaad(parseJsonObject(tekst), vurdering);
+  if (!raad) {
+    throw new Error(`Kunne ikke tolke garasjeråd fra ${modell}`);
+  }
+  return { ...raad, modell, tenkte: Boolean(reasoning), syntetisk: true };
 }
 
 async function getIntentFromModel(body: AiKropp) {
@@ -2152,6 +2263,15 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
         modell: provider.modell,
         modellNaaBar: provider.naaBar,
         ...(provider.feil ? { feil: provider.feil } : {}),
+        // En reasoning-oppgave hos en provider uten støtte kjører uten tenking. Det
+        // er et riktig svar, men det er ikke det samme svaret, så det skal stå her
+        // og ikke bare i sporet på kall nummer hundre.
+        reasoning: {
+          stotter: providerKanReasoning(aiProvider),
+          grunn: REASONING_PROVIDERE[aiProvider]?.grunn ?? "Ukjent provider.",
+          ...(providerKanReasoning(aiProvider) ? { modell: aiFactoryReasoningModel } : {}),
+          ...(reasoningValg.advarsel ? { advarsel: reasoningValg.advarsel } : {})
+        },
         tidspunkt: new Date().toISOString()
       });
       return;
@@ -2292,6 +2412,19 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
         return;
       }
       jsonResponse(response, 200, await judgeWithAi(body));
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/ai/garasje-raad") {
+      const body = await readRequestBody(request) as AiKropp;
+      const svar = await adviseGarasjeWithAi(body);
+      await addRevisjon({
+        sporingsId: body.sporingsId || newId("flyt"),
+        handling: "KI_KALL",
+        ressurs: "garasje-raad",
+        aktor: { type: "system", id: "ai-gateway" }
+      });
+      jsonResponse(response, 200, svar);
       return;
     }
 
