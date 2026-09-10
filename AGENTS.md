@@ -712,7 +712,7 @@ pnpm test:bergen-matrikkel
 ```
 - Optional orchestrated startup script (model selection/reset): `./start.sh --help`.
 - CI (`.github/workflows/ci.yml`) runs `lint`, `test:chat-intent`, `test`, `test:sperrer`,
-  `test:oppsummering`, `test:skjerming`, `test:vilkaar`, `test:garasje`, `test:foedselsnummer`, `test:handleevne`,
+  `test:oppsummering`, `test:skjerming`, `test:vilkaar`, `test:reasoning`, `test:garasje-raad`, `test:garasje`, `test:foedselsnummer`, `test:handleevne`,
   `test:samtykke`, `test:forsendelse`, `test:upstream`, `test:concurrency`,
   `test:replay`, `test:chat`, `test:parametere`, `test:imports`, `test:startup`, `test:kodeverk`,
   `test:revisjon`, `test:openapi`, `test:docs`, `test:agent:dialog`, `test:tools-matrikkel`,

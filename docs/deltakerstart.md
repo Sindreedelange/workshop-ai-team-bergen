@@ -21,12 +21,13 @@ Og [`CODE_OF_CONDUCT.md`](../CODE_OF_CONDUCT.md) gjelder alle som er med - les d
 
 ## 0. Hent repoet
 
-Fork repoet på GitHub («Fork»-knappen øverst på repo-siden), og klon forken din
-(krever [git](https://git-scm.com/downloads)):
+Klon repoet (krever [git](https://git-scm.com/downloads)). Har du ikke
+skrivetilgang, fork det først på GitHub («Fork»-knappen øverst på repo-siden) og
+bytt ut brukernavnet i URL-en med ditt eget:
 
 ```bash
-git clone https://github.com/<ditt-github-brukernavn>/workshop-ai.git
-cd workshop-ai
+git clone https://github.com/Sindreedelange/workshop-ai-team-bergen.git
+cd workshop-ai-team-bergen
 ```
 
 Resten av denne siden antar at du står i den mappen.

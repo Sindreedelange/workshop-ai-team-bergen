@@ -346,7 +346,9 @@ check("PDF-kilden navngis med side og kvalitetsflagg", grunnlag.kilder.includes(
     passedToOllama,
     "kallstedet i callModel utelater systemMessage"
   );
-  const passedToAiFactory = /callAiFactory\(prompt, temperature, systemMessage, signal\)/.test(source);
+  // Reasoning-flagget kom som en femte parameter etter denne sjekken. Den skal
+  // fortsatt feste at systemMessage er med, ikke at listen har nøyaktig fire ledd.
+  const passedToAiFactory = /callAiFactory\(prompt, temperature, systemMessage, signal(?:, [^)]+)?\)/.test(source);
   check(
     "callModel sender systemMessage til Telenor AI Factory",
     passedToAiFactory,
@@ -356,6 +358,26 @@ check("PDF-kilden navngis med side og kvalitetsflagg", grunnlag.kilder.includes(
     "Telenor AI Factory sender cache_salt",
     /cache_salt:\s*aiFactoryCacheSalt/.test(source),
     "AI Factory-kallet mangler cache_salt"
+  );
+  check(
+    "Telenor AI Factory styrer reasoning per oppgave",
+    /chat_template_kwargs:\s*\{\s*enable_thinking:\s*reasoning\s*\}/.test(source),
+    "flagget sendes ikke, så oppgaven arver modellens standard i stedet for sin egen policy"
+  );
+  // Hvilke oppgaver som tenker eier pnpm test:reasoning. Her festes bare at
+  // kallstedet gir valget videre i det hele tatt.
+  check(
+    "callModel gir reasoning-valget videre",
+    /callAiFactory\(prompt, temperature, systemMessage, signal, reasoning\)/.test(source),
+    "kallstedet i callModel slipper reasoning-valget, så garasje-raad tenker ikke"
+  );
+  // Taket gjelder tenketokenene også. Et max_tokens her spiser budsjettet på
+  // tenkingen og lar content stå tom med finish_reason «length» - et tomt svar
+  // som ser ut som en modellfeil. Sjekken finnes fordi feilen er usynlig.
+  check(
+    "Telenor AI Factory setter ikke max_tokens",
+    !/max_tokens/.test(source.slice(source.indexOf("async function callAiFactory"), source.indexOf("// --- Bedrock"))),
+    "et tak på svaret kutter tenkingen og gir et tomt svar i stedet for en feil"
   );
 }
 
