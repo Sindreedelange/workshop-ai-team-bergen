@@ -431,8 +431,8 @@ function updateMarker(): void {
   if (!plassering) return;
   const [x, y] = xy(plassering);
   const marker = svg.querySelector("#map-marker")!;
-  marker.setAttribute("cx", String(x));
-  marker.setAttribute("cy", String(y));
+  marker.setAttribute("x", String(x - 9));
+  marker.setAttribute("y", String(y - 9));
 }
 
 function moveMarker(punkt: GarasjePunkt): void {
