@@ -89,6 +89,12 @@ Sju demo-case er publisert; `Redusert foreldrebetaling i barnehage` er
 flaggskipet og det eneste som er dekket av en informasjonsmodell. Casene og hvilken
 testbruker som hører til hver, står i `docs/deltakerstart.md`.
 
+I tillegg finnes [**«Kan du bygge uten å søke?»**](docs/garasjesjekk.md):
+tiltakssjekken for frittliggende bygg, tilbygg, gjerde og fasade eller tak.
+Den kombinerer eiendom, kart, lokale planer og PDF-kilder med faste regler og
+KI-forklaringer. Casen avsluttes med veiledning, ikke innsending. Den viser et
+mønster for søknadsavklaring som andre tjenester kan bygge videre på med egne regler.
+
 Arkitekturen er lagt opp for samarbeid mellom flere team, med tydelige grenser mellom frontend, backend, simulatorer, policyer og datasett.
 
 ## Designprinsipp for hackathon

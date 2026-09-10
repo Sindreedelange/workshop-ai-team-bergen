@@ -1,7 +1,7 @@
 import { GARASJE_UTFALL, GARASJE_UTFALL_FRITAR, type GarasjeUtfall } from "../../shared/garasje.ts";
 
 /**
- * Rådet på slutten av garasjesjekken: modellen leser hele grunnlaget, måler det mot
+ * Rådet på slutten av tiltakssjekken: modellen leser hele grunnlaget, måler det mot
  * plangrunnlaget og sier hva som må avklares og hvorfor.
  *
  * Dette er den ene oppgaven i sandkassen som er tung nok til å være verdt en

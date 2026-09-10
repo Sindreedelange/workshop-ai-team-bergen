@@ -11,7 +11,7 @@ import {
   GARASJE_DIALOGFELTER, isGarasjeDialogfeltId, normalizeQuestionFieldAnswer,
   validateGarasjeDialogHoyder, validateGarasjeDialogSvar, getByggetiltakDialogfelt, validateByggetiltakDialogSvar, selectGarasjeProsessfelter
 } from "../apps/shared/garasje-dialog.ts";
-import { BYGGETILTAK_KATALOG } from "../apps/shared/byggetiltak.ts";
+import { BYGGETILTAK_KATALOG, TILTAKSSJEKK_NAVN } from "../apps/shared/byggetiltak.ts";
 import type { GarasjeDialogfeltId } from "../apps/shared/garasje-dialog.ts";
 import { readRequestBody, svarhjelpere } from "../apps/shared/http.ts";
 
@@ -252,7 +252,7 @@ try {
     assert.equal(call.arguments.tekst, text);
     assert.equal(call.arguments.sporingsId, "garasje-dialog-test");
     const context = call.arguments.kontekst;
-    assert.equal(context.tjeneste, "Garasjesjekken");
+    assert.equal(context.tjeneste, TILTAKSSJEKK_NAVN);
     assert.equal(context.prosessId, "garasjesjekk");
     assert.equal(context.steg.visning, "garasje");
     assert.deepEqual(context.aktivtFelt, {

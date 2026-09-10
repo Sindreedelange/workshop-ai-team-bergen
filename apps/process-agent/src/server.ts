@@ -10,7 +10,7 @@ import { feilmelding } from "../../shared/errors.ts";
 import { buildGarasjeBegrepssvar, isGarasjeKontekst } from "../../shared/garasje-begreper.ts";
 import { retrieveGarasjeKunnskap } from "./garasje-kunnskap.ts";
 import { projectGarasjeProsjekt } from "../../shared/garasje-kunnskap.ts";
-import { BYGGETILTAK_KATALOG } from "../../shared/byggetiltak.ts";
+import { BYGGETILTAK_KATALOG, TILTAKSSJEKK_NAVN } from "../../shared/byggetiltak.ts";
 import {
   getByggetiltakDialogfelt, normalizeQuestionFieldAnswer, validateByggetiltakDialogSvar, selectGarasjeProsessfelter
 } from "../../shared/garasje-dialog.ts";
@@ -252,7 +252,7 @@ function stemToken(token: string): string {
 }
 
 function canonicalizeProcessToken(token: string): string {
-  if (token.startsWith("garasj")) {
+  if (token.startsWith("garasj") || isGarasjeKontekst({ tjeneste: token })) {
     return "garasje";
   }
   if (token.startsWith("fartsdemp") || token.startsWith("fart") || token.startsWith("dump") || token.startsWith("hump")) {
@@ -1130,7 +1130,7 @@ function matchGarasjeEiendom(state: Agentsesjon, answer: string):
   return {
     adresse: String(eiendom.adresse),
     felter: fields,
-    melding: `Jeg bruker eiendomsnumrene fra oppslaget for ${eiendom.adresse}. Du må fortsatt bekrefte eiendommen og velge garasjens plassering.`
+    melding: `Jeg bruker eiendomsnumrene fra oppslaget for ${eiendom.adresse}. Du må fortsatt bekrefte eiendommen og velge tiltakets plassering.`
   };
 }
 
@@ -1199,7 +1199,7 @@ async function handleStructuredAnswer(
     const step = session.aktivtSteg;
     if (session.status !== "AKTIV") throw new Verktoyfeil("Prosessøkten er avsluttet.", 409);
     if (step?.type !== "QUESTION" || step.id !== body.stegId || step.visning !== "garasje") {
-      throw new Verktoyfeil("Svaret gjelder ikke det aktive garasjespørsmålet. Last inn steget på nytt.", 409);
+      throw new Verktoyfeil("Svaret gjelder ikke det aktive tiltaksspørsmålet. Last inn steget på nytt.", 409);
     }
     await invokeTool("answer_question", { oektsId: state.oektsId, stegId: step.id, svar: body.svar });
     clearQuestionState(state);
@@ -2387,7 +2387,7 @@ async function handleGarasjeDialog(body: GarasjeDialogRequest) {
         tekst: body.tekst.trim(),
         sporingsId: body.sporingsId,
         kontekst: {
-          tjeneste: "Garasjesjekken",
+          tjeneste: TILTAKSSJEKK_NAVN,
           prosessId: "garasjesjekk",
           steg: { id: "garasje-prosjekt", type: "QUESTION", visning: "garasje", tittel: "Opplysninger om tiltaket" },
           aktivtFelt: { id: field.id, label: field.label },
@@ -2410,7 +2410,7 @@ async function handleGarasjeDialog(body: GarasjeDialogRequest) {
         ...(result.grunnlag !== undefined ? { grunnlag: result.grunnlag } : {})
       };
     } catch (error) {
-      console.warn(`Garasjedialog: ${feilmelding(error)}`);
+      console.warn(`Tiltaksdialog: ${feilmelding(error)}`);
       return {
         type: "sporsmaal",
         ...grounding,
@@ -2493,7 +2493,7 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
           kontekst: { ...checked.kontekst, ...grounding }, sporingsId: checked.sporingsId
         });
       } catch (error) {
-        console.warn(`Garasjeråd: ${feilmelding(error)}`);
+        console.warn(`Tiltaksråd: ${feilmelding(error)}`);
         throw new Verktoyfeil("Rådstjenesten er utilgjengelig. Den regelbaserte vurderingen er uendret; kontakt kommunens byggesaksveileder ved spørsmål.", 502);
       }
       if (!isRecord(advice) || typeof advice.raad !== "string" || !advice.raad.trim()) {
@@ -2558,7 +2558,7 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
         if (!structured && Object.hasOwn(body, "stegId")) {
           throw new Verktoyfeil("stegId krever et strukturert svar.", 400);
         }
-        const userMessage = String(body.message || (structured ? "Opplysninger fra garasjeskjemaet." : ""));
+        const userMessage = String(body.message || (structured ? "Opplysninger fra tiltaksskjemaet." : ""));
         session.history.push({ role: "user", message: userMessage, tidspunkt: new Date().toISOString() });
 
         const replies = structured

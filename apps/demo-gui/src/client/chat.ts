@@ -1062,7 +1062,7 @@ async function renderStep(): Promise<void> {
   }
   if (oekt?.status === "FULLFORT") {
     addMsg("assistant", oekt.avslutning === "veiledning"
-      ? "Garasjesjekken er gjennomført. Ingen søknad er sendt. Du kan fortsatt spørre om begrepene og vurderingen."
+      ? "Tiltakssjekken er gjennomført. Ingen søknad er sendt. Du kan fortsatt spørre om begrepene og vurderingen."
       : "Da er vi ferdige. Takk for at du gikk gjennom dette sammen med meg.");
     if (oekt.prosessId === "garasjesjekk") clearGarasjeView = mountGarasjeProsess({ oekt, container: chatEl, save: async () => {} });
     renderQuickActionsFor(steg);

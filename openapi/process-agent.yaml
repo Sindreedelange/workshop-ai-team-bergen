@@ -100,7 +100,7 @@ paths:
                         kroppEksempel: { type: string }
   /agent/garasje/raad:
     post:
-      summary: Forklar en oppgitt garasjevurdering med PDF-utdrag
+      summary: Forklar en oppgitt tiltaksvurdering med PDF-utdrag
       description: >
         Statsløs veiledning, ikke en ny eller autentisert regelvurdering. Endrer ingen
         prosessøkt og gir ingen byggetillatelse. Henter dokumentlisten via tools-api,
@@ -156,11 +156,11 @@ paths:
           description: Rådstjenesten er utilgjengelig eller svarte ugyldig
   /agent/garasje/dialog:
     post:
-      summary: Forklar eller tolk ett felt i garasjeutkastet
+      summary: Forklar eller tolk ett felt i tiltaksutkastet
       security: []
       description: >
         Statsløs hjelp til utfylling, uten person, agentøkt eller prosessøkt.
-        Et entydig svar tolkes med den samme feltparseren som garasjeintervjuet.
+        Et entydig svar tolkes med den samme feltparseren som tiltaksintervjuet.
         Et tall, ja, nei eller uttrykkelig ukjent returneres bare som et forslag.
         Klienten må be innbyggeren velge «Bruk svaret» før utkastet endres.
         Spørsmål og forklaringer går til answer_citizen_question med tjeneste,
@@ -245,13 +245,13 @@ paths:
       summary: Send message to agent
       description: >
         Tekst velger prosess eller besvarer steget. Et strukturert svar fra
-        garasjeskjemaet går direkte til prosessmotorens aktive QUESTION med
+        tiltaksskjemaet går direkte til prosessmotorens aktive QUESTION med
         visning garasje og samme stegId. Det lagres før agenten går videre.
         Samtidige meldinger til samme agentøkt avvises med 409.
-        Spørsmål om garasjebegreper og måling besvares via spørsmålstjenesten
+        Spørsmål om byggefaglige begreper og måling besvares via spørsmålstjenesten
         uten å flytte steget. Det gjeldende feltet og svarene beholdes også når
         forklaringstjenesten feiler.
-        Tall i garasjedialogen tolkes per felt: «49 m2» og «49,5 m²» blir areal,
+        Tall i tiltaksdialogen tolkes per felt: «49 m2» og «49,5 m²» blir areal,
         «3 meter» blir en lengde og «1 etasje» blir et heltall. Uklart tallformat,
         feil enhet og negative mål gir et nytt spørsmål om samme felt med en gang,
         ikke et lagret svar. «Vet ikke» tillates for avstander. Valg og bekreftelser
@@ -259,8 +259,8 @@ paths:
         Når brukeren uttrykkelig velger en entydig adresse fra «mine eiendommer»,
         brukes gnr, bnr og eventuelt kommunenummer fra det allerede utførte oppslaget.
         Like adresser må avklares med kommune. Bekreftelse av eiendommen og valg av
-        garasjens skissepunkt må fortsatt gis uttrykkelig; adressepunktet brukes ikke
-        som garasjeplassering. Uten registerfeltene beholdes vanlig feltinnsamling.
+        tiltakets skissepunkt må fortsatt gis uttrykkelig; adressepunktet brukes ikke
+        som tiltaksplassering. Uten registerfeltene beholdes vanlig feltinnsamling.
       parameters:
         - name: sessionId
           in: path
@@ -353,7 +353,7 @@ components:
               type: object
               additionalProperties: true
               description: >
-                Offentlige kartresultater fra garasjesjekken, ikke rå person- eller eierdata.
+                Offentlige kartresultater fra tiltakssjekken, ikke rå person- eller eierdata.
                 Projeksjonen beholder høyst åtte planflater med kategori, sonekode,
                 hensynstype, sonenavn, navn, planId, berorer og punktIFlate, uten ringer.
                 planflatekilde har kildestatus, mens planflatedekning viser antall,
@@ -519,7 +519,7 @@ components:
           type: object
           additionalProperties: true
           description: >
-            Hele svarobjektet fra garasjeskjemaet, med feltene som prosessdefinisjonen
+            Hele svarobjektet fra tiltaksskjemaet, med feltene som prosessdefinisjonen
             ber om. Prosessmotoren validerer verdiene. Tall og boolske verdier sendes
             som JSON-verdier; ukjente verdier følger feltets kontrakt. Når både svar
             og message er oppgitt, brukes svar som stegsvaret. message tolkes ikke.

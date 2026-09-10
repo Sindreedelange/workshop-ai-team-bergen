@@ -1265,7 +1265,7 @@ paths:
 
   /api/garasje/adresser:
     get:
-      summary: Finn adresser til garasjesjekken
+      summary: Finn adresser til tiltakssjekken
       security:
         - idporten: []
         - maskinporten: [ks:innbyggerdialog:les]
@@ -1301,7 +1301,7 @@ paths:
 
   /api/garasje/veiledning:
     get:
-      summary: Strukturert kunnskapsgrunnlag for Garasjesjekken
+      summary: Strukturert kunnskapsgrunnlag for tiltakssjekken
       security: []
       description: >
         Offentlige fagbegreper og nasjonale vilkår fra de delte kodemodulene.
@@ -1393,7 +1393,7 @@ paths:
       description: >
         Adressen og gnr./bnr. kontrolleres mot adresseregisteret. Plangrunnlaget
         hentes for adressepunktet eller en uttrykkelig valgt plassering.
-        Punktet representerer ikke hele garasjens omriss. Manglende eller
+        Punktet representerer ikke hele tiltakets omriss. Manglende eller
         mislykkede kartoppslag fremgår av kildestatusen og er ikke bevis på at
         området er fritt for begrensninger.
         Tomtegrenser hentes først fra matrikkelmockens lokale teiguttrekk.
@@ -1436,7 +1436,7 @@ paths:
         - idporten: []
         - maskinporten: [ks:innbyggerdialog:les]
       description: >
-        Tilstandsfri sjekk, ingen søknad sendes. Garasjeopplysningene sendes som
+        Tilstandsfri sjekk, ingen søknad sendes. Tiltaksopplysningene sendes som
         JSON i tiltak. Eiendoms- og plangrunnlag hentes på nytt på serveren;
         klienten kan ikke overstyre arealformål eller kildestatus. Nasjonale
         unntaksvilkår vurderes separat fra uavklarte planforhold og andre krav.
@@ -1479,7 +1479,7 @@ paths:
                   sporingsId:
                     type: string
         "400":
-          description: Ugyldige garasjeopplysninger eller parametere
+          description: Ugyldige tiltaksopplysninger eller parametere
         "401":
           description: Innlogging mangler eller tokenet er ugyldig
         "404":
@@ -1489,13 +1489,13 @@ paths:
 
   /api/garasje/prosess/sjekk:
     get:
-      summary: Vurder bekreftede garasjeopplysninger fra en aktiv prosessøkt
+      summary: Vurder bekreftede tiltaksopplysninger fra en aktiv prosessøkt
       security:
         - idporten: []
         - maskinporten: [ks:innbyggerdialog:les]
       description: >
         Intern katalogressurs for DATA_FETCH-steget garasje-vurdering i
-        garasjesjekk. Kalles via POST /api/prosessoekter/{oektsId}/handling,
+        tiltakssjekk. Kalles via POST /api/prosessoekter/{oektsId}/handling,
         aldri direkte fra klienten. Direkte HTTP-kall mangler prosesskontekst og
         gir 400. Bare personId godtas i URL-en, ikke tiltak eller plangrunnlag.
         Tiltaket utledes fra det lagrede svaret på garasje-prosjekt.

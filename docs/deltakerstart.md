@@ -98,6 +98,14 @@ passer alle:**
 Tabellen er pinnet i `data/deltakercaser.json` og sjekket av `pnpm test`, så et
 innvilget utfall her er et innvilget utfall i sandkassen.
 
+I tillegg kan du prøve [**«Kan du bygge uten å søke?»**](garasjesjekk.md) fra
+prosesskatalogen eller <http://localhost:3001/garasje>. Dette er den utvidede
+tiltakssjekken, ikke bare en garasjecase. Bruk **Milda Garasjetest** (`person-395`)
+for Litle Milde 65 eller **Kåre Garasjetest** (`person-396`) for Kråkenestoppen 60.
+Beskriv et frittliggende bygg, tilbygg, gjerde eller en fasadeendring, og bekreft
+typen før du svarer videre. Casen gir veiledning og viser hva som må avklares;
+den sender ingen søknad og lover ikke et innvilget utfall.
+
 > [!WARNING]
 > **Den vanligste snublesteinen:** `person-001` har *ikke* barn i SFO, og heller
 > ikke barn i fritidskortets aldersgruppe. Prøver du de casene med henne, får du et

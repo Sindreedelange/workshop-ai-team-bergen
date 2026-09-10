@@ -715,7 +715,7 @@
     },
     {
       "id": "garasjesjekk",
-      "navn": "Garasjesjekken",
+      "navn": "Kan du bygge uten å søke?",
       "beskrivelse": "Veiledning om frittliggende bygning, tilbygg, gjerde og fasade eller tak på egen eiendom. Du beskriver tiltaket og bekrefter tiltakstypen før relevante spørsmål og planbestemmelser vurderes. Veiledning, ikke et vedtak.",
       "versjon": "0.1.0",
       "avslutning": "veiledning",

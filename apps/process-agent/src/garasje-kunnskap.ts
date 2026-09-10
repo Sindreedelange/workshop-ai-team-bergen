@@ -104,7 +104,7 @@ export async function retrieveGarasjeKunnskap(context: unknown, query: string, i
         : "Ingen relevante PDF-utdrag ble funnet. Planbestemmelsene er fortsatt uavklarte."),
         ...coverageWarnings, ...[...warnings].slice(0, 3)].join(" ")) };
   } catch (error) {
-    console.warn(`Dokumentgrunnlag for garasjesjekken: ${feilmelding(error)}`);
+    console.warn(`Dokumentgrunnlag for tiltakssjekken: ${feilmelding(error)}`);
     return empty("PDF-kunnskapsbasen er utilgjengelig eller svarte ugyldig. Rådet må brukes uten dokumentgrunnlag; avklar planen med kommunens byggesaksveileder.");
   }
 }

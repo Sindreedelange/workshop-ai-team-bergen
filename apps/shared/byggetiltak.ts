@@ -1,5 +1,7 @@
 import type { GarasjeTiltak } from "./garasje.ts";
 
+export const TILTAKSSJEKK_NAVN = "Kan du bygge uten å søke?";
+
 export const BYGGETILTAK_TYPER = ["frittliggende", "tilbygg", "gjerde", "fasade", "ukjent"] as const;
 export type Byggetiltakstype = (typeof BYGGETILTAK_TYPER)[number];
 export function isByggetiltakstype(value: unknown): value is Byggetiltakstype {

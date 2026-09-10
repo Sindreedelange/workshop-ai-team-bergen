@@ -79,6 +79,13 @@ Disse finnes for å senke terskelen og spare tid, ikke for å definere én rikti
 11. `process-agent` bruker `tools-api` for all tilstand og data; oppdager relevante verktøy dynamisk per steg via `suggest_step_tools`
 12. alle relevante hendelser sendes til revisjonslogg
 
+[Tiltakssjekken «Kan du bygge uten å søke?»](garasjesjekk.md) setter flere av
+disse delene sammen: valgt tiltakstype styrer spørsmålene, backend henter kart og
+planforhold, og agenten finner relevante PDF-utdrag gjennom verktøyene.
+Backend vurderer reglene, mens KI forklarer grunnlaget med kildehenvisninger.
+Casen er en referanse for søknadsavklaring, ikke en universell søknadsmotor eller
+automatisk byggetillatelse. Den avsluttes uten innsending.
+
 Tegnet opp, med samtykkeporten markert:
 
 ```mermaid

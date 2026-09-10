@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as wait } from "node:timers/promises";
 import { readRequestBody, svarhjelpere } from "../apps/shared/http.ts";
-import { BYGGETILTAK_KATALOG } from "../apps/shared/byggetiltak.ts";
+import { BYGGETILTAK_KATALOG, TILTAKSSJEKK_NAVN } from "../apps/shared/byggetiltak.ts";
 import { selectGarasjeProsessfelter } from "../apps/shared/garasje-dialog.ts";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -34,7 +34,8 @@ const svar = {
 };
 const definitions = JSON.parse(await readFile(path.join(root, "data/prosessdefinisjoner.json"), "utf8"));
 const garasje = definitions.prosesser.find((definition: { id: string }) => definition.id === "garasjesjekk");
-assert.ok(garasje, "Garasjesjekken må finnes i den felles prosesskatalogen.");
+assert.ok(garasje, "Tiltakssjekken må finnes i den felles prosesskatalogen.");
+assert.equal(garasje.navn, TILTAKSSJEKK_NAVN, "Katalogen skal vise det nye navnet uten å endre prosess-ID.");
 assert.equal(garasje.avslutning, "veiledning");
 const steps: {
   id: string; type: string; visning?: string; tekst?: string;
@@ -62,7 +63,7 @@ const ordinarySteps = [
 const processes = [
   { id: "vanlig-soknad", navn: "Vanlig søknad" },
   { id: "fartsdempende-tiltak", navn: "Fartsdempende tiltak" },
-  { id: "garasjesjekk", navn: "Garasjesjekken" }
+  { id: "garasjesjekk", navn: garasje.navn }
 ];
 const vurdering = {
   melding: "Planforhold må avklares. Dette er ikke et vedtak.",
@@ -297,8 +298,9 @@ try {
     assert.doesNotMatch(tool.inputSchema.properties.kontekst.description, /garasj/i);
     assert.match(tool.description, /free-standing question/);
   });
-  await check("navn, id, skrivefeil og naturlig språk velger garasje uten modell", async () => {
-    for (const text of ["Garasjesjekken", "garasjesjekk", "garasjekk", "garasje", "Jeg vil bygge en garasje"]) {
+  await check("nytt navn, gamle navn, id og naturlig språk velger tiltakssjekken uten modell", async () => {
+    for (const text of [TILTAKSSJEKK_NAVN, "Tiltakssjekken", "tiltakssjekk", "Byggesjekken",
+      "Garasjesjekken", "garasjesjekk", "garasjekk", "garasje", "Jeg vil bygge en garasje"]) {
       const { result } = await start(text);
       assert.equal(result.selectedProcess.id, "garasjesjekk");
       assert.equal(result.awaiting, "question_fields");
@@ -345,7 +347,7 @@ try {
     const result = await request(aiUrl, "/ai/sporsmaal", {
       tekst: "Hva er forskjellen på gesimshøyde og mønehøyde?", sprak: "nb", sporingsId: "iframe-hjelp",
       kontekst: {
-        tjeneste: "Garasjesjekken", prosessId: "garasjesjekk",
+        tjeneste: TILTAKSSJEKK_NAVN, prosessId: "garasjesjekk",
         steg: { id: "garasje-prosjekt", type: "QUESTION", tittel: "Forklar begreper og hvordan man måler garasjen" },
         flyt: { status: "AKTIV", soknadSendt: false }, resultater: {}, samtale: []
       }

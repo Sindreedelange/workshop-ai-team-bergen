@@ -19,6 +19,7 @@ import {
   velgReasoningModell
 } from "./reasoning.ts";
 import { buildGarasjeKunnskapsgrunnlag } from "../../shared/garasje-kunnskap.ts";
+import { isGarasjeKontekst } from "../../shared/garasje-begreper.ts";
 import type { Sporsmaalskontekst } from "./sporsmaalsperrer.ts";
 import {
   buildGrunnlag,
@@ -1044,7 +1045,7 @@ function stemProcessToken(token: string): string {
 }
 
 function canonicalProcessToken(token: string): string {
-  if (token.startsWith("garasj")) {
+  if (token.startsWith("garasj") || isGarasjeKontekst({ tjeneste: token })) {
     return "garasje";
   }
   if (token.startsWith("fartsdemp") || token.startsWith("fart") || token.startsWith("dump") || token.startsWith("hump")) {
@@ -2006,7 +2007,7 @@ async function judgeWithAi(body: AiKropp) {
 }
 
 /**
- * Slutten av garasjesjekken: modellen leser hele grunnlaget, måler det mot
+ * Slutten av tiltakssjekken: modellen leser hele grunnlaget, måler det mot
  * plangrunnlaget og gir et råd med et antatt utfall.
  *
  * Dette er den ene oppgaven i `OPPGAVE_REASONING` med `tenker: true` i dag. Målt mot
@@ -2039,11 +2040,11 @@ async function adviseGarasjeWithAi(body: AiKropp) {
     });
 
     const raad = validateGarasjeRaad(parseJsonObject(tekst), vurdering);
-    if (!raad) throw new Error(`Kunne ikke tolke garasjeråd fra ${modell}`);
+    if (!raad) throw new Error(`Kunne ikke tolke tiltaksvurderingens råd fra ${modell}`);
     return { ...raad, ...grounding, modell, tenkte, syntetisk: true,
       ...(raad.overstyrt ? { advarsel: raad.overstyrt } : {}) };
   } catch (error) {
-    console.warn(`Garasjeråd: ${feilmelding(error)}`);
+    console.warn(`Tiltaksråd: ${feilmelding(error)}`);
     return { ...buildGarasjeRaadFallback(vurdering), ...grounding,
       modell: "regelbasert-reserve", tenkte: false, syntetisk: true,
       advarsel: "Modellrådet var utilgjengelig eller ugyldig. Dette er regelbasert reserveveiledning, ikke et KI-råd." };
