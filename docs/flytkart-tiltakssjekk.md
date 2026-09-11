@@ -233,10 +233,33 @@ Den siste raden er hvitelisten i arbeid: den samme garasjen som gir fritak i LNF
 Litle Milde, gir «må avklares» på Kråkenestoppen, fordi reguleringsplanen 6170063
 treffer eiendommen og bestemmelsene i den ikke er lest.
 
-Bergens bygningskart svarte ikke på hvert kall under kjøringen. Da blir eksisterende
-bebyggelse uavklart, og den samme garasjen får «må avklares» i stedet for fritak.
-Det er riktig oppførsel og verdt å vite om når casen demonstreres: kjør sjekken på
-nytt hvis svaret nevner datagrunnlaget for bygninger.
+### Når kommunens kartlag er tregt
+
+Bergens bygningskart svarte ikke på hvert kall under kjøringen. Målt fra en container
+svarer laget nesten alltid på rundt 120 millisekunder, men det har en tung hale:
+enkelte kall bruker 2,6 til 4,7 sekunder, og noen få kommer ikke fram i tide i det
+hele tatt. Halen er kildens, ikke vår - metadataoppslaget mot det samme laget stanset
+aldri, og et avbrutt kall er et tidsavbrudd, ikke et avslag.
+
+Det merkes, fordi SAK10 § 4-1 bokstav a krever at eiendommen *er* bebygd, og den
+opplysningen kommer fra de kartlagte bygningsflatene. Svarer ikke laget, blir
+«Bebygd eiendom» uavklart, og den samme garasjen får «Kontakt kommunen» i stedet for
+fritaket. Det er riktig: manglende kunnskap er aldri et oppfylt vilkår.
+
+Tre ting gjør ventingen til å leve med:
+
+- **Et kartoppslag prøves to ganger.** Første forsøk kuttes etter fire sekunder,
+  fordi et svar som ikke er kommet da nesten alltid er halen; det andre får åtte.
+  Bare tidsavbrudd gjentas - en 4xx, en 5xx eller et svar som ikke er JSON er
+  kildens svar og betyr det samme som før.
+- **Statuslinjen sier hva som skjer.** Etter noen sekunder står det at kart og planer
+  fortsatt hentes fra kommunen, deretter at kartlaget er tregt og at det prøves en
+  gang til, og til slutt at vurderingen gjøres ferdig med de kildene som svarte. Uten
+  de setningene sto den første etiketten stille i opptil tolv sekunder, og det ser ut
+  som en hengt side.
+- **Meldingen etterpå er til å gjøre noe med.** Feilet oppslaget på tid, sier
+  kildestatusen at kilden var treg og ikke utilgjengelig, og ber deg kjøre sjekken på
+  nytt eller få kommunen til å bekrefte forholdet.
 
 ## Svarer den lokale modellen tydelig?
 

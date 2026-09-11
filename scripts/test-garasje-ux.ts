@@ -756,9 +756,69 @@ assert.match(mapEl("zone-status").textContent, /ikke avklart\. Plankilden svarte
   "En kildefeil skal forklares ved kartet, ikke bare inne i kildelisten");
 mapView.grunnlag = null;
 
+/*
+ * Ventemeldingene, som er det eneste innbyggeren har å gå etter når kommunens
+ * kartlag bruker flere sekunder og serveren prøver en gang til. Uten dem sto den
+ * første etiketten stille i opptil tolv sekunder, og det ser ut som en hengt side.
+ */
+const ventenoder = new Map<string, Element>();
+const ventEl = (id: string) => {
+  if (!ventenoder.has(id)) ventenoder.set(id, new Element());
+  return ventenoder.get(id)!;
+};
+const timere = new Map<number, { fn: () => void; ms: number }>();
+let nesteTimer = 1;
+const venting = createContext({
+  krevEl: ventEl,
+  document: { querySelectorAll: () => [] as unknown[] },
+  feilmelding: (error: unknown) => String((error as Error).message),
+  setTimeout: (fn: () => void, ms: number) => { timere.set(nesteTimer, { fn, ms }); return nesteTimer++; },
+  clearTimeout: (id: number) => { timere.delete(id); },
+  busy: false, pendingSave: false, tiltaksvalg: null, utfylling: null
+});
+runInContext(functionBlock("const VENTEMELDINGER", "function addLink"), venting);
+const fyrAv = (ms: number) => {
+  for (const [id, timer] of [...timere]) if (timer.ms === ms) { timere.delete(id); timer.fn(); }
+};
+
+let slippVidere: (() => void) | undefined;
+const venter = new Promise<void>(resolve => { slippVidere = resolve; });
+const utfort = runInContext("perform('Henter kart og opplysninger om eiendommen …', () => oppdrag)",
+  Object.assign(venting, { oppdrag: venter }));
+assert.equal(ventEl("progress").textContent, "Henter kart og opplysninger om eiendommen …",
+  "etiketten skal stå med en gang");
+assert.equal(timere.size, 3, "tre ventemeldinger er satt opp, ikke flere");
+fyrAv(2500);
+assert.match(ventEl("progress").textContent, /Henter fortsatt kart og planer fra kommunen/,
+  "etter noen sekunder skal siden si at den fortsatt jobber, og hos hvem");
+fyrAv(6000);
+assert.match(ventEl("progress").textContent, /svarer tregt akkurat nå, og vi prøver en gang til/,
+  "gjenforsøket skal være synlig, slik at ventingen er til å forstå");
+assert.match(ventEl("progress").textContent, /Du trenger ikke gjøre noe/);
+fyrAv(13000);
+assert.match(ventEl("progress").textContent, /Vi gjør ferdig vurderingen med de kildene som svarte/,
+  "og til slutt hva som skjer når kilden ikke svarer");
+slippVidere!();
+await utfort;
+assert.equal(ventEl("progress").textContent, "", "statuslinjen tømmes når oppslaget er ferdig");
+assert.equal(timere.size, 0, "timerne må ryddes, ellers skriver de over en ferdig side");
+
+// En feil skal vise feilmeldingen, og heller ikke da får en gammel timer skrive over den.
+let velt: ((grunn: Error) => void) | undefined;
+const feiler = new Promise<void>((_resolve, reject) => { velt = reject; });
+const feilet = runInContext("perform('Henter planer for plasseringen …', () => oppdrag)",
+  Object.assign(venting, { oppdrag: feiler }));
+fyrAv(2500);
+velt!(new Error("Kilden svarte ikke"));
+await feilet;
+assert.equal(ventEl("error").textContent, "Kilden svarte ikke");
+assert.equal(timere.size, 0);
+assert.match(ventEl("progress").textContent, /Kunne ikke fullføre/);
+
 console.log("Hensynssoner: flatene tegnes under teigen, i riktig rekkefølge, og markøren melder sone før bekreftelse.");
 console.log("Bygge-UX: tema, grupperte mål, lagrede svar, ny gjennomgang, skjult historikk, statsløs hjelp og bekreftelse besto.");
 console.log("Eiendomsvalg: adresse før kart, bekreftet plassering før utfylling, nytt forsøk og avvisning av foreldede svar besto.");
 console.log("Vurderingskart: teiger, bygninger, nabogrenser og bakgrunn følger det ferske grunnlaget ved feil og gjenoppretting.");
 console.log("Bygningslaget: egne bygg skilles fra nabobygg, og kildestatusen forklares ved kartet.");
 console.log("Svaret: overskriften svarer ja, nei eller kontakt kommunen, og reglenes neste steg vises.");
+console.log("Venting: statuslinjen forteller at kommunens kartlag er tregt og at det prøves igjen, og timerne ryddes.");

@@ -262,6 +262,25 @@ chat, or that every service is a søknad.
   infrastructure problem, and answering 403 for it would collide with the 403 this
   backend uses for «samtykke mangler». `pnpm test:upstream` pins all of it,
   including that the call sites still hand their fetches over.
+  **One caller retries, and only a timeout.** `readJson` in `garasje-data.ts` sends a
+  map lookup twice, four seconds then eight, because Bergen's building layer answers
+  in about 120 ms and then occasionally not at all: measured from a container, the
+  tail runs 2.6 to 4.7 seconds and sometimes past the ceiling. That made «Bebygd
+  eiendom» - a condition SAK10 § 4-1 bokstav a requires - go unresolved a few times
+  an hour, so a tiltak that met every condition got «må avklares» instead of the
+  exemption. The retry wraps the *send*, not `callUpstream`, so what a non-ok answer
+  means is still decided once, on the final outcome; a 4xx, a 5xx or a body that is
+  not JSON is the source answering and is never repeated. A timeout also gets its own
+  citizen-facing sentence, because that string ends up in `kilde.merknad`: «svarte ikke
+  i tid» and «kjør sjekken på nytt» is both truer and actionable where «kunne ikke
+  levere et gyldig svar» reads as a broken source. `pnpm test:garasje` pins the retry,
+  that two timeouts are still a source failure, and that a 502 is not retried.
+  The client side of the same wait is in `perform` in
+  `apps/demo-gui/src/client/garasje.ts`: `VENTEMELDINGER` replaces the status line
+  after 2.5, 6 and 13 seconds, naming the municipality, the retry and what happens if
+  the source stays silent. Without it one label sat still for up to twelve seconds and
+  the page read as hung. `pnpm test:garasje` pins the texts, their order and that the
+  timers are cleared on both success and failure.
 - Audit events are first-class output (`state/revisjonslogg.json`); keep behavior observable.
 
 ## Adding a new case: what the last one taught

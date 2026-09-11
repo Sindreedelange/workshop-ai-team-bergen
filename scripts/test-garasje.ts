@@ -1696,6 +1696,51 @@ try {
     assert.equal(evaluateGarasje(tiltak, g).sjekker.find(s => s.id === "plassering")?.status, "uavklart");
     globalThis.fetch = fakeFetch;
   });
+  await test("Et tidsavbrudd gjentas én gang, og et andre forsøk som svarer teller", async () => {
+    // Bergens bygningslag svarer nesten alltid på rundt 120 ms, men har en hale
+    // over åtte sekunder noen ganger i timen. Uten gjenforsøket falt «Bebygd
+    // eiendom» til uavklart i de tilfellene, og et tiltak som oppfyller vilkårene
+    // fikk «må avklares» i stedet for fritak.
+    process.env.NODE_ENV = "test";
+    process.env.GARASJE_TIMEOUT_MS = "15";
+    let forsok = 0;
+    globalThis.fetch = ((input: any, options: any) => {
+      forsok++;
+      if (forsok > 1) return fakeFetch(input, options);
+      return new Promise((_resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("Tidsgrensen ble ikke håndhevet")), 1000);
+        options!.signal!.addEventListener("abort", () => { clearTimeout(timer); reject(options!.signal!.reason); }, { once: true });
+      });
+    }) as typeof fetch;
+    const treff = await searchGarasjeAdresser("Litle Milde 65");
+    assert.equal(treff.length, 1, "andre forsøk skal brukes når det første ble avbrutt");
+    assert.equal(forsok, 2, "ett gjenforsøk, ikke flere");
+
+    // Og to tidsavbrudd er fortsatt en kildefeil: gjenforsøket skjuler ingenting.
+    forsok = 0;
+    globalThis.fetch = ((_input: any, options: any) => new Promise((_resolve, reject) => {
+      forsok++;
+      const timer = setTimeout(() => reject(new Error("Tidsgrensen ble ikke håndhevet")), 1000);
+      options!.signal!.addEventListener("abort", () => { clearTimeout(timer); reject(options!.signal!.reason); }, { once: true });
+    })) as typeof fetch;
+    await assert.rejects(searchGarasjeAdresser("Litle Milde 65"), errorStatus(502));
+    assert.equal(forsok, 2);
+    // Meldingen havner i kilde.merknad og dermed foran innbyggeren, så den skal si
+    // at kilden var treg og at et nytt forsøk kan hjelpe - ikke at den er i stykker.
+    const treg = await getGarasjeGrunnlag(milde);
+    const bygningskilde = treg.kilder.find(k => k.id === "bygninger");
+    assert.equal(bygningskilde?.status, "feil");
+    assert.match(bygningskilde!.merknad!, /svarte ikke i tid, heller ikke på et nytt forsøk/);
+    assert.match(bygningskilde!.merknad!, /Kjør sjekken på nytt/);
+    assert(!/kunne ikke levere et gyldig svar/.test(bygningskilde!.merknad!));
+
+    // En 502 fra kilden er kildens svar og skal ikke gjentas.
+    forsok = 0;
+    globalThis.fetch = (async () => { forsok++; return Response.json({ feil: "Nede" }, { status: 502 }); }) as typeof fetch;
+    await assert.rejects(searchGarasjeAdresser("Litle Milde 65"), errorStatus(502));
+    assert.equal(forsok, 1, "bare tidsavbrudd gjentas");
+    globalThis.fetch = fakeFetch;
+  });
   await test("Feil under lesing av svarkroppen blir 502", async () => {
     globalThis.fetch = async () => new Response(new ReadableStream({ start(c) { c.error(new Error("Brutt forbindelse")); } }));
     await assert.rejects(searchGarasjeAdresser("Litle Milde 65"), errorStatus(502));
