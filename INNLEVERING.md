@@ -1,8 +1,8 @@
 # Team Bergen
 
-**Medlemmer:** `Sindreedelange`, `KarolisDolg`
-
-<!-- TODO: legg til de øvrige GitHub-brukernavnene i teamet før fristen. -->
+**Medlemmer:** Jon Leirvik, Karolis Dolgovas (`KarolisDolg`), Oskar Jahr (`oejahr`),
+Remy Instefjord Uthaug (`RemyInstefjordUthaug`), Sindre Eik de Lange (`Sindreedelange`),
+Tommy Sirnes, Øyvind Berle
 
 ## Hva vi lagde
 
