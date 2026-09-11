@@ -1,6 +1,15 @@
+/*
+ * Temavalget, delt av sidene som kjører på designsystemet.
+ *
+ * Skriptet må lastes blokkerende i <head>: attributtet settes før første maling,
+ * ellers tegnes siden i feil tema og blinker over. Den lagrede nøkkelen er
+ * nettstedets, ikke sidens - tiltakshjelpen og dokumentsøket skal ikke ha hvert
+ * sitt tema - og de to eldre nøklene leses fortsatt, slik at et valg noen alt har
+ * gjort overlever navnebyttet.
+ */
 (() => {
-  const key = "tiltakshjelpen-color-scheme";
-  const legacyKey = "garasjesjekk-color-scheme";
+  const key = "demo-gui-color-scheme";
+  const legacyKeys = ["tiltakshjelpen-color-scheme", "garasjesjekk-color-scheme"];
   const isTheme = (value: string | null): value is "light" | "dark" => value === "light" || value === "dark";
   const storageError = (error: unknown) => {
     if (!(error instanceof DOMException) || !["SecurityError", "QuotaExceededError"].includes(error.name)) throw error;
@@ -15,7 +24,8 @@
   };
   let initial: "light" | "dark" = "dark";
   try {
-    const stored = localStorage.getItem(key) ?? localStorage.getItem(legacyKey);
+    let stored = localStorage.getItem(key);
+    for (const eldre of legacyKeys) stored = stored ?? localStorage.getItem(eldre);
     if (isTheme(stored)) initial = stored;
     else if (stored !== null) console.warn("Ukjent temavalg. Bruker mørkt tema.");
   } catch (error) {
