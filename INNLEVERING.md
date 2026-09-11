@@ -67,7 +67,8 @@ nei, og arealformålet i kommuneplanen er ikke nok alene. Bakgrunnen står i
 
 ## Andre repoer og lenker
 
-Ingen. Alt ligger i forken.
+Ingen eksterne repoer. Alt ligger i forken, presentasjonen inkludert:
+[`presentasjon/presentasjon_hackathon_team_bergen.pdf`](presentasjon/presentasjon_hackathon_team_bergen.pdf).
 
 ## Slik brukte vi KI
 
