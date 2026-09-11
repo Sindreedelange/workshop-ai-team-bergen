@@ -38,12 +38,15 @@
   <text class="body" x="681" y="244">PyMuPDF · tekstblokker og geometri</text><text class="body" x="681" y="269">pdfplumber · tabeller og kolonner</text><text class="body" x="681" y="294">Tesseract · bare ved svakt tekstlag</text><text class="body" x="681" y="319">Bygger struktur, regler og kvalitetsflagg</text><text class="small" x="681" y="340">Rå kildebevis beholdes alltid</text>
 
   <path class="optional" d="M824 174V137H1113V174"/>
-  <rect class="box ai" x="1039" y="174" width="425" height="180" rx="12"/>
-  <text class="heading" x="1063" y="207">AI-gateway · valgfri støtte</text>
-  <text class="body" x="1063" y="244">/ai/strukturer-dokument</text><text class="small" x="1270" y="244">tekstnormalisering</text>
-  <text class="body" x="1063" y="277">/ai/les-dokumentside</text><text class="small" x="1270" y="277">Qwen3-VL via Ollama</text>
-  <text class="body" x="1063" y="310">Bare uklare, skannede eller diagramtunge sider</text><text class="small" x="1063" y="333">Feil gir advarsel; kildeuttrekket består</text>
-  <path class="optional" d="M1039 318H989"/>
+  <rect class="box ai" x="1039" y="174" width="425" height="200" rx="12"/>
+  <text class="heading" x="1063" y="207">AI-gateway</text>
+  <text class="body" x="1063" y="240">/ai/strukturer-dokument</text>
+  <text class="small" x="1063" y="259">Regelanriking</text>
+  <text class="small" x="1063" y="277">Kjører på alle uttrukne regler, uansett kvalitet</text>
+  <text class="small" x="1063" y="295">Standard: Ollama qwen2.5:7b (styrt av AI_PROVIDER)</text>
+  <text class="body" x="1063" y="328">/ai/les-dokumentside</text><text class="small" x="1270" y="328">Qwen3-VL via Ollama</text>
+  <text class="small" x="1063" y="347">Bare uklare, skannede eller diagramtunge sider</text>
+  <path class="optional" d="M1039 360H989"/>
 
   <path class="flow" d="M824 354V402"/>
   <rect class="box store" x="236" y="402" width="1128" height="202" rx="14"/>
