@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="nb">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dokumentsøk</title>
+    <link rel="stylesheet" href="/assets/felles.css" />
+    <style>
+      main { max-width: 820px; }
+      .card { padding: 18px; }
+      .chat { min-height: 460px; max-height: 620px; }
+      textarea { min-height: 70px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="top-links"><a href="/">Til sandkassen</a></p>
+      <h1>Dokumentsøk</h1>
+      <p class="muted small"><strong>Eksperimentell, frittstående side.</strong> Stiller et
+        spørsmål mot dokumentene som er lastet opp til PDF-extractor, over den
+        samme vektordatabasen <code>pdf_search_chunks</code> bruker. Ingen
+        prosessøkt, ingen innlogging - bare spørsmål og kildeforankrede svar.
+        Svarene kan være ufullstendige eller feile; kontroller kildene under
+        svaret.</p>
+
+      <div id="modellBanner" hidden></div>
+
+      <section class="card">
+        <div id="chat" class="chat" aria-live="polite"></div>
+
+        <div class="row" style="margin-top:12px">
+          <label for="input">Spørsmål</label>
+          <textarea id="input" placeholder="For eksempel: Hva sier TEK17 om garasje med bruttoareal over 50 kvadratmeter? (Enter for send, Shift+Enter for ny linje)"></textarea>
+        </div>
+        <div class="actions">
+          <button id="send">Send</button>
+        </div>
+      </section>
+    </main>
+
+    <script src="/klient-konfigurasjon"></script>
+    <script src="/delt/felles.ts"></script>
+    <script type="module" src="/client/dokumentchat.ts"></script>
+  </body>
+</html>

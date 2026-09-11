@@ -56,6 +56,7 @@ const KLIENTFILER: Record<string, string> = {
   "agent.ts": KLIENTSKRIPT,
   "utforsker.ts": KLIENTSKRIPT,
   "ds-eksempel.ts": KLIENTSKRIPT,
+  "dokumentchat.ts": KLIENTSKRIPT,
   "tiltakshjelpen.ts": KLIENTSKRIPT,
   "tiltakshjelpen-kart.ts": KLIENTSKRIPT,
   "tiltakshjelpen-tema.ts": KLIENTSKRIPT,
@@ -80,6 +81,9 @@ const sider: Record<string, string> = {
   "/utforsker": "utforsker.html",
   // Template for teams building their own frontend. See docs/designsystem.md.
   "/ds-eksempel": "ds-eksempel.html",
+  // Experimental, standalone: pdf_search_chunks grounding over /ai/sporsmaal,
+  // deliberately outside /tiltakshjelpen while that case is under active change.
+  "/dokumentchat": "dokumentchat.html",
   "/tiltakshjelpen": "tiltakshjelpen.html",
   // The redirect_uri registered with ID-porten. Same path for every page: the page
   // to return to travels in `state`, not in the callback URL.
