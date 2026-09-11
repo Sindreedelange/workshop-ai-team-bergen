@@ -52,13 +52,14 @@ class Element {
   }
 }
 
-const themeSource = stripTypeScriptTypes(await readFile("apps/demo-gui/src/client/tiltakshjelpen-tema.ts", "utf8"));
-function theme(stored: string | null, denied = false, legacy: string | null = null) {
+const themeSource = stripTypeScriptTypes(await readFile("apps/demo-gui/src/client/tema.ts", "utf8"));
+function theme(stored: string | null, denied = false, legacy: string | null = null, eldsteLegacy: string | null = null) {
   const select = new Element();
   const note = new Element();
   const root = { dataset: {} as Record<string, string> };
-  const storage = new Map<string, string>(stored === null ? [] : [["tiltakshjelpen-color-scheme", stored]]);
-  if (legacy !== null) storage.set("garasjesjekk-color-scheme", legacy);
+  const storage = new Map<string, string>(stored === null ? [] : [["demo-gui-color-scheme", stored]]);
+  if (legacy !== null) storage.set("tiltakshjelpen-color-scheme", legacy);
+  if (eldsteLegacy !== null) storage.set("garasjesjekk-color-scheme", eldsteLegacy);
   let storageListener: (event: { key: string | null; newValue: string | null }) => void = () => {};
   const warnings: string[] = [];
   runInContext(themeSource, createContext({
@@ -71,16 +72,17 @@ function theme(stored: string | null, denied = false, legacy: string | null = nu
     },
     window: { addEventListener: (_event: string, callback: typeof storageListener) => { storageListener = callback; } }
   }));
-  return { select, note, root, storage, warnings, update: (value: string | null) => storageListener({ key: "tiltakshjelpen-color-scheme", newValue: value }) };
+  return { select, note, root, storage, warnings, update: (value: string | null) => storageListener({ key: "demo-gui-color-scheme", newValue: value }) };
 }
 assert.equal(theme(null).root.dataset.colorScheme, "dark");
 const light = theme("light");
 assert.equal(light.root.dataset.colorScheme, "light");
 light.select.value = "dark";
 light.select.dispatch("change");
-assert.equal(light.storage.get("tiltakshjelpen-color-scheme"), "dark");
-assert.equal(theme(light.storage.get("tiltakshjelpen-color-scheme")!).root.dataset.colorScheme, "dark");
+assert.equal(light.storage.get("demo-gui-color-scheme"), "dark");
+assert.equal(theme(light.storage.get("demo-gui-color-scheme")!).root.dataset.colorScheme, "dark");
 assert.equal(theme(null, false, "light").root.dataset.colorScheme, "light", "Gammelt temavalg skal fortsatt brukes");
+assert.equal(theme(null, false, null, "light").root.dataset.colorScheme, "light", "Det eldste temavalget skal fortsatt brukes");
 assert.equal(theme("dark", false, "light").root.dataset.colorScheme, "dark", "Nytt temavalg skal gå foran det gamle");
 light.update("light");
 assert.equal(light.root.dataset.colorScheme, "light");

@@ -57,9 +57,10 @@ const KLIENTFILER: Record<string, string> = {
   "utforsker.ts": KLIENTSKRIPT,
   "ds-eksempel.ts": KLIENTSKRIPT,
   "dokumentchat.ts": KLIENTSKRIPT,
+  // Temavalget, delt av sidene som kjører på designsystemet.
+  "tema.ts": KLIENTSKRIPT,
   "tiltakshjelpen.ts": KLIENTSKRIPT,
   "tiltakshjelpen-kart.ts": KLIENTSKRIPT,
-  "tiltakshjelpen-tema.ts": KLIENTSKRIPT,
   "tiltakshjelpen-tiltak.ts": KLIENTSKRIPT,
   "tiltakshjelpen-raad.ts": KLIENTSKRIPT,
   "tiltakshjelpen-utfylling.ts": KLIENTSKRIPT,
