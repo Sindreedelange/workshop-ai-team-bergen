@@ -7,6 +7,46 @@
       "retrievedAt": "2026-09-10",
       "sha256": "61d91f2c6dd247bbc8dd9ef9026b726cf842a9d56f64708d34eb9fc72ce9b97f",
       "description": "Kommuneplanens arealdel 2018-2030, bestemmelser og retningslinjer."
+    },
+    {
+      "filename": "sak10-byggesaksforskriften.pdf",
+      "provenance": "provided",
+      "profile": "legal",
+      "retrievedAt": "2026-09-10",
+      "sha256": "da87cbe8a1e288a510b64c5c853bb8de1f265323f996b26a4c324bf711c94cfe",
+      "description": "Byggesaksforskriften (SAK10) med veiledning, Direktoratet for byggkvalitet."
+    },
+    {
+      "filename": "tek17-byggteknisk-forskrift.pdf",
+      "provenance": "provided",
+      "profile": "legal",
+      "retrievedAt": "2026-09-10",
+      "sha256": "6f7bb313f36599f8aa3bc44efbf46238168746094f12d1aa92ca3de248e00a4f",
+      "description": "Byggteknisk forskrift (TEK17) med veiledning, Direktoratet for byggkvalitet."
+    },
+    {
+      "filename": "statens-vegvesen-avkjorsel-veiledning.pdf",
+      "provenance": "provided",
+      "profile": "generic",
+      "retrievedAt": "2026-09-10",
+      "sha256": "cfc33683de388298ba06ccdf4ad43dff23ae82efcabcec2079341929b3310a05",
+      "description": "«Dette må du tenke på», Statens vegvesens veiledning om avkjørsel."
+    },
+    {
+      "filename": "bergen-kommune-gebyrer.pdf",
+      "provenance": "provided",
+      "profile": "generic",
+      "retrievedAt": "2026-09-10",
+      "sha256": "92924a8fb838729f7b8b6909118e39aa44e2b5908ffd0578676db3508b4215ef",
+      "description": "Bergen kommunes gebyrer for byggesaksbehandling."
+    },
+    {
+      "filename": "plan-og-bygningsloven.pdf",
+      "provenance": "provided",
+      "profile": "legal",
+      "retrievedAt": "2026-09-10",
+      "sha256": "dc94ce92e5642ee2e432053491b84cf500965e5d56279c20b77bb7cdd10f9e39",
+      "description": "Plan- og bygningsloven, hentet fra Lovdata."
     }
   ],
   "references": [
