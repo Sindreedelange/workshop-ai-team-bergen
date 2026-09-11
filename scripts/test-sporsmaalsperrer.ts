@@ -166,6 +166,10 @@ check(
   "spørsmål om inntektsgrense uten satser stoppes",
   manglendeGrunnlagFor("hva er inntektsgrensen?", { tjeneste: "Test" }) === "inntektsgrense"
 );
+check(
+  "«grense» uten inntekt eller sats er ikke et inntektsspørsmål, selv utenfor tiltakshjelpen",
+  manglendeGrunnlagFor("hva er den nasjonale grensen for mønehøyde?", { tjeneste: "Test" }) === null
+);
 
 /* ── Påstander om at noe er gjort ─────────────────────────────────────────── */
 

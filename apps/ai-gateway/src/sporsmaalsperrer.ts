@@ -383,7 +383,11 @@ export function manglendeGrunnlagFor(sporsmaal: unknown, kontekst: Sporsmaalskon
     if (isTiltakshjelpenRegelsporsmaal(tekst) && !kontekst?.garasjeKunnskap) return "garasjeregler";
   }
   for (const krav of TEMAKRAV) {
-    if (tiltakshjelpen && krav.tema === "inntektsgrense" && !/\binntekt|\bsats/.test(tekst)) continue;
+    // "grense" alone is a generic Norwegian word - a property boundary, a height
+    // limit, a municipality border - and only means "inntektsgrense" next to an
+    // actual mention of income or a sats. Without this, "grensen for mønehøyde"
+    // outside tiltakshjelpen was refused as an unanswerable income question.
+    if (krav.tema === "inntektsgrense" && !/\binntekt|\bsats/.test(tekst)) continue;
     const spurt = krav.ord.some((uttrykk) => tekst.includes(foldNorwegian(uttrykk)));
     if (spurt && !kontekst?.[krav.kilde]) {
       return krav.tema;
