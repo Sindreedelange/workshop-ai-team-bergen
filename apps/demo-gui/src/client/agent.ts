@@ -2,7 +2,7 @@
 // eget scope - to sider kan bruke samme navn på hver sin `backendBase` uten å
 // kollidere. felles.ts lastes som klassisk script foran denne, så funksjonene og
 // typene derfra er globale og trenger ingen import.
-import { mountGarasjeProsess } from "./garasje-prosess.ts";
+import { mountTiltakshjelpenProsess } from "./tiltakshjelpen-prosess.ts";
 
 renderTopNav("/agent");
 
@@ -32,13 +32,13 @@ const sessionInfoEl = krevEl("sessionInfo");
 initChat(chatEl);
 
 let sessionId: string | null = null;
-let clearGarasjeView = () => {};
-let garageViewKey = "";
+let clearTiltakshjelpenView = () => {};
+let tiltakshjelpenViewKey = "";
 
-async function showGarasjeView(data: AgentSvar, force = false): Promise<void> {
+async function showTiltakshjelpenView(data: AgentSvar, force = false): Promise<void> {
   if (!data.oektsId || data.selectedProcess?.id !== "garasjesjekk") {
-    clearGarasjeView();
-    garageViewKey = "";
+    clearTiltakshjelpenView();
+    tiltakshjelpenViewKey = "";
     return;
   }
   const response = await fetch(`${backendBase}/api/prosessoekter/${encodeURIComponent(data.oektsId)}`, { headers: withToken() });
@@ -46,11 +46,11 @@ async function showGarasjeView(data: AgentSvar, force = false): Promise<void> {
   const oekt: Prosessoekt = await response.json();
   const key = `${oekt.oektsId}:${oekt.aktivtSteg?.id}:${oekt.status}`;
   // A free question leaves the same iframe alive, preserving unsaved map/form input.
-  if (!force && key === garageViewKey) return;
-  clearGarasjeView();
-  garageViewKey = key;
+  if (!force && key === tiltakshjelpenViewKey) return;
+  clearTiltakshjelpenView();
+  tiltakshjelpenViewKey = key;
   const currentSession = sessionId;
-  clearGarasjeView = mountGarasjeProsess({
+  clearTiltakshjelpenView = mountTiltakshjelpenProsess({
     oekt, container: chatEl,
     save: async (svar, stegId) => {
       if (!currentSession || sessionId !== currentSession) throw new Error("Agent-sesjonen er byttet. Start på nytt.");
@@ -62,7 +62,7 @@ async function showGarasjeView(data: AgentSvar, force = false): Promise<void> {
         if (sessionId !== currentSession) throw new Error("Agent-sesjonen er byttet. Svaret gjelder den opprinnelige sesjonen.");
         for (const reply of result.replies || []) addMsg("assistant", reply);
         updateSessionInfo(result, await readTerminalStatus(result));
-        await showGarasjeView(result, true);
+        await showTiltakshjelpenView(result, true);
       } finally {
         setSending(false);
       }
@@ -146,8 +146,8 @@ async function loadPeople(): Promise<void> {
 // ── start session ────────────────────────────────────────────────────────
 async function startSession(): Promise<void> {
   setSending(true);
-  clearGarasjeView();
-  garageViewKey = "";
+  clearTiltakshjelpenView();
+  tiltakshjelpenViewKey = "";
   chatEl.innerHTML = "";
   sessionId = null;
   updateSessionInfo(null);
@@ -171,7 +171,7 @@ async function startSession(): Promise<void> {
       });
       for (const reply of selected.replies || []) addMsg("assistant", reply);
       updateSessionInfo(selected);
-      await showGarasjeView(selected);
+      await showTiltakshjelpenView(selected);
     }
   } catch (error) {
     removeTyping();
@@ -213,7 +213,7 @@ async function sendMessage(): Promise<void> {
     if (data.grunnlag) {
       addGrunnlagsfot(data.grunnlag);
     }
-    await showGarasjeView(data);
+    await showTiltakshjelpenView(data);
 
     if (status === "fullført") {
       addMsg("system", "Prosessen er fullført.");
@@ -237,8 +237,8 @@ async function sendMessage(): Promise<void> {
 krevEl("start").onclick = () => startSession();
 krevEl("send").onclick  = () => sendMessage();
 krevEl("reset").onclick = () => {
-  clearGarasjeView();
-  garageViewKey = "";
+  clearTiltakshjelpenView();
+  tiltakshjelpenViewKey = "";
   sessionId = null;
   chatEl.innerHTML = "";
   updateSessionInfo(null);

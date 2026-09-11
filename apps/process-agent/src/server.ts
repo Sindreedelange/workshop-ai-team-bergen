@@ -7,13 +7,13 @@ import { isGyldigFoedselsnummer } from "../../shared/foedselsnummer.ts";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { cors, readRequestBody, svarhjelpere } from "../../shared/http.ts";
 import { feilmelding } from "../../shared/errors.ts";
-import { buildGarasjeBegrepssvar, isGarasjeKontekst } from "../../shared/garasje-begreper.ts";
-import { retrieveGarasjeKunnskap } from "./garasje-kunnskap.ts";
-import { projectGarasjeProsjekt } from "../../shared/garasje-kunnskap.ts";
+import { buildTiltakshjelpenBegrepssvar, isTiltakshjelpenKontekst } from "../../shared/tiltakshjelpen-begreper.ts";
+import { retrieveTiltakshjelpenKunnskap } from "./tiltakshjelpen-kunnskap.ts";
+import { projectTiltakshjelpenProsjekt } from "../../shared/tiltakshjelpen-kunnskap.ts";
 import { BYGGETILTAK_KATALOG, TILTAKSSJEKK_NAVN } from "../../shared/byggetiltak.ts";
 import {
-  getByggetiltakDialogfelt, normalizeQuestionFieldAnswer, validateByggetiltakDialogSvar, selectGarasjeProsessfelter
-} from "../../shared/garasje-dialog.ts";
+  getByggetiltakDialogfelt, normalizeQuestionFieldAnswer, validateByggetiltakDialogSvar, selectTiltakshjelpenProsessfelter
+} from "../../shared/tiltakshjelpen-dialog.ts";
 
 const port = Number(process.env.PORT || 8084);
 const toolsBaseUrl = process.env.TOOLS_BASE_URL || "http://tools-api:8083";
@@ -252,7 +252,7 @@ function stemToken(token: string): string {
 }
 
 function canonicalizeProcessToken(token: string): string {
-  if (token.startsWith("garasj") || isGarasjeKontekst({ tjeneste: token })) {
+  if (token.startsWith("garasj") || isTiltakshjelpenKontekst({ tjeneste: token })) {
     return "garasje";
   }
   if (token.startsWith("fartsdemp") || token.startsWith("fart") || token.startsWith("dump") || token.startsWith("hump")) {
@@ -1072,7 +1072,7 @@ function selectedQuestionTiltakstype(state: Agentsesjon, step: Agentsteg | null 
 }
 
 function requiredQuestionFields(state: Agentsesjon, step: Agentsteg | null | undefined) {
-  return selectGarasjeProsessfelter(step?.felter || [], step?.visning, selectedQuestionTiltakstype(state, step));
+  return selectTiltakshjelpenProsessfelter(step?.felter || [], step?.visning, selectedQuestionTiltakstype(state, step));
 }
 
 function normalizeAgentFieldAnswer(state: Agentsesjon, field: NonNullable<Agentsteg["felter"]>[number], answer: string) {
@@ -1098,7 +1098,7 @@ function buildQuestionAnswer(state: Agentsesjon, stepId: string | null, answer: 
   return target ? { [target.id]: answer } : answer;
 }
 
-function matchGarasjeEiendom(state: Agentsesjon, answer: string):
+function matchTiltakshjelpenEiendom(state: Agentsesjon, answer: string):
   { adresse: string; felter: Record<string, string>; melding: string } | { retry: string } | null {
   const text = normalize(answer).replace(/^(?:jeg velger|jeg vil bruke|velger|bruk) /, "");
   const eiendommer = (state.processDefinition?.steg || []).flatMap(step => {
@@ -1328,10 +1328,10 @@ async function maybeAnswerCitizenQuestion(state: Agentsesjon, text: string): Pro
   // they can only say yes, no or nothing, and a stray reply is already a dead
   // end today.
   const collectingAnswer = ["question", "question_fields", "guided_interview"].includes(state.awaiting || "");
-  const garasje = isGarasjeKontekst({ prosess: state.processDefinition, steg: state.lastSession?.aktivtSteg });
+  const tiltakshjelpen = isTiltakshjelpenKontekst({ prosess: state.processDefinition, steg: state.lastSession?.aktivtSteg });
   const clarification = /^(forklar|jeg (forstar|skjonner) ikke|kan du forklare)/.test(normalize(text).replace(/ø/g, "o"));
-  const garageQuestion = garasje && (looksLikeCitizenQuestion(text, false) || clarification);
-  if (!garageQuestion && !looksLikeCitizenQuestion(text, collectingAnswer)) return null;
+  const tiltakshjelpenQuestion = tiltakshjelpen && (looksLikeCitizenQuestion(text, false) || clarification);
+  if (!tiltakshjelpenQuestion && !looksLikeCitizenQuestion(text, collectingAnswer)) return null;
 
   try {
     // Search results carry their extraction/review status. Documents can be
@@ -1339,8 +1339,8 @@ async function maybeAnswerCitizenQuestion(state: Agentsesjon, text: string): Pro
     let dokumentkunnskap: PdfTreff[] = [];
     let kunnskapsadvarsel: string | undefined;
     try {
-      if (garasje) {
-        const grounding = await retrieveGarasjeKunnskap({ resultater: state.lastSession?.resultater }, text, invokeTool);
+      if (tiltakshjelpen) {
+        const grounding = await retrieveTiltakshjelpenKunnskap({ resultater: state.lastSession?.resultater }, text, invokeTool);
         dokumentkunnskap = grounding.dokumentkunnskap;
         kunnskapsadvarsel = grounding.kunnskapsadvarsel;
       } else {
@@ -1361,7 +1361,7 @@ async function maybeAnswerCitizenQuestion(state: Agentsesjon, text: string): Pro
         tjeneste: state.processDefinition?.navn || state.selectedProcess?.navn,
         prosess: state.processDefinition || null,
         steg: state.lastSession?.aktivtSteg || null,
-        ...(garasje && state.questionFieldCurrent
+        ...(tiltakshjelpen && state.questionFieldCurrent
           ? { aktivtFelt: { id: state.questionFieldCurrent.id, label: state.questionFieldCurrent.label } } : {}),
         flyt: buildFlyt(state),
         resultater: state.lastSession?.resultater || null,
@@ -1376,8 +1376,8 @@ async function maybeAnswerCitizenQuestion(state: Agentsesjon, text: string): Pro
     return svar?.tekst ? { tekst: svar.tekst, grunnlag: svar.grunnlag, sperre: svar.sperre } : null;
   } catch {
     // A failed side question must never break the flow the citizen is in.
-    if (garageQuestion) return {
-      tekst: buildGarasjeBegrepssvar(text, state.questionFieldCurrent?.id)
+    if (tiltakshjelpenQuestion) return {
+      tekst: buildTiltakshjelpenBegrepssvar(text, state.questionFieldCurrent?.id)
         || "Forklaringen er utilgjengelig akkurat nå. Vi blir stående på samme felt; ingen svar er lagret."
     };
     return null;
@@ -1577,7 +1577,7 @@ async function advanceAndPrompt(state: Agentsesjon): Promise<string[]> {
         } else {
           messages.push("Jeg har slått opp gaten i matrikkelen.");
         }
-      } else if (isGarasjeKontekst({ prosess: state.processDefinition, tjeneste: state.selectedProcess?.navn })) {
+      } else if (isTiltakshjelpenKontekst({ prosess: state.processDefinition, tjeneste: state.selectedProcess?.navn })) {
         messages.push(data?.melding || "Jeg har hentet opplysningene som trengs i dette steget.");
         if (Array.isArray(data?.eiendommer)) {
           const eiendommer = data.eiendommer.filter(isRecord);
@@ -1814,7 +1814,7 @@ async function handleMessage(state: Agentsesjon, message: string): Promise<strin
       return [normalized.retryMessage || `Jeg fikk ikke koblet svaret til et gyldig valg. ${questionFieldPrompt(current)}`];
     }
     const selectedEiendom = current.id === "adresse" && state.lastSession?.aktivtSteg?.visning === "garasje"
-      ? matchGarasjeEiendom(state, normalized.value) : null;
+      ? matchTiltakshjelpenEiendom(state, normalized.value) : null;
     if (selectedEiendom && "retry" in selectedEiendom) return [selectedEiendom.retry, questionFieldPrompt(current)];
     const acknowledgements: string[] = [];
     if (selectedEiendom) {
@@ -2318,7 +2318,7 @@ async function createAgentSession(body: { personId?: string }) {
   };
 }
 
-type GarasjeDialogRequest = {
+type TiltakshjelpenDialogRequest = {
   tekst: string;
   feltId: string;
   tiltakstype?: string;
@@ -2330,7 +2330,7 @@ type GarasjeDialogRequest = {
   };
 };
 
-function validateGarasjeDialogRequest(body: unknown, validateField = true): GarasjeDialogRequest {
+function validateTiltakshjelpenDialogRequest(body: unknown, validateField = true): TiltakshjelpenDialogRequest {
   if (!isRecord(body) || Object.keys(body).some(key => !["tekst", "feltId", "tiltakstype", "kontekst", "sporingsId"].includes(key))
     || typeof body.tekst !== "string" || !body.tekst.trim() || body.tekst.length > 500
     || typeof body.feltId !== "string") {
@@ -2355,7 +2355,7 @@ function validateGarasjeDialogRequest(body: unknown, validateField = true): Gara
       throw new Verktoyfeil("Samtalen kan ha inntil seks meldinger med rolle og tekst på inntil 2000 tegn.", 400);
     }
   }
-  const checked = body as GarasjeDialogRequest;
+  const checked = body as TiltakshjelpenDialogRequest;
   const contextType = checked.kontekst?.prosjekt?.tiltakstype;
   if (body.tiltakstype !== undefined && !BYGGETILTAK_KATALOG.some(entry => entry.id === body.tiltakstype)) {
     throw new Verktoyfeil("Oppgi en kjent tiltakstype fra katalogen.", 400);
@@ -2376,12 +2376,12 @@ function validateGarasjeDialogRequest(body: unknown, validateField = true): Gara
   };
 }
 
-async function handleGarasjeDialog(body: GarasjeDialogRequest) {
+async function handleTiltakshjelpenDialog(body: TiltakshjelpenDialogRequest) {
   const field = getByggetiltakDialogfelt(body.feltId, body.kontekst?.prosjekt?.tiltakstype)!;
   const folded = normalize(body.tekst).replace(/ø/g, "o");
   const clarification = /^(forklar|hjelp|kan du|jeg (forstar|skjonner) ikke|(?:jeg )?vet ikke (hva|hvordan|hvor|hvilk)|er|har|skal|ma|bor|betyr|regnes|teller)\b/.test(folded);
   if (looksLikeCitizenQuestion(body.tekst) || clarification) {
-    const grounding = await retrieveGarasjeKunnskap(body.kontekst, body.tekst, invokeTool);
+    const grounding = await retrieveTiltakshjelpenKunnskap(body.kontekst, body.tekst, invokeTool);
     try {
       const result = await invokeTool<unknown>("answer_citizen_question", {
         tekst: body.tekst.trim(),
@@ -2394,7 +2394,7 @@ async function handleGarasjeDialog(body: GarasjeDialogRequest) {
           flyt: { status: "UTKAST", soknadSendt: false },
           // The gateway projects public map facts and drops raw property data.
           resultater: body.kontekst?.resultater || {},
-          prosjekt: projectGarasjeProsjekt(body.kontekst?.prosjekt),
+          prosjekt: projectTiltakshjelpenProsjekt(body.kontekst?.prosjekt),
           ...grounding,
           samtale: body.kontekst?.samtale?.map(turn => ({ rolle: turn.rolle, tekst: turn.tekst.slice(0, 400) })) || []
         }
@@ -2414,7 +2414,7 @@ async function handleGarasjeDialog(body: GarasjeDialogRequest) {
       return {
         type: "sporsmaal",
         ...grounding,
-        tekst: buildGarasjeBegrepssvar(body.tekst, field.id)
+        tekst: buildTiltakshjelpenBegrepssvar(body.tekst, field.id)
           || `${field.label} ${field.hint} Kontakt kommunens byggesaksveileder hvis du trenger hjelp til å avklare opplysningen.`,
         advarsel: "Forklaringstjenesten er utilgjengelig. Dette er hjelpetekst, ikke et KI-svar. Ingen opplysninger er endret."
       };
@@ -2465,7 +2465,7 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
         if (error instanceof SyntaxError) throw new Verktoyfeil("Meldingen må være gyldig JSON.", 400);
         throw error;
       }
-      json(response, 200, await handleGarasjeDialog(validateGarasjeDialogRequest(body)));
+      json(response, 200, await handleTiltakshjelpenDialog(validateTiltakshjelpenDialogRequest(body)));
       return;
     }
 
@@ -2480,12 +2480,12 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
       if (!isRecord(body) || Object.keys(body).some(key => !["kontekst", "sporingsId"].includes(key))) {
         throw new Verktoyfeil("Oppgi kontekst med en regelbasert vurdering.", 400);
       }
-      const checked = validateGarasjeDialogRequest({ ...body, feltId: "bya", tekst: "Veiledning" }, false);
+      const checked = validateTiltakshjelpenDialogRequest({ ...body, feltId: "bya", tekst: "Veiledning" }, false);
       const assessment = checked.kontekst?.resultater?.["garasje-vurdering"];
       if (!isRecord(assessment) || !isRecord(assessment.vurdering)) {
         throw new Verktoyfeil("kontekst.resultater.garasje-vurdering.vurdering mangler.", 400);
       }
-      const grounding = await retrieveGarasjeKunnskap(checked.kontekst,
+      const grounding = await retrieveTiltakshjelpenKunnskap(checked.kontekst,
         "Tiltak garasje byggesak planbestemmelser utnyttelse høyde byggegrense avklaring søknad dispensasjon", invokeTool);
       let advice: unknown;
       try {

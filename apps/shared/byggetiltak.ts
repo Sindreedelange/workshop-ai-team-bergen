@@ -1,4 +1,4 @@
-import type { GarasjeTiltak } from "./garasje.ts";
+import type { FrittliggendeTiltak } from "./tiltakshjelpen.ts";
 
 export const TILTAKSSJEKK_NAVN = "Kan du bygge uten å søke?";
 
@@ -31,7 +31,7 @@ type Metadata<T extends Byggetiltakstype> = {
   tiltakstypeBekreftet: true;
 };
 export type Byggetiltak =
-  | (Metadata<"frittliggende"> & GarasjeTiltak)
+  | (Metadata<"frittliggende"> & FrittliggendeTiltak)
   | (Metadata<"tilbygg"> & {
       bra: number | null; bya: number | null; avstandNabogrense: number | null;
       etasjer: number | null; endrerBruk: boolean | null; nyBoenhet: boolean | null;

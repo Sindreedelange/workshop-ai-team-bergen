@@ -5,7 +5,7 @@
  * plan- og bygningsloven § 11-8. Sonen forbyr ikke i seg selv et tiltak; den sier
  * at noe må tas hensyn til, og hva det er, står i planbestemmelsene. Derfor
  * navngir sandkassen sonen og avgjør ingenting på den - se sjekken
- * «hensynssoner» i apps/sandbox-backend/src/garasje.ts.
+ * «hensynssoner» i apps/sandbox-backend/src/tiltakshjelpen.ts.
  *
  * Sonekodene er nasjonale (H220, H310 og så videre) og står i kartforskriften
  * med SOSI-kodeverket som følger den. Nummeret i `HENSYNSONENAVN` etter
@@ -109,7 +109,7 @@ export type Datasettid = (typeof DATASETTIDER)[number];
 /**
  * Taket på hvor stort et kartutsnitt plan-mock svarer på, i meter langs hver side.
  *
- * Større enn naboteigrutens 500 fordi garasjekartet strekker teigen med ti meters
+ * Større enn naboteigrutens 500 fordi Tiltakshjelpen strekker teigen med ti meters
  * marg til 4:3, og 492 av Bergens 21 258 teiger blir da over 500 meter brede.
  * Med 500 svarte ruten 400 for dem, og innbyggeren fikk «hensynssonene kunne ikke
  * hentes» der eiendommen var stor - altså i LNF og byfjellene, der sonene er.

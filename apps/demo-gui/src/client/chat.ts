@@ -10,13 +10,13 @@ import {
   skalSvareFramfor,
   tolkLokaltSvar
 } from "./fallback-intent.ts";
-import { mountGarasjeProsess } from "./garasje-prosess.ts";
+import { mountTiltakshjelpenProsess } from "./tiltakshjelpen-prosess.ts";
 
 renderTopNav("/chat");
 
 const backendBase = sandkasseKonfigurasjon.backendBaseUrl;
 const aiBase = sandkasseKonfigurasjon.aiBaseUrl;
-let clearGarasjeView = () => {};
+let clearTiltakshjelpenView = () => {};
 
 /*
  * Formene chat-siden leser fra backend og ai-gateway.
@@ -1051,8 +1051,8 @@ async function autoRunStep(steg: ProsessSteg, successText: string): Promise<void
 }
 
 async function renderStep(): Promise<void> {
-  clearGarasjeView();
-  clearGarasjeView = () => {};
+  clearTiltakshjelpenView();
+  clearTiltakshjelpenView = () => {};
   setQuickActions([]);
   const steg = oekt?.aktivtSteg;
   if (oekt?.status === "AVVIST") {
@@ -1064,7 +1064,7 @@ async function renderStep(): Promise<void> {
     addMsg("assistant", oekt.avslutning === "veiledning"
       ? "Tiltakssjekken er gjennomført. Ingen søknad er sendt. Du kan fortsatt spørre om begrepene og vurderingen."
       : "Da er vi ferdige. Takk for at du gikk gjennom dette sammen med meg.");
-    if (oekt.prosessId === "garasjesjekk") clearGarasjeView = mountGarasjeProsess({ oekt, container: chatEl, save: async () => {} });
+    if (oekt.prosessId === "garasjesjekk") clearTiltakshjelpenView = mountTiltakshjelpenProsess({ oekt, container: chatEl, save: async () => {} });
     renderQuickActionsFor(steg);
     return;
   }
@@ -1077,7 +1077,7 @@ async function renderStep(): Promise<void> {
   renderQuickActionsFor(steg);
   if (steg.type === "QUESTION" && steg.visning === "garasje") {
     const id = oekt.oektsId;
-    clearGarasjeView = mountGarasjeProsess({
+    clearTiltakshjelpenView = mountTiltakshjelpenProsess({
       oekt, container: chatEl,
       save: async (svar, stegId) => {
         if (sending) throw new Error("Vent til handlingen i chatten er ferdig.");
@@ -1425,7 +1425,7 @@ krevEl("start").onclick = () => runChatAction(startChat);
 krevEl("send").onclick = () => runChatAction(() => sendMessage());
 krevEl("reset").onclick = () => {
   if (sending) return;
-  clearGarasjeView();
+  clearTiltakshjelpenView();
   stopForsendelsespolling();
   oekt = null;
   pendingRetry = null;

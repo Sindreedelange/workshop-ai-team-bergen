@@ -27,12 +27,12 @@ import { maskinportenHeader } from "../../digdir-mock/src/client.ts";
 import { fiksBaseUrl, fiksRegisterToken, fiksRolleId } from "./config.ts";
 import { buildAdvarsel, tryUpstream } from "./upstream.ts";
 import { addRevisjon } from "./revisjon.ts";
-import { searchGarasjeAdresser } from "./garasje-data.ts";
-import { evaluateGarasje, validateByggetiltak } from "./garasje.ts";
-import { readGarasjeGrunnlag } from "./garasje-oppslag.ts";
-import { readGarasjeKommune, readGarasjeRequest, readGarasjeSearch, readGarasjeTiltakJson } from "./garasje-request.ts";
-import { buildGarasjeKunnskapsgrunnlag } from "../../shared/garasje-kunnskap.ts";
-import { buildGarasjeSok, buildGarasjeTiltak, normalizeGarasjeSvar } from "./garasje-prosess.ts";
+import { searchTiltakshjelpenAdresser } from "./tiltakshjelpen-data.ts";
+import { evaluateTiltakshjelpen, validateByggetiltak } from "./tiltakshjelpen.ts";
+import { readTiltakshjelpenGrunnlag } from "./tiltakshjelpen-oppslag.ts";
+import { readTiltakshjelpenKommune, readTiltakshjelpenRequest, readTiltakshjelpenSearch, readTiltakshjelpenTiltakJson } from "./tiltakshjelpen-request.ts";
+import { buildTiltakshjelpenKunnskapsgrunnlag } from "../../shared/tiltakshjelpen-kunnskap.ts";
+import { buildTiltakshjelpenSok, buildTiltakshjelpenTiltak, normalizeTiltakshjelpenSvar } from "./tiltakshjelpen-prosess.ts";
 import { compilePathPattern, matchPath, type PathParams } from "./routing.ts";
 import {
   eiendommerForPerson,
@@ -206,9 +206,9 @@ export const ressurser: Ressurs[] = [
     sti: "/api/garasje/veiledning",
     ressurs: "garasje-veiledning",
     tilgang: "aapen",
-    beskrivelse: "Strukturert veiledning om garasjebegreper, måleenheter, nasjonale vilkår og uavklart plangrunnlag. Ingen persondata.",
+    beskrivelse: "Strukturert veiledning fra Tiltakshjelpen om byggebegreper, måleenheter, nasjonale vilkår og uavklart plangrunnlag. Ingen persondata.",
     formaal: "Forklare tiltakssjekkens begreper og kunnskapsgrunnlag",
-    handter: () => buildGarasjeKunnskapsgrunnlag()
+    handter: () => buildTiltakshjelpenKunnskapsgrunnlag()
   },
   {
     metode: "GET",
@@ -227,10 +227,10 @@ export const ressurser: Ressurs[] = [
       if ([...sok.keys()].some(key => key !== "personId")) {
         throw new HttpError("Vurderingen bruker bare lagrede svar, ikke opplysninger fra URL-en.", 400);
       }
-      normalizeGarasjeSvar(oekt.svar["garasje-prosjekt"]);
+      normalizeTiltakshjelpenSvar(oekt.svar["garasje-prosjekt"]);
     },
     handter: async ({ tilstand, personId, oekt, sporingsId, kaller }) => {
-      const svar = normalizeGarasjeSvar(oekt.svar["garasje-prosjekt"]);
+      const svar = normalizeTiltakshjelpenSvar(oekt.svar["garasje-prosjekt"]);
       // Use the same authorised and audited ownership lookup as the earlier step,
       // but read it again: ownership may have changed since the question was shown.
       const mine = await runRessurs(tilstand, "GET",
@@ -246,12 +246,12 @@ export const ressurser: Ressurs[] = [
         throw new HttpError("Velg en entydig eiendom som er registrert på deg. Eierforholdet og kommunenummeret må bekreftes på nytt.", 403);
       }
       svar.kommunenummer = kandidater[0].kommunenummer;
-      const tiltak = buildGarasjeTiltak(svar);
-      const grunnlag = await readGarasjeGrunnlag(buildGarasjeSok(svar));
+      const tiltak = buildTiltakshjelpenTiltak(svar);
+      const grunnlag = await readTiltakshjelpenGrunnlag(buildTiltakshjelpenSok(svar));
       if ("bebygdEiendom" in tiltak) {
         tiltak.bebygdEiendom = grunnlag.bebyggelse.status === "bekreftet" ? grunnlag.bebyggelse.bebygd : null;
       }
-      const vurdering = evaluateGarasje(tiltak, grunnlag);
+      const vurdering = evaluateTiltakshjelpen(tiltak, grunnlag);
       await addRevisjon({
         sporingsId,
         handling: "GARASJE_VURDERT",
@@ -268,18 +268,18 @@ export const ressurser: Ressurs[] = [
     sti: "/api/garasje/adresser",
     ressurs: "garasje-adresser",
     beskrivelse: "Finn offentlige adresser og eiendomsidentitet til tiltakssjekken, eventuelt avgrenset til en kommune.",
-    formaal: "Finne eiendommen innbyggeren ønsker å bygge garasje på",
-    valider: ({ sok }) => { readGarasjeSearch(sok); readGarasjeKommune(sok); },
-    handter: ({ sok }) => searchGarasjeAdresser(readGarasjeSearch(sok), readGarasjeKommune(sok))
+    formaal: "Finne eiendommen innbyggeren planlegger et byggetiltak på",
+    valider: ({ sok }) => { readTiltakshjelpenSearch(sok); readTiltakshjelpenKommune(sok); },
+    handter: ({ sok }) => searchTiltakshjelpenAdresser(readTiltakshjelpenSearch(sok), readTiltakshjelpenKommune(sok))
   },
   {
     metode: "GET",
     sti: "/api/garasje/grunnlag",
     ressurs: "garasje-plangrunnlag",
     beskrivelse: "Hent eiendomsdata og tilgjengelige kart- og plankilder. Oppgitt tiltakstype gir tidlige planvarsler uten mål eller søknadsvurdering.",
-    formaal: "Avklare eiendoms- og planforhold før bygging av garasje",
-    valider: ({ sok }) => { readGarasjeRequest(sok); },
-    handter: ({ sok }) => readGarasjeGrunnlag(sok)
+    formaal: "Avklare eiendoms- og planforhold før et byggetiltak",
+    valider: ({ sok }) => { readTiltakshjelpenRequest(sok); },
+    handter: ({ sok }) => readTiltakshjelpenGrunnlag(sok)
   },
   {
     metode: "GET",
@@ -288,21 +288,21 @@ export const ressurser: Ressurs[] = [
     beskrivelse: "Veiledende sjekk av frittliggende bygning, tilbygg, gjerde eller fasade med faste regler og ferskt plangrunnlag. Ingen søknad sendes.",
     formaal: "Veilede om søknadsplikt for byggetiltak",
     valider: ({ sok }) => {
-      const request = readGarasjeRequest(sok);
-      const tiltak = validateByggetiltak(readGarasjeTiltakJson(sok));
+      const request = readTiltakshjelpenRequest(sok);
+      const tiltak = validateByggetiltak(readTiltakshjelpenTiltakJson(sok));
       if (request.tiltakstype !== undefined && request.tiltakstype !== ("tiltakstype" in tiltak ? tiltak.tiltakstype : "frittliggende")) {
         throw new HttpError("tiltakstype i URL-en må samsvare med den bekreftede tiltakstypen i tiltak.", 400);
       }
     },
     handter: async ({ sok, sporingsId, kaller }) => {
-      const tiltak = validateByggetiltak(readGarasjeTiltakJson(sok));
+      const tiltak = validateByggetiltak(readTiltakshjelpenTiltakJson(sok));
       const query = new URLSearchParams(sok);
       if ("tiltakstype" in tiltak) query.set("tiltakstype", tiltak.tiltakstype);
-      const grunnlag = await readGarasjeGrunnlag(query);
+      const grunnlag = await readTiltakshjelpenGrunnlag(query);
       if ("bebygdEiendom" in tiltak) {
         tiltak.bebygdEiendom = grunnlag.bebyggelse.status === "bekreftet" ? grunnlag.bebyggelse.bebygd : null;
       }
-      const vurdering = evaluateGarasje(tiltak, grunnlag);
+      const vurdering = evaluateTiltakshjelpen(tiltak, grunnlag);
       await addRevisjon({
         sporingsId,
         handling: "GARASJE_VURDERT",

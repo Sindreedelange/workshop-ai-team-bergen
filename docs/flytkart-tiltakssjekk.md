@@ -7,7 +7,7 @@ kolonne som sier hva koden faktisk gjør. Hensikten er at både en deltaker og e
 språkmodell skal kunne følge kartet uten å åpne og zoome i et bilde.
 
 Kartet gjelder byggetiltak generelt. En garasje er ett eksempel på et tiltak, ikke
-navnet på casen. Se [tiltakssjekken](garasjesjekk.md) for selve tjenesten.
+navnet på casen. Se [tiltakssjekken](tiltakshjelpen.md) for selve tjenesten.
 
 Kartet er fagpersonens beskrivelse av hva som bør skje, ikke en spesifikasjon koden
 har fulgt slavisk. Der de to er uenige, står uenigheten under
@@ -289,7 +289,7 @@ gjentok den setningen fordi prompten ber om det. Fem av sju grener fikk derfor
 modellens råd byttet ut med en fast tekst. Advarselen «før du kan bygge» slo ut på
 samme måte. Klemmen leser nå bare modellens egne setninger, og avviser et treff der
 ordene rett foran nekter eller gjør setningen betinget. Grensen mot et mildere utfall
-er uendret, og `pnpm test:garasje-raad` pinner begge retninger.
+er uendret, og `pnpm test:tiltakshjelpen-raad` pinner begge retninger.
 
 ## Kommentarene fra gjennomgangen
 
@@ -316,8 +316,8 @@ Uten tjenester og uten modell:
 
 ```bash
 pnpm test:flytkart        # kartet, gren for gren, og avvikene
-pnpm test:garasje-raad    # klemmen mot et mildere utfall
-pnpm test:garasje         # tiltakssjekken, adresser og plangrunnlag
+pnpm test:tiltakshjelpen-raad    # klemmen mot et mildere utfall
+pnpm test:tiltakshjelpen         # tiltakssjekken, adresser og plangrunnlag
 ```
 
 Mot en kjørende sandkasse, som innbygger `person-395`:

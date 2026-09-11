@@ -222,13 +222,13 @@ curl-kallene for å liste og kjøre dem.
 | `fartsdempende-tiltak` | 8 | Mest komplett: tre `QUESTION`, matrikkeloppslag, `SJEKK` og `{svar.<stegId>}`-substitusjon. Bruk `Storgata` for et godkjent utfall og `Fjøsangerveien` for et avvist |
 | `tt-kort` | 8 | Eneste case som henter særlige kategorier. Uttrykkelig samtykke etter personvernforordningen artikkel 9, legeerklæring fra `pasientjournal-mock`, og en `SJEKK` som aldri ser på inntekt. Bruk `person-284` for innvilget og `person-329` for avslag |
 | `politiattest-oppdrag` | 9 | Eneste case der innbyggeren gir kommunen noe framfor å be om noe, og eneste med et utfall som verken er ja eller nei: `krever_manuell_vurdering` slipper søknaden gjennom til et menneske. Formålet velges først og avgjør hjemmelen og attesttypen. Bruk `person-026` for godkjent, `person-138` for manuell vurdering |
-| `garasjesjekk` | 4 | [«Kan du bygge uten å søke?»](garasjesjekk.md): bekreftet tiltakstype, eiendom, tilpassede spørsmål, kart og regelbasert veiledning med dokumentkilder. Ingen `SUBMIT`; prosessen avsluttes med veiledning |
+| `garasjesjekk` | 4 | [«Kan du bygge uten å søke?»](tiltakshjelpen.md): bekreftet tiltakstype, eiendom, tilpassede spørsmål, kart og regelbasert veiledning med dokumentkilder. Ingen `SUBMIT`; prosessen avsluttes med veiledning |
 | `mal-enkel-soknad` | 6 | Kopi-malen fra oppskriften over. `redigering.mal: true` |
 
 Tiltakssjekken har fortsatt den tekniske ID-en `garasjesjekk` for å bevare
 kontrakten med eksisterende klienter. Valg av type styrer spørsmålene inne i
 casens `QUESTION`-steg; motoren har ikke fått generell forgrening. Se
-[referansemønsteret](garasjesjekk.md#referanse-for-andre-søknadsprosesser) for
+[referansemønsteret](tiltakshjelpen.md#referanse-for-andre-søknadsprosesser) for
 hvordan avklaring, kilder og regelbasert vurdering kan brukes i andre tjenester.
 
 ## Redigering i prosessbygger

@@ -10,7 +10,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { cors, readRequestBody, sammeOpphav, svarhjelpere } from "../../shared/http.ts";
 import { feilkode, feilmelding } from "../../shared/errors.ts";
 import { buildFartsdempendeOppsummering } from "./fartsdempende-oppsummering.ts";
-import { buildGarasjeRaadPrompt, buildGarasjeRaadFallback, validateGarasjeRaad } from "./garasje-raad.ts";
+import { buildTiltakshjelpenRaadPrompt, buildTiltakshjelpenRaadFallback, validateTiltakshjelpenRaad } from "./tiltakshjelpen-raad.ts";
 import {
   AI_FACTORY_MODELS,
   PROVIDER_REASONING,
@@ -18,12 +18,12 @@ import {
   reasoningForOppgave,
   velgReasoningModell
 } from "./reasoning.ts";
-import { buildGarasjeKunnskapsgrunnlag } from "../../shared/garasje-kunnskap.ts";
-import { isGarasjeKontekst } from "../../shared/garasje-begreper.ts";
+import { buildTiltakshjelpenKunnskapsgrunnlag } from "../../shared/tiltakshjelpen-kunnskap.ts";
+import { isTiltakshjelpenKontekst } from "../../shared/tiltakshjelpen-begreper.ts";
 import type { Sporsmaalskontekst } from "./sporsmaalsperrer.ts";
 import {
   buildGrunnlag,
-  buildGarasjeVeiledningssvar,
+  buildTiltakshjelpenVeiledningssvar,
   buildPersonvernSvar,
   buildTryggSvar,
   isPersonvernSporsmaal,
@@ -1045,7 +1045,7 @@ function stemProcessToken(token: string): string {
 }
 
 function canonicalProcessToken(token: string): string {
-  if (token.startsWith("garasj") || isGarasjeKontekst({ tjeneste: token })) {
+  if (token.startsWith("garasj") || isTiltakshjelpenKontekst({ tjeneste: token })) {
     return "garasje";
   }
   if (token.startsWith("fartsdemp") || token.startsWith("fart") || token.startsWith("dump") || token.startsWith("hump")) {
@@ -2013,39 +2013,39 @@ async function judgeWithAi(body: AiKropp) {
  * Dette er den ene oppgaven i `OPPGAVE_REASONING` med `tenker: true` i dag. Målt mot
  * Litle Milde-casen var reasoning-svaret det ene som rekkefølget tiltakene.
  *
- * Grunnlaget projiseres gjennom `buildGarasjeKunnskapsgrunnlag`, så persondata og rå
- * kartgeometri når aldri modellen, og utfallet klemmes i `validateGarasjeRaad`, så et
+ * Grunnlaget projiseres gjennom `buildTiltakshjelpenKunnskapsgrunnlag`, så persondata og rå
+ * kartgeometri når aldri modellen, og utfallet klemmes i `validateTiltakshjelpenRaad`, så et
  * råd ikke kan gjøre den regelbaserte vurderingen mildere.
  */
-async function adviseGarasjeWithAi(body: AiKropp) {
+async function adviseTiltakshjelpenWithAi(body: AiKropp) {
   const kontekst = body?.kontekst ?? {};
   const resultater = kontekst.resultater as Record<string, { vurdering?: unknown }> | undefined;
   const vurdering = resultater?.["garasje-vurdering"]?.vurdering ?? {};
-  const kunnskap = buildGarasjeKunnskapsgrunnlag(kontekst);
+  const kunnskap = buildTiltakshjelpenKunnskapsgrunnlag(kontekst);
 
   const documentWarning = kunnskap.kunnskapsadvarsel
     ?? "Dokumentgrunnlaget er ikke kontrollert. Et PDF-utdrag alene bekrefter ikke at tiltaket er tillatt.";
   const planWarning = kunnskap.planflatedekning.advarsel;
   const grounding = { dokumentkunnskap: kunnskap.dokumentkunnskap,
     kunnskapsadvarsel: planWarning && !documentWarning.includes(planWarning) ? `${documentWarning} ${planWarning}` : documentWarning };
-  if (aiProvider === "mock") return { ...buildGarasjeRaadFallback(vurdering), ...grounding,
+  if (aiProvider === "mock") return { ...buildTiltakshjelpenRaadFallback(vurdering), ...grounding,
     modell: "mock", tenkte: false, syntetisk: true,
     advarsel: "Mock-provider: regelbasert veiledning uten modellvurdering." };
   try {
-    const { tekst, modell, tenkte } = await callModel(buildGarasjeRaadPrompt(kunnskap, vurdering), {
+    const { tekst, modell, tenkte } = await callModel(buildTiltakshjelpenRaadPrompt(kunnskap, vurdering), {
       temperature: 0,
       systemMessage: SYSTEM_JSON,
       task: "garasje-raad",
       sporingsId: body?.sporingsId
     });
 
-    const raad = validateGarasjeRaad(parseJsonObject(tekst), vurdering);
+    const raad = validateTiltakshjelpenRaad(parseJsonObject(tekst), vurdering);
     if (!raad) throw new Error(`Kunne ikke tolke tiltaksvurderingens råd fra ${modell}`);
     return { ...raad, ...grounding, modell, tenkte, syntetisk: true,
       ...(raad.overstyrt ? { advarsel: raad.overstyrt } : {}) };
   } catch (error) {
     console.warn(`Tiltaksråd: ${feilmelding(error)}`);
-    return { ...buildGarasjeRaadFallback(vurdering), ...grounding,
+    return { ...buildTiltakshjelpenRaadFallback(vurdering), ...grounding,
       modell: "regelbasert-reserve", tenkte: false, syntetisk: true,
       advarsel: "Modellrådet var utilgjengelig eller ugyldig. Dette er regelbasert reserveveiledning, ikke et KI-råd." };
   }
@@ -2282,7 +2282,7 @@ async function answerCitizenQuestion(body: AiKropp) {
     );
   }
 
-  const fallback = buildGarasjeVeiledningssvar(body.tekst, kontekst) || buildTryggSvar(kontekst);
+  const fallback = buildTiltakshjelpenVeiledningssvar(body.tekst, kontekst) || buildTryggSvar(kontekst);
   if (aiProvider !== "ollama" && aiProvider !== "openrouter" && aiProvider !== "telenor-ai-factory" && aiProvider !== "bedrock") {
     return { ...base, tekst: fallback, modell: "mock-ai-gateway" };
   }
@@ -2500,7 +2500,7 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
 
     if (request.method === "POST" && url.pathname === "/ai/garasje-raad") {
       const body = await readRequestBody(request) as AiKropp;
-      const svar = await adviseGarasjeWithAi(body);
+      const svar = await adviseTiltakshjelpenWithAi(body);
       await addRevisjon({
         sporingsId: body.sporingsId || newId("flyt"),
         handling: "KI_KALL",

@@ -1,4 +1,4 @@
-import { GARASJE_KOMMUNER, getGarasjeKartlagUrl } from "./garasje-kommuner.ts";
+import { TILTAKSHJELPEN_KOMMUNER, getTiltakshjelpenKartlagUrl } from "./tiltakshjelpen-kommuner.ts";
 
 export type Arealsonetype =
   | "sentrumskjerne"
@@ -37,8 +37,8 @@ export const KPA2018_SONEKILDE: Arealsonekilde = {
   kommunenummer: "4601",
   planId: "65270000",
   versjon: "KPA2018",
-  url: getGarasjeKartlagUrl(GARASJE_KOMMUNER["4601"], "kpa"),
-  metadataUrl: `${getGarasjeKartlagUrl(GARASJE_KOMMUNER["4601"], "kpa")}?f=json`,
+  url: getTiltakshjelpenKartlagUrl(TILTAKSHJELPEN_KOMMUNER["4601"], "kpa"),
+  metadataUrl: `${getTiltakshjelpenKartlagUrl(TILTAKSHJELPEN_KOMMUNER["4601"], "kpa")}?f=json`,
   kontrollert: "2026-09-10",
 };
 
@@ -73,7 +73,7 @@ export function classifyArealsone(input: {
   return matches.length === 1 ? matches[0]!.sonetype : "ukjent";
 }
 
-export function listGarasjeSonetyper() {
+export function listTiltakshjelpenSonetyper() {
   return AREALSONER.map(sone => {
     const navnerom = `no:${sone.kilde.kommunenummer}:${sone.kilde.planId}:${sone.kilde.versjon}`;
     return {
@@ -94,7 +94,7 @@ export function listGarasjeSonetyper() {
  * kodeparet - og kodeparet er nøyaktig det `AREALSONER` er nøklet på.
  *
  * Poenget med å ha den her og ikke la leseren bruke kildens egen BESKRIVELSE:
- * ellers svarer den samme `GarasjeGrunnlag` på det samme spørsmålet to ganger,
+ * ellers svarer den samme `TiltakshjelpenGrunnlag` på det samme spørsmålet to ganger,
  * én gang fra et kontrollert register og én gang fra fritekst i en fil - og
  * fritekstene inneholder blant annet «Naturomåde».
  */

@@ -34,12 +34,12 @@ const DELTE_KLIENTFILER: Record<string, string> = {
 };
 
 const DELTE_MODULER: Record<string, string> = {
-  "garasje-dialog.ts": KLIENTSKRIPT,
-  "garasje-kunnskap.ts": KLIENTSKRIPT,
-  "garasje-begreper.ts": KLIENTSKRIPT,
-  "garasje-regelgrunnlag.ts": KLIENTSKRIPT,
-  "garasje-kommuner.ts": KLIENTSKRIPT,
-  "garasje.ts": KLIENTSKRIPT,
+  "tiltakshjelpen-dialog.ts": KLIENTSKRIPT,
+  "tiltakshjelpen-kunnskap.ts": KLIENTSKRIPT,
+  "tiltakshjelpen-begreper.ts": KLIENTSKRIPT,
+  "frittliggende-regelgrunnlag.ts": KLIENTSKRIPT,
+  "tiltakshjelpen-kommuner.ts": KLIENTSKRIPT,
+  "tiltakshjelpen.ts": KLIENTSKRIPT,
   "arealsoner.ts": KLIENTSKRIPT,
   "hensynssoner.ts": KLIENTSKRIPT,
   "geometri.ts": KLIENTSKRIPT,
@@ -56,13 +56,13 @@ const KLIENTFILER: Record<string, string> = {
   "agent.ts": KLIENTSKRIPT,
   "utforsker.ts": KLIENTSKRIPT,
   "ds-eksempel.ts": KLIENTSKRIPT,
-  "garasje.ts": KLIENTSKRIPT,
-  "garasje-kart.ts": KLIENTSKRIPT,
-  "garasje-tema.ts": KLIENTSKRIPT,
-  "garasje-tiltak.ts": KLIENTSKRIPT,
-  "garasje-raad.ts": KLIENTSKRIPT,
-  "garasje-utfylling.ts": KLIENTSKRIPT,
-  "garasje-prosess.ts": KLIENTSKRIPT,
+  "tiltakshjelpen.ts": KLIENTSKRIPT,
+  "tiltakshjelpen-kart.ts": KLIENTSKRIPT,
+  "tiltakshjelpen-tema.ts": KLIENTSKRIPT,
+  "tiltakshjelpen-tiltak.ts": KLIENTSKRIPT,
+  "tiltakshjelpen-raad.ts": KLIENTSKRIPT,
+  "tiltakshjelpen-utfylling.ts": KLIENTSKRIPT,
+  "tiltakshjelpen-prosess.ts": KLIENTSKRIPT,
   "callback.ts": KLIENTSKRIPT
 };
 
@@ -80,7 +80,7 @@ const sider: Record<string, string> = {
   "/utforsker": "utforsker.html",
   // Template for teams building their own frontend. See docs/designsystem.md.
   "/ds-eksempel": "ds-eksempel.html",
-  "/garasje": "garasje.html",
+  "/tiltakshjelpen": "tiltakshjelpen.html",
   // The redirect_uri registered with ID-porten. Same path for every page: the page
   // to return to travels in `state`, not in the callback URL.
   "/callback": "callback.html"
@@ -89,12 +89,19 @@ const sider: Record<string, string> = {
 const server = createServer(async (request: IncomingMessage, response: ServerResponse) => {
   const sti = (request.url || "/").split("?")[0];
 
+  if (sti === "/garasje") {
+    const query = (request.url || "").slice(sti.length);
+    response.writeHead(308, { Location: `/tiltakshjelpen${query}` });
+    response.end();
+    return;
+  }
+
   if (sti === "/helse") {
     send(response, 200, JSON.stringify({ status: "ok", tjeneste: "demo-gui" }), "application/json; charset=utf-8");
     return;
   }
 
-  if (sti === "/garasje-config.json" || sti === "/klient-config.json") {
+  if (sti === "/tiltakshjelpen-config.json" || sti === "/garasje-config.json" || sti === "/klient-config.json") {
     send(response, 200, JSON.stringify(buildClientKonfigurasjon()), "application/json; charset=utf-8");
     return;
   }

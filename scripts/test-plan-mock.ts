@@ -147,9 +147,9 @@ async function kjor(): Promise<void> {
   const forStort = { kommunenummer: "4601", vest: "5.20", sor: "60.20", ost: "5.60", nord: "60.55" };
   check("et utsnitt over taket er avvist av delt logikk",
     !isBoundedKartutsnitt({ vest: 5.2, sor: 60.2, ost: 5.6, nord: 60.55 }, PLANSONE_MAX_SIDE_METER));
-  // Garasjekartet strekker teigen til 4:3, og de bredeste teigene i Bergen blir
+  // Tiltakshjelpen strekker teigen til 4:3, og de bredeste teigene i Bergen blir
   // over 800 meter. Med naboteigrutens 500 svarte denne ruten 400 for dem.
-  check("taket dekker det bredeste garasjekartet",
+  check("taket dekker det bredeste kartutsnittet i Tiltakshjelpen",
     isBoundedKartutsnitt({ vest: 5.2547, sor: 60.2534, ost: 5.2547 + 900 / 55850, nord: 60.2534 + 900 / 111700 },
       PLANSONE_MAX_SIDE_METER));
   check("et for stort utsnitt svarer 400",

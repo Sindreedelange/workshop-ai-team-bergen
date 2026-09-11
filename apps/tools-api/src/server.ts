@@ -7,7 +7,7 @@ import { docsHtml, routeOverview } from "../../shared/openapi.ts";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { cors, readRequestBody, svarhjelpere } from "../../shared/http.ts";
 import { feilkode, feilmelding } from "../../shared/errors.ts";
-import { isGarasjeKontekst } from "../../shared/garasje-begreper.ts";
+import { isTiltakshjelpenKontekst } from "../../shared/tiltakshjelpen-begreper.ts";
 import { adressekjerne, adresseSoek, buildEiendomKey, matchesAdresseFields, parseAdresse } from "../../shared/adresse.ts";
 import type { Adresse } from "../../shared/adresse.ts";
 import type {
@@ -1213,7 +1213,7 @@ async function invokeTool(name: string | undefined, args: Verktoyargumenter = {}
 
   if (name === "answer_citizen_question") {
     const kontekst: Record<string, unknown> = { ...(args.kontekst as Record<string, unknown> || {}) };
-    const garasje = isGarasjeKontekst(kontekst);
+    const garasje = isTiltakshjelpenKontekst(kontekst);
     // Fetched here rather than in ai-gateway on purpose: the gateway has no
     // data path to the backend, and that is what makes it structurally unable
     // to reach consent-gated data. Callers may still send their own satser.

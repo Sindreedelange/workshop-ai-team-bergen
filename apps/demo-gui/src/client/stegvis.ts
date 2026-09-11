@@ -2,7 +2,7 @@
 // eget scope - to sider kan bruke samme navn på hver sin `backendBase` uten å
 // kollidere. felles.ts lastes som klassisk script foran denne, så funksjonene og
 // typene derfra er globale og trenger ingen import.
-import { mountGarasjeProsess } from "./garasje-prosess.ts";
+import { mountTiltakshjelpenProsess } from "./tiltakshjelpen-prosess.ts";
 
 renderTopNav("/stegvis");
 
@@ -79,7 +79,7 @@ async function postJson<T>(url: string, payload: unknown = {}): Promise<T> {
 // is filled with the single person you logged in as, so valgtPersonId() and
 // everything downstream keeps working unchanged.
 let meg: Person | null = null;
-let clearGarasjeView = () => {};
+let clearTiltakshjelpenView = () => {};
 
 async function loadGrunnlag(): Promise<void> {
   personer = await getJson<Person[]>(`${backendBase}/api/personer`);
@@ -180,8 +180,8 @@ function updateSessionView(oekt: Prosessoekt): void {
 }
 
 function renderAktivtSteg(): void {
-  clearGarasjeView();
-  clearGarasjeView = () => {};
+  clearTiltakshjelpenView();
+  clearTiltakshjelpenView = () => {};
   const steg = aktivProsessoekt?.aktivtSteg;
   if (!steg) {
     aktivtStegEl.innerHTML = `<div class="muted">Ingen aktivt steg.</div>`;
@@ -193,7 +193,7 @@ function renderAktivtSteg(): void {
   if (aktivProsessoekt && (steg.visning === "garasje" || (aktivProsessoekt.prosessId === "garasjesjekk" && aktivProsessoekt.status === "FULLFORT"))) {
     aktivtStegEl.replaceChildren();
     const id = aktivProsessoekt.oektsId;
-    clearGarasjeView = mountGarasjeProsess({
+    clearTiltakshjelpenView = mountTiltakshjelpenProsess({
       oekt: aktivProsessoekt, container: aktivtStegEl,
       save: async (svar, stegId) => {
         if (aktivProsessoekt?.oektsId !== id || aktivProsessoekt.aktivtSteg?.id !== stegId) throw new Error("Steget er ikke aktivt lenger.");

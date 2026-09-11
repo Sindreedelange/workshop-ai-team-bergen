@@ -63,7 +63,7 @@ jobs:
       - name: Reasoning - hvilke oppgaver som tenker, og hvilke modeller som kan
         run: pnpm test:reasoning
       - name: Tiltaksråd - regelutfall, dokumentkilder og visning
-        run: pnpm test:garasje-raad
+        run: pnpm test:tiltakshjelpen-raad
 
       # The deterministic traffic summary must preserve structured answers and
       # distinguish an explicit no from an unknown answer without using a model.
@@ -87,7 +87,7 @@ jobs:
         run: pnpm test:vilkaar
 
       - name: Tiltakssjekk, adresser og plangrunnlag
-        run: pnpm test:garasje
+        run: pnpm test:tiltakshjelpen
 
       # The flowchart in data/ is the only record of what the caseworker meant each
       # branch to do, and docs/flytkart-tiltakssjekk.md says where the code agrees.

@@ -10,24 +10,24 @@
  * stedene koden med hensikt svarer noe annet enn kartet er pinnet som avvik, slik
  * at de ikke kan forsvinne i en opprydding.
  *
- * `evaluateGarasje` er ren og synkron, og `grunnlag` er derfor et literal her.
+ * `evaluateTiltakshjelpen` er ren og synkron, og `grunnlag` er derfor et literal her.
  * Ingen tjenester, ingen modell og ingen nettverk - kjør med `pnpm test:flytkart`.
  */
 
 import assert from "node:assert/strict";
-import type { GarasjeGrunnlag, GarasjePlanflate, GarasjeSjekk, GarasjeVurdering } from "../apps/shared/garasje.ts";
-import { beskrivGarasjeUtfall, GARASJE_UTFALL_FRITAR, utfallFritarForSoknad } from "../apps/shared/garasje.ts";
-import { GARASJE_KOMMUNER } from "../apps/shared/garasje-kommuner.ts";
+import type { TiltakshjelpenGrunnlag, TiltakshjelpenPlanflate, TiltakshjelpenSjekk, TiltakshjelpenVurdering } from "../apps/shared/tiltakshjelpen.ts";
+import { beskrivTiltakshjelpenUtfall, TILTAKSHJELPEN_UTFALL_FRITAR, utfallFritarForSoknad } from "../apps/shared/tiltakshjelpen.ts";
+import { TILTAKSHJELPEN_KOMMUNER } from "../apps/shared/tiltakshjelpen-kommuner.ts";
 import type { Byggetiltak, ByggetiltakInput } from "../apps/shared/byggetiltak.ts";
 import { BYGGETILTAK_KATALOG } from "../apps/shared/byggetiltak.ts";
 import { KPA2018_SONEKILDE } from "../apps/shared/arealsoner.ts";
-import { evaluateGarasje } from "../apps/sandbox-backend/src/garasje.ts";
+import { evaluateTiltakshjelpen } from "../apps/sandbox-backend/src/tiltakshjelpen.ts";
 
 /** Én gren av kartet, med vide felttyper slik at et tilfelle kan endre ett vilkår. */
 type Gren<T extends Byggetiltak["tiltakstype"]> = Extract<Byggetiltak, { tiltakstype: T }>;
 
 let count = 0;
-const alleUtfall: GarasjeVurdering[] = [];
+const alleUtfall: TiltakshjelpenVurdering[] = [];
 function test(navn: string, check: () => unknown): void {
   try { check(); count++; } catch (error) { console.error(`FEIL: ${navn}`); throw error; }
 }
@@ -48,7 +48,7 @@ const kilde = (id: string, navn: string, status: "ok" | "ingen_treff") =>
 type Sone = "lnf" | "byggesone";
 
 /** Litle Milde er LNF uten reguleringsplan; Kråkenestoppen er byggesone med plan 6170063. */
-function lagGrunnlag(sone: Sone): GarasjeGrunnlag {
+function lagGrunnlag(sone: Sone): TiltakshjelpenGrunnlag {
   const lnf = sone === "lnf";
   return {
     adresse: {
@@ -89,12 +89,12 @@ function lagGrunnlag(sone: Sone): GarasjeGrunnlag {
 }
 
 function vurder(tiltak: ByggetiltakInput, sone: Sone = "lnf",
-  endre: (grunnlag: GarasjeGrunnlag) => GarasjeGrunnlag = g => g): GarasjeVurdering {
-  const vurdering = evaluateGarasje(tiltak, endre(lagGrunnlag(sone)));
+  endre: (grunnlag: TiltakshjelpenGrunnlag) => TiltakshjelpenGrunnlag = g => g): TiltakshjelpenVurdering {
+  const vurdering = evaluateTiltakshjelpen(tiltak, endre(lagGrunnlag(sone)));
   alleUtfall.push(vurdering);
   return vurdering;
 }
-const sjekk = (vurdering: GarasjeVurdering, id: string): GarasjeSjekk => {
+const sjekk = (vurdering: TiltakshjelpenVurdering, id: string): TiltakshjelpenSjekk => {
   const treff = vurdering.sjekker.find(s => s.id === id);
   assert(treff, `Sjekken ${id} mangler i vurderingen.`);
   return treff;
@@ -364,12 +364,12 @@ test("Kartets fire grener og det uavklarte tiltaket er de samme fem typene som k
  * tilbake til «må avklares». Uten et tilfelle per ledd kunne et ledd forsvinne
  * uten at noe ble rødt, og det er nettopp dette utfallet som ikke tåler det.
  */
-const stoysone: GarasjePlanflate = {
+const stoysone: TiltakshjelpenPlanflate = {
   kategori: "hensynssone", datasett: "stoy", sonekode: 220, sonenavn: "H220_1", hensynstype: "stoy",
   navn: "Gul støysone", beskrivelse: "Støy over grenseverdien for støyfølsom bruk.",
   kildetekst: "Flystøy gul sone", berorer: "helt", planId: KPA2018_SONEKILDE.planId, ringer: teig,
 };
-const faresone: GarasjePlanflate = {
+const faresone: TiltakshjelpenPlanflate = {
   ...stoysone, datasett: "fare", sonekode: 390, sonenavn: "H390_2", hensynstype: "fare",
   navn: "Faresone annen fare", beskrivelse: "Annen fare.", kildetekst: null,
 };
@@ -380,7 +380,7 @@ test("Kartets grønne gren gir fritak med meldeplikt, og skjemalenken følger me
   assert(utfallFritarForSoknad(vurdering.utfall));
   const meldeplikt = sjekk(vurdering, "meldeplikt");
   assert.equal(meldeplikt.status, "oppfylt");
-  assert.equal(meldeplikt.kilde, GARASJE_KOMMUNER["4601"].meldeskjemaUrl);
+  assert.equal(meldeplikt.kilde, TILTAKSHJELPEN_KOMMUNER["4601"].meldeskjemaUrl);
   assert.equal(meldeplikt.bestemmelse, "Bergen KPA2018 § 31.3");
   assert(vurdering.nesteSteg?.some(steg => /Meld tiltaket inn til kommunen når det er ferdig bygget/.test(steg)));
   assert.match(vurdering.forklaring, /unntatt fra søknadsplikt, men skal meldes inn/);
@@ -411,7 +411,7 @@ test("En støysone holder ikke fritaket tilbake, men navngis i svaret", () => {
   assert.match(sjekk(vurdering, "meldeplikt").forklaring, /Gul støysone H220_1/);
 });
 
-const utenMeldeplikt: [string, () => GarasjeVurdering][] = [
+const utenMeldeplikt: [string, () => TiltakshjelpenVurdering][] = [
   ["tiltaket er et tilbygg", () => vurder(tilbygg)],
   ["et nasjonalt vilkår er ukjent", () => vurder({ ...frittliggende, kjeller: null })],
   ["avstanden er akkurat 1 meter, så § 31.3-vilkåret ikke er oppfylt", () => vurder({ ...frittliggende, avstandNabogrense: 1 })],
@@ -444,9 +444,9 @@ test("En faresone kan holde tilbake fritaket, men aldri gjøre tiltaket søknads
 });
 
 test("Svarsetningen sier ja med meldeplikt, nei ved søknadsplikt og kontakt kommunen ellers", () => {
-  assert.equal(beskrivGarasjeUtfall(vurder(frittliggende)).tittel, "Ja, men du må melde inn");
-  assert.equal(beskrivGarasjeUtfall(vurder({ ...frittliggende, bya: 60 })).tittel, "Nei, du må søke");
-  assert.equal(beskrivGarasjeUtfall(vurder(frittliggende, "byggesone")).tittel, "Kontakt kommunen");
+  assert.equal(beskrivTiltakshjelpenUtfall(vurder(frittliggende)).tittel, "Ja, men du må melde inn");
+  assert.equal(beskrivTiltakshjelpenUtfall(vurder({ ...frittliggende, bya: 60 })).tittel, "Nei, du må søke");
+  assert.equal(beskrivTiltakshjelpenUtfall(vurder(frittliggende, "byggesone")).tittel, "Kontakt kommunen");
 });
 
 // --- Det ubetingede fritaket, som fortsatt ikke finnes ----------------------
@@ -457,9 +457,9 @@ test("Svarsetningen sier ja med meldeplikt, nei ved søknadsplikt og kontakt kom
  * grønne boks har en meldeplikt, og `meldeplikt` er derfor det eneste fritaket
  * som kan komme ut - og bare gjennom hvitelisten over.
  */
-test(`Ingen gren gir det ubetingede ${GARASJE_UTFALL_FRITAR}`, () => {
+test(`Ingen gren gir det ubetingede ${TILTAKSHJELPEN_UTFALL_FRITAR}`, () => {
   assert(alleUtfall.length > 40, "Tilfellene over må ha kjørt først.");
-  assert.equal(alleUtfall.filter(v => v.utfall === GARASJE_UTFALL_FRITAR).length, 0);
+  assert.equal(alleUtfall.filter(v => v.utfall === TILTAKSHJELPEN_UTFALL_FRITAR).length, 0);
   const fritak = alleUtfall.filter(v => utfallFritarForSoknad(v.utfall));
   assert(fritak.length > 0, "Kartets grønne gren skal kunne nås.");
   assert(fritak.every(v => v.utfall === "meldeplikt" && v.sjekker.some(s => s.id === "meldeplikt")));

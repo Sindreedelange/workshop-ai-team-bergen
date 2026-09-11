@@ -9,7 +9,7 @@
  *
  * Ingenting her kjenner et domene. Rekkefølgen på et koordinatpar er
  * [lengdegrad, breddegrad], slik GeoJSON krever, og ikke lat/lon slik
- * `GarasjePunkt` skriver det.
+ * `TiltakshjelpenPunkt` skriver det.
  */
 
 export type Kartutsnitt = { vest: number; sor: number; ost: number; nord: number };
@@ -24,7 +24,7 @@ export type Flategeometri =
  *
  * En parameter og ikke en konstant: 500 meter er skrevet for naboteigruten, der
  * det er en sperre mot bulkuttrekk av eiendommer. Plan-mock svarer på åpne
- * plandata og må dekke det utsnittet garasjekartet faktisk tegner, som for de
+ * plandata og må dekke det utsnittet Tiltakshjelpen faktisk tegner, som for de
  * største teigene i Bergen er over 800 meter. Å arve et tak ingen har utledet
  * for den nye ruten er hvordan 2,3 prosent av eiendommene mistet
  * hensynssonesjekken uten at noe sa fra.
@@ -68,7 +68,7 @@ export function intersectsKartutsnitt(a: Kartutsnitt, b: Kartutsnitt): boolean {
  * kanten, og det er ikke en forskjell noen har bestemt.
  *
  * Kalles både i pikselplanet og i lengde-/breddegrader; projeksjonen i
- * `projectGarasjePunkt` er lineær, så det er det samme regnestykket.
+ * `projectTiltakshjelpenPunkt` er lineær, så det er det samme regnestykket.
  */
 export function ringerInneholder(x: number, y: number, ringer: readonly (readonly (readonly number[])[])[]): boolean {
   let inne = false;

@@ -34,7 +34,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readSpec } from "../apps/shared/openapi.ts";
-import { GARASJE_UTFALL } from "../apps/shared/garasje.ts";
+import { TILTAKSHJELPEN_UTFALL } from "../apps/shared/tiltakshjelpen.ts";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const HTTP_METODER = ["get", "post", "put", "patch", "delete", "head", "options"];
@@ -402,7 +402,7 @@ const tjenester: Tjeneste[] = [
         // komme inn i bare én av dem.
         skjema: "GarasjeVurdering",
         felt: "utfall",
-        verdier: async () => GARASJE_UTFALL
+        verdier: async () => TILTAKSHJELPEN_UTFALL
       },
       {
         skjema: "Person",

@@ -2804,7 +2804,7 @@ components:
           type: string
           enum: [garasje]
           description: >
-            Valgfri presentasjon, bare på QUESTION. Garasjevisningen samler
+            Valgfri presentasjon, bare på QUESTION. Tiltakshjelpen samler
             GarasjeProsessSvar i ett steg; felter er fortsatt den deklarative
             kontrakten for klienter som viser ett felt om gangen.
     ProsessDefinisjonInput:

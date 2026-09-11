@@ -6,7 +6,7 @@
  * Hvilken vei hver oppgave falt, og hva som ble målt, står i tabellen under.
  *
  * Modulen ligger her og ikke i `server.ts` av samme grunn som `sporsmaalsperrer.ts`
- * og `garasje-raad.ts` gjør: `server.ts` kaller `server.listen` på toppnivå og kan
+ * og `tiltakshjelpen-raad.ts` gjør: `server.ts` kaller `server.listen` på toppnivå og kan
  * ikke importeres av en test. Den har ingen avhengigheter, så `pnpm test:reasoning`
  * kjører uten modell og uten tjenester.
  */

@@ -21,7 +21,7 @@ det. Derfor feiler `pnpm test:docs` nå ethvert dokument som navngir minst ti av
 `suggest_step_tools` er den ene som fortjener en forklaring, og den bor i
 `docs/prosessmodell.md`: hva et steg må inneholde, og hva `bruk`-verdiene betyr.
 
-[Tiltakssjekkens råd](../../docs/garasjesjekk.md) bruker `pdf_list_documents` for kildemetadata og `pdf_search_chunks`
+[Tiltakssjekkens råd](../../docs/tiltakshjelpen.md) bruker `pdf_list_documents` for kildemetadata og `pdf_search_chunks`
 for avgrensede utdrag. `get_garasje_raad` sender den oppgitte deterministiske
 vurderingen og utdragene til gatewayen uten å vurdere søknadsplikt selv.
 Process-agent samler dette i den statsløse `/agent/garasje/raad`-ruten.

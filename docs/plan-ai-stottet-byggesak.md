@@ -82,7 +82,7 @@ tegne og plassere tiltaket, varsle naboer, fylle ut og sende søknaden, motta ve
 og senere søke ferdigattest. Se [åtte steg fra idé til ferdig
 søknad](https://www.dibk.no/verktoy-og-veivisere/atte-steg-fra-ide-til-ferdig-soknad/stegene-fra-ide-til-ferdig-soknad/steg-0-for-du-starter).
 
-Garasjeveiviseren er representativ for problemet. Den ber innbyggeren finne og
+Tiltakshjelpen er representativ for problemet. Den ber innbyggeren finne og
 tolke situasjonskart, reguleringsplan, kommuneplan og lokale vedtekter, og svare om
 blant annet LNF, ledninger, nabo-, vei-, jernbane- og kystavstander, faresoner,
 BYA/BRA og høyder. Veiviseren er dynamisk og husker fremdrift, men brukeren må

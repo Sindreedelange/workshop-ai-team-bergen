@@ -321,7 +321,7 @@ components:
         feltId:
           type: string
           description: >
-            Kjent felt fra GARASJE_DIALOGFELTER eller BYGGETILTAK_KATALOG.
+            Kjent felt fra FRITTLIGGENDE_DIALOGFELTER eller BYGGETILTAK_KATALOG.
             Når kontekst.prosjekt.tiltakstype er oppgitt, må feltet tilhøre tiltakstypen.
             Etiketter og grenser leses fra katalogen, ikke fra kalleren.
           examples: [bya, hoyde, friSikt, endrerBaering, understottet]

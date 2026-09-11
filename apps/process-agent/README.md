@@ -32,7 +32,7 @@ valgenes verdier. Valgfrie felt samles ikke inn i denne klienten. Et tall i en
 behovsbeskrivelse velger ikke et menypunkt; skriv for eksempel «2» eller «den andre»
 for å velge fra listen.
 
-[Tiltakssjekken «Kan du bygge uten å søke?»](../../docs/garasjesjekk.md) har ett unntak: tiltaksspesifikke felt er valgfrie i den felles
+[Tiltakssjekken «Kan du bygge uten å søke?»](../../docs/tiltakshjelpen.md) har ett unntak: tiltaksspesifikke felt er valgfrie i den felles
 prosessdefinisjonen, men må likevel samles inn for valgt tiltak. Dialogen velger
 bare den aktuelle kataloggrenen. Uten tiltakstype beholder den de opprinnelige
 garasjespørsmålene, slik at eldre samtaleklienter ikke hopper over mål og avstander.
@@ -100,7 +100,7 @@ Sluttrådet tar den deterministiske vurderingen fra backend i
 grunnlaget. Dette er en forklaring av innsendte data, ikke en autentisert
 vurderingsreferanse. Klienten må vise alle regelvilkår, kilder og varsler.
 Se `openapi/process-agent.yaml` for hele kontrakten.
-`pnpm test:garasje-raad` kjører agent, tools-api og gateway isolert med falsk
+`pnpm test:tiltakshjelpen-raad` kjører agent, tools-api og gateway isolert med falsk
 dokumenttjeneste og modell, og kontrollerer både dialogen og sluttrådet.
 
 ## Rask test

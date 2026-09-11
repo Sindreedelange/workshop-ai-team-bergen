@@ -188,7 +188,7 @@ respekteres.
 
 #### Slik legger du til en tung oppgave
 
-[Tiltakssjekkens råd](../../docs/garasjesjekk.md) forklarer bare den oppgitte deterministiske vurderingen.
+[Tiltakssjekkens råd](../../docs/tiltakshjelpen.md) forklarer bare den oppgitte deterministiske vurderingen.
 Tillatende prosa som motsier reglene erstattes i sin helhet, ikke bare gjennom
 et endret utfallsfelt. Alle uavklarte regelvilkår beholdes uten tekst- eller
 antallskutt. Mock-provider, modellfeil og ugyldig JSON gir eksplisitt merket

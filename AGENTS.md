@@ -262,7 +262,7 @@ chat, or that every service is a søknad.
   infrastructure problem, and answering 403 for it would collide with the 403 this
   backend uses for «samtykke mangler». `pnpm test:upstream` pins all of it,
   including that the call sites still hand their fetches over.
-  **One caller retries, and only a timeout.** `readJson` in `garasje-data.ts` sends a
+  **One caller retries, and only a timeout.** `readJson` in `tiltakshjelpen-data.ts` sends a
   map lookup twice, four seconds then eight, because Bergen's building layer answers
   in about 120 ms and then occasionally not at all: measured from a container, the
   tail runs 2.6 to 4.7 seconds and sometimes past the ceiling. That made «Bebygd
@@ -273,13 +273,13 @@ chat, or that every service is a søknad.
   not JSON is the source answering and is never repeated. A timeout also gets its own
   citizen-facing sentence, because that string ends up in `kilde.merknad`: «svarte ikke
   i tid» and «kjør sjekken på nytt» is both truer and actionable where «kunne ikke
-  levere et gyldig svar» reads as a broken source. `pnpm test:garasje` pins the retry,
+  levere et gyldig svar» reads as a broken source. `pnpm test:tiltakshjelpen` pins the retry,
   that two timeouts are still a source failure, and that a 502 is not retried.
   The client side of the same wait is in `perform` in
-  `apps/demo-gui/src/client/garasje.ts`: `VENTEMELDINGER` replaces the status line
+  `apps/demo-gui/src/client/tiltakshjelpen.ts`: `VENTEMELDINGER` replaces the status line
   after 2.5, 6 and 13 seconds, naming the municipality, the retry and what happens if
   the source stays silent. Without it one label sat still for up to twelve seconds and
-  the page read as hung. `pnpm test:garasje` pins the texts, their order and that the
+  the page read as hung. `pnpm test:tiltakshjelpen` pins the texts, their order and that the
   timers are cleared on both success and failure.
 - Audit events are first-class output (`state/revisjonslogg.json`); keep behavior observable.
 
@@ -375,12 +375,12 @@ decision rests on, and the honest answer is to stop rather than to emit a partia
 one. `pnpm test:revisjon` pins all of it.
 
 - **En hensynssone navngis, den avgjør ikke.** Sjekken `hensynssoner` i
-  `evaluateGarasje` er alltid `uavklart`, og den står etter at `nasjonaltUnntak` er
+  `evaluateTiltakshjelpen` er alltid `uavklart`, og den står etter at `nasjonaltUnntak` er
   regnet ut, så den kan ikke flytte `utfall`. Grunnen er ikke forsiktighet: en
   hensynssone hjemlet i plan- og bygningsloven § 11-8 sier at et hensyn gjelder for
   området, mens om tiltaket er tillatt står i planbestemmelsene, som piloten ikke
   leser - og uttrekket er dessuten frosset i 2018. Det samme gjelder
-  `arealformaal-flate`. `pnpm test:garasje` pinner at et treff ikke endrer utfallet.
+  `arealformaal-flate`. `pnpm test:tiltakshjelpen` pinner at et treff ikke endrer utfallet.
   Med én tilføyelse, som går den andre veien: en **faresone** holder tilbake
   `meldeplikt`-fritaket under, fordi et fritak er en påstand om at alt som gjelder er
   kontrollert. Hvilke sonetyper det gjelder står i `soneHindrerFritak` i
@@ -392,7 +392,7 @@ one. `pnpm test:revisjon` pins all of it.
 - **`meldeplikt` er det ene fritaket piloten gir, og det ligger bak en hviteliste.**
   Fagpersonens flytkart har en grønn boks for frittstående bygning: «Du trenger ikke å
   søke, men må melde inn etter du er ferdig å bygge.» `vurderMeldeplikt` i
-  `apps/sandbox-backend/src/garasje.ts` er den boksen, og vilkårene er en hviteliste og
+  `apps/sandbox-backend/src/tiltakshjelpen.ts` er den boksen, og vilkårene er en hviteliste og
   ikke «ingen sjekk er uavklart» - sjekkene for kommuneplan, reguleringsplan og
   hensynssoner er uavklarte ved design, så et krav om at ingenting er uavklart ville
   aldri slått til. Hvert ledd har en grunn ved seg, og hvert ledd som kan felle et
@@ -404,7 +404,7 @@ one. `pnpm test:revisjon` pins all of it.
   bygningskart ikke svarer - manglende kunnskap er aldri et fritak.
   `ikke_soknadspliktig` finnes fortsatt i kodeverket og er fortsatt uoppnåelig: et
   fritak uten en plikt til å melde inn har piloten ingen hjemmel til å gi.
-- **Klemmen i `garasje-raad.ts` leser modellens egne setninger, ikke regelens sitat.**
+- **Klemmen i `tiltakshjelpen-raad.ts` leser modellens egne setninger, ikke regelens sitat.**
   Den hindrer modellen fra å gjøre utfallet mildere enn reglene, og den leser hele
   prosaen og ikke bare utfallsfeltet. Da den leste *alt*, traff den reglenes egne
   forbehold: `hensynssoner` sier ordrett at sonen «sier at et hensyn gjelder for
@@ -413,7 +413,7 @@ one. `pnpm test:revisjon` pins all of it.
   grener, og «før du kan bygge» slo ut på samme måte. `modellensEgenProsa` luker ut det
   som er sitert fra vurderingen, og `harTillatendeProsa` avviser et treff der ordene
   rett foran nekter eller gjør setningen betinget. Grensen mot et mildere utfall er
-  uendret. `pnpm test:garasje-raad` pinner begge retninger, inkludert at «du trenger
+  uendret. `pnpm test:tiltakshjelpen-raad` pinner begge retninger, inkludert at «du trenger
   ikke søke, og tiltaket er tillatt» fortsatt stoppes.
 - **Flatene fra `plan-mock` er klippet til kartutsnittet, og det står på tråden.**
   `klippetTilUtsnitt: true` er påkrevd, og `sandbox-backend` avviser et svar uten
@@ -766,7 +766,7 @@ pnpm test:bergen-matrikkel
 ```
 - Optional orchestrated startup script (model selection/reset): `./start.sh --help`.
 - CI (`.github/workflows/ci.yml`) runs `lint`, `test:chat-intent`, `test`, `test:sperrer`,
-  `test:oppsummering`, `test:skjerming`, `test:vilkaar`, `test:reasoning`, `test:garasje-raad`, `test:garasje`, `test:flytkart`, `test:foedselsnummer`, `test:handleevne`,
+  `test:oppsummering`, `test:skjerming`, `test:vilkaar`, `test:reasoning`, `test:tiltakshjelpen-raad`, `test:tiltakshjelpen`, `test:flytkart`, `test:foedselsnummer`, `test:handleevne`,
   `test:samtykke`, `test:forsendelse`, `test:upstream`, `test:innlevering`, `test:concurrency`,
   `test:replay`, `test:chat`, `test:parametere`, `test:imports`, `test:startup`, `test:kodeverk`,
   `test:revisjon`, `test:openapi`, `test:docs`, `test:agent:dialog`, `test:tools-matrikkel`,
@@ -860,7 +860,7 @@ pnpm test:bergen-matrikkel
 
 ## Useful places before editing
 - Architecture/context: `docs/architecture.md`, `docs/prosessmodell.md`, `docs/sikkerhet-og-personvern.md`.
-- The tiltakssjekk case: `docs/garasjesjekk.md` for the service, and
+- The tiltakssjekk case: `docs/tiltakshjelpen.md` for the service, and
   `docs/flytkart-tiltakssjekk.md` for the caseworker's flowchart written out node by
   node, with a column saying where the code agrees and where it deliberately does not.
 - Frontend and styling: `docs/designsystem.md`, and `apps/demo-gui/src/ds-eksempel.html` for working markup.

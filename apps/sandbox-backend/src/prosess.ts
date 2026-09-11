@@ -3,7 +3,7 @@ import { maskinportenHeader } from "../../digdir-mock/src/client.ts";
 import { aktorFor, type Caller } from "./autentisering.ts";
 import { aiBaseUrl, fiksBaseUrl, fiksDialogToken } from "./config.ts";
 import { HttpError } from "./errors.ts";
-import { normalizeGarasjeSvar } from "./garasje-prosess.ts";
+import { normalizeTiltakshjelpenSvar } from "./tiltakshjelpen-prosess.ts";
 import { findRessurs, runRessurs, samtykkekildeFor } from "./ressurser.ts";
 import { hasGyldigSamtykke } from "./regler.ts";
 import { addRevisjon } from "./revisjon.ts";
@@ -119,9 +119,9 @@ export function lagreStegSvar(
 }
 
 function normalizeStegSvar(prosess: ProsessDefinisjon, steg: ProsessSteg, svar: unknown): unknown {
-  const garasje = steg.type === "QUESTION" && (steg.visning === "garasje"
+  const tiltakshjelpen = steg.type === "QUESTION" && (steg.visning === "garasje"
     || (prosess.id === "garasjesjekk" && steg.id === "garasje-prosjekt"));
-  return normaliserValgsvar(steg, garasje ? normalizeGarasjeSvar(svar) : svar);
+  return normaliserValgsvar(steg, tiltakshjelpen ? normalizeTiltakshjelpenSvar(svar) : svar);
 }
 
 export function invalidateStegOgSenere(

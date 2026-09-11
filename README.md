@@ -91,7 +91,7 @@ Sju demo-case er publisert; `Redusert foreldrebetaling i barnehage` er
 flaggskipet og det eneste som er dekket av en informasjonsmodell. Casene og hvilken
 testbruker som hører til hver, står i `docs/deltakerstart.md`.
 
-I tillegg finnes [**«Kan du bygge uten å søke?»**](docs/garasjesjekk.md):
+I tillegg finnes [**Tiltakshjelpen: Kan du bygge uten å søke?**](docs/tiltakshjelpen.md):
 tiltakssjekken for frittliggende bygg, tilbygg, gjerde og fasade eller tak.
 Den kombinerer eiendom, kart, lokale planer og PDF-kilder med faste regler og
 KI-forklaringer. Casen avsluttes med veiledning, ikke innsending. Den viser et

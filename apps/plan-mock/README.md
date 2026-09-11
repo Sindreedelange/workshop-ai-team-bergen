@@ -11,7 +11,7 @@ arealformål og reguleringsplaner. Kopien finnes av to grunner, og ingen av dem 
 kilden mangler:
 
 - **Konferansenett.** Et hackathon uten nett skal ikke miste kartsteget i
-  [tiltakssjekken «Kan du bygge uten å søke?»](../../docs/garasjesjekk.md).
+  [tiltakssjekken «Kan du bygge uten å søke?»](../../docs/tiltakshjelpen.md).
 - **Flate mot punkt.** Live-oppslaget spør om ett punkt og får ingen geometri
   tilbake. Det kan ikke svare på om sonegrensen går tvers gjennom tomten, som er
   spørsmålet innbyggeren faktisk stiller. Uttrekket har flatene, så det kan.

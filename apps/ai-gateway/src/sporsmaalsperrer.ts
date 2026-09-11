@@ -30,9 +30,9 @@
  * Det er nettopp derfor manglendeGrunnlagFor() finnes: den sier fra når et
  * spørsmål trenger et felt som ikke er der.
  */
-import { buildGarasjeBegrepssvar, findGarasjeBegreper, isGarasjeKontekst } from "../../shared/garasje-begreper.ts";
-import { buildGarasjeKunnskapsgrunnlag, projectGarasjeDokumentkunnskap } from "../../shared/garasje-kunnskap.ts";
-import { getByggetiltakDialogfelt } from "../../shared/garasje-dialog.ts";
+import { buildTiltakshjelpenBegrepssvar, findTiltakshjelpenBegreper, isTiltakshjelpenKontekst } from "../../shared/tiltakshjelpen-begreper.ts";
+import { buildTiltakshjelpenKunnskapsgrunnlag, projectTiltakshjelpenDokumentkunnskap } from "../../shared/tiltakshjelpen-kunnskap.ts";
+import { getByggetiltakDialogfelt } from "../../shared/tiltakshjelpen-dialog.ts";
 
 export type Sporsmaalskontekst = {
   tjeneste?: unknown;
@@ -71,7 +71,7 @@ export type Sporsmaalskontekst = {
     scopeVerified?: boolean;
     truncated?: boolean;
   }[];
-  garasjeKunnskap?: ReturnType<typeof buildGarasjeKunnskapsgrunnlag>;
+  garasjeKunnskap?: ReturnType<typeof buildTiltakshjelpenKunnskapsgrunnlag>;
   aktivtFelt?: { id: string; label: string };
   samtale?: unknown;
   [felt: string]: unknown;
@@ -205,7 +205,7 @@ function findDecisionLanguage(tekst: string, grunnlagstekst: string): string[] {
   });
 }
 
-const GARASJEBESLUTNINGER = [
+const TILTAKSHJELPENBESLUTNINGER = [
   "du kan bygge uten soknad", "du kan bygge uten a soke", "du trenger ikke soke",
   "du trenger ikke a soke", "garasjen er soknadsfri", "garasjen din er soknadsfri",
   "garasjen er godkjent", "du har byggetillatelse", "du ma soke", "du ma ha dispensasjon",
@@ -373,17 +373,17 @@ const TEMAKRAV = [
  */
 export function manglendeGrunnlagFor(sporsmaal: unknown, kontekst: Sporsmaalskontekst | null | undefined): string | null {
   const tekst = foldNorwegian(normalizeText(sporsmaal));
-  const garasje = isGarasjeKontekst(kontekst);
-  if (garasje) {
+  const tiltakshjelpen = isTiltakshjelpenKontekst(kontekst);
+  if (tiltakshjelpen) {
     if (/\b(kan jeg|har jeg lov|trenger jeg|ma jeg|slipper jeg)\b.*\b(bygge|soke|soknad|dispensasjon)/.test(tekst)
       || (/\b(soknadsplikt|soknadsfri|byggetillat|dispensasjon|lovlig|godkjent)/.test(tekst)
         && !/\b(nasjonal|generell|generelt|regler|regelen)/.test(tekst))) return "garasjeregler";
     if (/\b(tillatt|lovlig|maks|grense)\w*\b.*\butnytt/.test(tekst)
       || /\butnytt\w*grense/.test(tekst)) return "garasjeplan";
-    if (isGarasjeRegelsporsmaal(tekst) && !kontekst?.garasjeKunnskap) return "garasjeregler";
+    if (isTiltakshjelpenRegelsporsmaal(tekst) && !kontekst?.garasjeKunnskap) return "garasjeregler";
   }
   for (const krav of TEMAKRAV) {
-    if (garasje && krav.tema === "inntektsgrense" && !/\binntekt|\bsats/.test(tekst)) continue;
+    if (tiltakshjelpen && krav.tema === "inntektsgrense" && !/\binntekt|\bsats/.test(tekst)) continue;
     const spurt = krav.ord.some((uttrykk) => tekst.includes(foldNorwegian(uttrykk)));
     if (spurt && !kontekst?.[krav.kilde]) {
       return krav.tema;
@@ -392,18 +392,18 @@ export function manglendeGrunnlagFor(sporsmaal: unknown, kontekst: Sporsmaalskon
   return null;
 }
 
-function isGarasjeRegelsporsmaal(tekst: string): boolean {
+function isTiltakshjelpenRegelsporsmaal(tekst: string): boolean {
   return /\b(maks|minste|minst|maksimal|tillatt|grense|nasjonal|regler|regelen)\w*|\b(hoyde|gesims|mone|areal)\w*grense/.test(tekst);
 }
 
-export function buildGarasjeVeiledningssvar(tekst: string, kontekst: Sporsmaalskontekst): string | null {
-  if (!isGarasjeKontekst(kontekst)) return null;
+export function buildTiltakshjelpenVeiledningssvar(tekst: string, kontekst: Sporsmaalskontekst): string | null {
+  if (!isTiltakshjelpenKontekst(kontekst)) return null;
   const knowledge = kontekst.garasjeKunnskap;
-  if (knowledge && isGarasjeRegelsporsmaal(foldNorwegian(normalizeText(tekst)))) {
+  if (knowledge && isTiltakshjelpenRegelsporsmaal(foldNorwegian(normalizeText(tekst)))) {
     if (!knowledge.nasjonaleKrav) {
       return `${knowledge.tiltak?.beskrivelse || "Tiltakstypen må avklares."} Forklaringsgrunnlaget har ikke kildebekreftede tallgrenser for denne tiltakstypen. Bruk den regelbaserte vurderingen og avklar usikre krav med kommunens byggesaksveileder.${knowledge.tiltak?.kilde ? ` Kilde: ${knowledge.tiltak.kilde}` : ""}`;
     }
-    const ids = new Set(findGarasjeBegreper(tekst).map(begrep => begrep.id));
+    const ids = new Set(findTiltakshjelpenBegreper(tekst).map(begrep => begrep.id));
     const all = Object.entries(knowledge.nasjonaleKrav.tallkrav);
     const selected = all.filter(([id]) => ids.has(id));
     return [
@@ -414,7 +414,7 @@ export function buildGarasjeVeiledningssvar(tekst: string, kontekst: Sporsmaalsk
       `Kilde: ${knowledge.nasjonaleKrav.kilde}`
     ].join("\n");
   }
-  return buildGarasjeBegrepssvar(tekst, kontekst.aktivtFelt?.id);
+  return buildTiltakshjelpenBegrepssvar(tekst, kontekst.aktivtFelt?.id);
 }
 
 /* ── Personvernspørsmål besvares fast ─────────────────────────────────────
@@ -464,7 +464,7 @@ export function buildPersonvernSvar(kontekst: Sporsmaalskontekst | null | undefi
     ...PERSONVERN.punkter.map((punkt) => `• ${punkt}`)
   ];
 
-  if (tjeneste && !isGarasjeKontekst(kontekst)) {
+  if (tjeneste && !isTiltakshjelpenKontekst(kontekst)) {
     linjer.push("", `I ${tjeneste} er det inntektsopplysningene som er de sensitive, og det er dem samtykket gjelder.`);
   }
   if (samtykke === "SAMTYKKET") {
@@ -477,10 +477,10 @@ export function buildPersonvernSvar(kontekst: Sporsmaalskontekst | null | undefi
 /* ── Trygge svar ──────────────────────────────────────────────────────────── */
 
 export function buildTryggSvar(kontekst: Sporsmaalskontekst | null | undefined, aarsak?: string): string {
-  if (isGarasjeKontekst(kontekst) && aarsak === "manglende-grunnlag:garasjeplan") {
+  if (isTiltakshjelpenKontekst(kontekst) && aarsak === "manglende-grunnlag:garasjeplan") {
     return "Tillatt utnyttelse er ikke avklart. Kartlagt bygningsflate og andel er ikke juridisk BYA eller BRA. Planbestemmelsene er ikke kontrollert; en sone eller PDF-lenke alene gir ikke svaret.";
   }
-  if (isGarasjeKontekst(kontekst) && aarsak !== "injeksjon") {
+  if (isTiltakshjelpenKontekst(kontekst) && aarsak !== "injeksjon") {
     return "Jeg kan forklare ordene og målene. Søknadsplikten vurderes av de faste kontrollene, ikke av språkmodellen. Kart- og planforhold kan fortsatt være uavklart. Spørsmålet endrer ikke svarene dine og sender ingen søknad.";
   }
   if (aarsak === "ikke-utfort") {
@@ -560,9 +560,9 @@ export function validateAnswer(tekst: unknown, kontekst: Sporsmaalskontekst | nu
   }
 
   const beslutninger = findDecisionLanguage(svar, grunnlagstekst);
-  if (isGarasjeKontekst(kontekst)) {
+  if (isTiltakshjelpenKontekst(kontekst)) {
     const ord = foldNorwegian(normalizeText(svar)).split(" ");
-    beslutninger.push(...GARASJEBESLUTNINGER.filter(monster => containsPhrase(ord, monster)
+    beslutninger.push(...TILTAKSHJELPENBESLUTNINGER.filter(monster => containsPhrase(ord, monster)
       && !["ukjent", "uavklart", "ikke"].some(negasjon => containsPhrase(ord, `${monster} ${negasjon}`))));
   }
   if (beslutninger.length > 0) {
@@ -585,7 +585,7 @@ export function validateAnswer(tekst: unknown, kontekst: Sporsmaalskontekst | nu
   }
 
   const udekkede = findUngroundedNumbers(svar, buildGrunnlagsIndeks(kontekst));
-  if (isGarasjeKontekst(kontekst)) {
+  if (isTiltakshjelpenKontekst(kontekst)) {
     // URL section numbers in the glossary are not evidence for a height or area.
     const maalgrunnlag = buildGrunnlagsIndeks({
       tallkrav: kontekst?.garasjeKunnskap?.nasjonaleKrav?.tallkrav,
@@ -624,17 +624,17 @@ export function sanitizeSporsmaalKontekst(kontekst: unknown): Sporsmaalskontekst
   // denne funksjonen finnes. Formen navngir hva vi plukker ut, ikke hva vi fikk.
   const inn = (kontekst || {}) as Record<string, any>;
   const ut: Sporsmaalskontekst = {};
-  const garasje = isGarasjeKontekst(inn);
+  const tiltakshjelpen = isTiltakshjelpenKontekst(inn);
 
   if (inn.tjeneste) ut.tjeneste = String(inn.tjeneste);
-  if (!garasje && inn.satser) ut.satser = inn.satser;
+  if (!tiltakshjelpen && inn.satser) ut.satser = inn.satser;
   // Always present, never taken from the caller: this is the sandbox's own
   // statement about itself, and it must not be something a client can rewrite.
   ut.personvern = PERSONVERN;
-  if (garasje) {
+  if (tiltakshjelpen) {
     // Rebuild from the trusted catalogue and the bounded projection, never from
     // caller-supplied knowledge or raw property maps.
-    ut.garasjeKunnskap = buildGarasjeKunnskapsgrunnlag(inn);
+    ut.garasjeKunnskap = buildTiltakshjelpenKunnskapsgrunnlag(inn);
     if (inn.prosessId === "garasjesjekk") ut.prosessId = "garasjesjekk";
     const field = ut.garasjeKunnskap.begreper.find(begrep => begrep.id === inn.aktivtFelt?.id);
     const measureField = getByggetiltakDialogfelt(inn.aktivtFelt?.id, ut.garasjeKunnskap.prosjekt.tiltakstype);
@@ -644,7 +644,7 @@ export function sanitizeSporsmaalKontekst(kontekst: unknown): Sporsmaalskontekst
 
   if (inn.prosess) {
     ut.prosess = {
-      ...(garasje ? { id: inn.prosess.id } : {}),
+      ...(tiltakshjelpen ? { id: inn.prosess.id } : {}),
       navn: inn.prosess.navn,
       beskrivelse: inn.prosess.beskrivelse,
       steg: (inn.prosess.steg || []).map((steg: Record<string, unknown>) => ({
@@ -692,7 +692,7 @@ export function sanitizeSporsmaalKontekst(kontekst: unknown): Sporsmaalskontekst
   }
 
   // Only the outcome of each finished step, never the payload it was built from.
-  if (!garasje && inn.resultater && typeof inn.resultater === "object") {
+  if (!tiltakshjelpen && inn.resultater && typeof inn.resultater === "object") {
     const resultater: Record<string, Record<string, unknown>> = {};
     for (const [stegId, raa] of Object.entries(inn.resultater as Record<string, unknown>)) {
       if (!raa || typeof raa !== "object") continue;
@@ -729,7 +729,7 @@ export function sanitizeSporsmaalKontekst(kontekst: unknown): Sporsmaalskontekst
 
   // Property ownership data fetched by the caller and included for grounding.
   // Project to address + type only - never expose personIds of other owners.
-  if (!garasje && inn.mineEiendommer?.eiendommer && Array.isArray(inn.mineEiendommer.eiendommer)) {
+  if (!tiltakshjelpen && inn.mineEiendommer?.eiendommer && Array.isArray(inn.mineEiendommer.eiendommer)) {
     ut.mineEiendommer = {
       eiendommer: inn.mineEiendommer.eiendommer.map((e: Record<string, unknown>) => ({
         adresse: e.adresse,
@@ -741,7 +741,7 @@ export function sanitizeSporsmaalKontekst(kontekst: unknown): Sporsmaalskontekst
   }
 
   if (Array.isArray(inn.dokumentkunnskap)) {
-    ut.dokumentkunnskap = projectGarasjeDokumentkunnskap(inn.dokumentkunnskap);
+    ut.dokumentkunnskap = projectTiltakshjelpenDokumentkunnskap(inn.dokumentkunnskap);
   }
 
   return ut;
@@ -767,7 +767,7 @@ export function buildGrunnlag(kontekst: Sporsmaalskontekst): { kilder: string[];
     const kvalitet = treff.checkRecommended ? " - kontroll anbefales" : "";
     kilder.push(`${navn}${side}${kvalitet}`);
   }
-  if (isGarasjeKontekst(kontekst) && kontekst.garasjeKunnskap) {
+  if (isTiltakshjelpenKontekst(kontekst) && kontekst.garasjeKunnskap) {
     kilder.push(...new Set(kontekst.garasjeKunnskap.begreper.map(begrep => begrep.kilde)));
     const nationalSource = kontekst.garasjeKunnskap.nasjonaleKrav?.kilde ?? kontekst.garasjeKunnskap.tiltak?.kilde;
     if (nationalSource) kilder.push(nationalSource);
