@@ -68,27 +68,29 @@ function element<K extends keyof HTMLElementTagNameMap>(tag: K, text?: string, c
   return el;
 }
 
+function expireLogin(): never {
+  logOut();
+  valgtAdresse = null;
+  plassering = null;
+  grunnlag = null;
+  clearConfirmation();
+  krevEl("workspace").hidden = true;
+  krevEl("property-workspace").hidden = true;
+  krevEl("property-facts").hidden = true;
+  krevEl("logged-in").textContent = "";
+  krevEl("logout").hidden = true;
+  krevEl("login-panel").hidden = false;
+  throw new Error("Innloggingen er utløpt eller ugyldig. Logg inn igjen for å fortsette.");
+}
+
 async function api<T>(path: string): Promise<T> {
-  if (!tokenValid()) throw new Error("Innloggingen er utløpt. Logg ut og inn igjen for å fortsette.");
+  if (!tokenValid()) expireLogin();
   const response = await fetch(`${backendBase}${path}`, {
     headers: withToken(), signal: AbortSignal.timeout(60000), cache: "no-store"
   });
   const data = await response.json();
   if (!response.ok) {
-    if (response.status === 401) {
-      logOut();
-      valgtAdresse = null;
-      plassering = null;
-      grunnlag = null;
-      clearConfirmation();
-      krevEl("workspace").hidden = true;
-      krevEl("property-workspace").hidden = true;
-      krevEl("property-facts").hidden = true;
-      krevEl("logged-in").textContent = "";
-      krevEl("logout").hidden = true;
-      krevEl("login-panel").hidden = false;
-      throw new Error("Innloggingen er utløpt eller ugyldig. Logg inn igjen for å fortsette.");
-    }
+    if (response.status === 401) expireLogin();
     throw new Error(data.feil || `Oppslaget feilet (HTTP ${response.status}).`);
   }
   return data as T;
@@ -131,12 +133,29 @@ function clearConfirmation(): void {
   invalidateResult();
 }
 
+/**
+ * Hva som står i statuslinjen mens et kartoppslag drar ut, og etter hvor lenge.
+ *
+ * Kommunens kartlag svarer nesten alltid på et øyeblikk, men har en hale på flere
+ * sekunder, og serveren prøver da en gang til. Uten disse setningene sto den
+ * første etiketten helt stille i opptil tolv sekunder, og det ser ut som om siden
+ * har hengt seg opp. Tekstene sier hva som skjer og hos hvem, slik at ventingen er
+ * noe man kan forstå framfor noe man må tolke.
+ */
+const VENTEMELDINGER: readonly { etter: number; tekst: string }[] = [
+  { etter: 2500, tekst: "Henter fortsatt kart og planer fra kommunen. Dette tar av og til noen sekunder." },
+  { etter: 6000, tekst: "Kommunens kartlag svarer tregt akkurat nå, og vi prøver en gang til. Du trenger ikke gjøre noe." },
+  { etter: 13000, tekst: "Kartlaget svarte ikke i tid. Vi gjør ferdig vurderingen med de kildene som svarte, og sier hva som mangler." },
+];
+
 async function perform(label: string, action: () => Promise<void>): Promise<void> {
   if (busy || pendingSave) return;
   busy = true;
   tiltaksvalg?.refresh();
   krevEl("error").hidden = true;
   krevEl("progress").textContent = label;
+  const ventetimere = VENTEMELDINGER.map(melding =>
+    setTimeout(() => { krevEl("progress").textContent = melding.tekst; }, melding.etter));
   const controls = document.querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement>(
     "button, #workspace input, #workspace select"
   );
@@ -149,6 +168,7 @@ async function perform(label: string, action: () => Promise<void>): Promise<void
     krevEl("error").hidden = false;
     krevEl("progress").textContent = "Kunne ikke fullføre. Kontroller meldingen og prøv igjen.";
   } finally {
+    for (const timer of ventetimere) clearTimeout(timer);
     controls.forEach(control => { control.disabled = pendingSave; });
     busy = false;
     tiltaksvalg?.refresh();
@@ -842,6 +862,7 @@ async function loadPerson(): Promise<void> {
       const isBosted = (a: Adressevalg) => a.tekst === bostedsadresse && a.kommune === bosted?.kommunenummer;
       adressevalg.sort((a, b) => Number(isBosted(b)) - Number(isBosted(a)));
     } catch (error) {
+      if (!tokenValid()) throw error;
       note.textContent += ` Egne eiendommer kunne ikke hentes: ${feilmelding(error)} Du kan fortsatt søke på adresse.`;
     }
   }
@@ -904,6 +925,7 @@ function configureFields(type: Byggetiltakstype): void {
 }
 configureFields(tiltakstype);
 tiltaksvalg = createTiltaksvalg({
+  container: krevEl("workspace"),
   choices: BYGGETILTAK_KATALOG.map(type => ({ id: type.id, label: type.navn })),
   unknownType: "ukjent",
   suggest: description => {

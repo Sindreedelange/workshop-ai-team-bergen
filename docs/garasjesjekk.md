@@ -57,9 +57,12 @@ En beskrivelse gir bare et forslag til tiltakstype. Innbyggeren bekrefter eller
 retter typen før de relevante spørsmålene åpnes. Uklare eller sammensatte tiltak
 skal ikke presses inn i regelen for et frittliggende bygg.
 
-Bruk ID-porten-testinnloggingen. Bostedsadressen foreslås først, og egne
-eiendommer vises som alternativer. Bosted og eierskap er forskjellige opplysninger.
-Adressebeskyttelse skal ikke omgås for å fylle ut et felt.
+Start med ID-porten-testinnloggingen. Tiltaksbeskrivelsen og eiendomsvalget åpnes
+først etter innlogging, også i den frittstående veiviseren. En gyldig innlogging
+fra samme fane gjenbrukes. Tjenesten henter opplysningene til den innloggede
+testpersonen og foreslår bostedsadressen først når den også er en eid eiendom.
+Egne eiendommer vises som alternativer. Bosted og eierskap er forskjellige
+opplysninger. Adressebeskyttelse skal ikke omgås for å fylle ut et felt.
 
 KI kan forklare ord som gesimshøyde, mønehøyde, BRA og BYA med vanlig språk.
 Et slikt spørsmål lagres aldri som et svar på et prosessteg og flytter ikke flyten

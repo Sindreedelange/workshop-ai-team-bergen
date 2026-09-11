@@ -91,23 +91,74 @@ function testUrl(variable: string, official: string): string {
   return url.href;
 }
 
+/**
+ * Tidsgrensene for et kartoppslag, i rekkefølge, og dermed antall forsøk.
+ *
+ * Målt mot Bergens `Bygning_Flate/.../query` fra en container: median 122 ms, men
+ * en tung hale på 2,6 til 4,7 sekunder og innimellom over 8. Halen er kilden sin,
+ * ikke vår - metadataoppslaget mot det samme laget stanset aldri, og et avbrutt
+ * kall er et `TimeoutError`, ikke et avslag. Med ett forsøk på 8 sekunder falt
+ * derfor «Bebygd eiendom» til uavklart noen ganger i timen, og et tiltak som
+ * oppfyller vilkårene fikk «må avklares» i stedet for fritak.
+ *
+ * Første forsøk kuttes tidlig, fordi et svar som ikke er kommet etter fire
+ * sekunder nesten alltid er halen og ikke et stort svar underveis. Det andre får
+ * hele budsjettet. Verste fall er da 12 sekunder mot 8 før, og det vanlige
+ * tilfellet er uendret.
+ *
+ * Bare tidsavbrudd gjentas. En 4xx, en 5xx eller et svar som ikke er JSON er
+ * kildens svar og betyr det samme som før: `upstream.ts` avgjør hva det betyr, og
+ * det stedet er fortsatt ett.
+ */
+const KARTOPPSLAG_TIDSGRENSER = [4000, 8000] as const;
+
+function erTidsavbrudd(error: unknown): boolean {
+  return error instanceof Error && error.name === "TimeoutError";
+}
+
 async function readJson(url: URL, service: string): Promise<unknown> {
-  const timeout = process.env.NODE_ENV === "test" && process.env.GARASJE_TIMEOUT_MS
-    ? Number(process.env.GARASJE_TIMEOUT_MS) : 8000;
-  if (!Number.isInteger(timeout) || timeout < 1 || timeout > 30_000) throw new HttpError("Ugyldig tidsgrense for datakilden.", 500);
+  const overstyrt = process.env.NODE_ENV === "test" && process.env.GARASJE_TIMEOUT_MS
+    ? Number(process.env.GARASJE_TIMEOUT_MS) : null;
+  const tidsgrenser = overstyrt === null ? KARTOPPSLAG_TIDSGRENSER : [overstyrt, overstyrt];
+  for (const timeout of tidsgrenser) {
+    if (!Number.isInteger(timeout) || timeout < 1 || timeout > 30_000) throw new HttpError("Ugyldig tidsgrense for datakilden.", 500);
+  }
+  // Gjenforsøket ligger rundt selve sendingen og ikke rundt `callUpstream`, slik at
+  // tolkningen av et svar fortsatt skjer én gang, på det siste utfallet.
+  //
+  // Flagget finnes fordi `callUpstream` pakker feilen inn i sin egen HttpError før
+  // catch-en nedenfor ser den: da er navnet «HttpError» og ikke «TimeoutError», og
+  // et tidsavbrudd kan ikke skilles fra et brutt svar lenger nede uten dette.
+  let avbruttPaaTid = false;
+  const send = async (): Promise<Response> => {
+    for (const [nr, timeout] of tidsgrenser.entries()) {
+      try {
+        return await fetch(url, { signal: AbortSignal.timeout(timeout), redirect: "error", headers: { Accept: "application/json" } });
+      } catch (error) {
+        avbruttPaaTid = erTidsavbrudd(error);
+        if (nr === tidsgrenser.length - 1 || !avbruttPaaTid) throw error;
+      }
+    }
+    throw new HttpError("Ingen tidsgrenser for datakilden.", 500);
+  };
   try {
-    return await callUpstream<unknown>(
-      { service, action: "Å hente offentlige kartdata" },
-      () => fetch(url, { signal: AbortSignal.timeout(timeout), redirect: "error", headers: { Accept: "application/json" } }),
-    );
+    return await callUpstream<unknown>({ service, action: "Å hente offentlige kartdata" }, send);
   } catch (error) {
     // A response stream can fail after headers arrived, outside upstream's
     // request-error mapping. This catch covers only the HTTP read.
     if (!(error instanceof Error)) throw error;
     // Public geodata is not synthetic. Keep upstream's status mapping without
     // carrying over its sandbox-specific flag or an untrusted response body.
-    throw new HttpError(`${service} kunne ikke levere et gyldig svar.`, 502,
-      { kilde: url.href, detalj: error.message });
+    //
+    // Et tidsavbrudd får sin egen setning, fordi den ender i `kilde.merknad` og
+    // dermed foran innbyggeren. «Kunne ikke levere et gyldig svar» leses som at
+    // kilden er i stykker; at den var treg og at et nytt forsøk kan hjelpe er både
+    // sannere og til å gjøre noe med.
+    throw new HttpError(
+      avbruttPaaTid
+        ? `${service} svarte ikke i tid, heller ikke på et nytt forsøk. Kilden er treg akkurat nå, ikke utilgjengelig. Kjør sjekken på nytt, eller be kommunen bekrefte forholdet.`
+        : `${service} kunne ikke levere et gyldig svar.`,
+      502, { kilde: url.href, detalj: error.message });
   }
 }
 

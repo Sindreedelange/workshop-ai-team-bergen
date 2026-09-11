@@ -22,9 +22,9 @@ class Element {
     for (const child of children) child.parentElement = this;
     this.children.push(...children);
   }
-  insertBefore(child: Element, before: Element) {
+  prepend(child: Element) {
     child.parentElement = this;
-    this.children.splice(this.children.indexOf(before), 0, child);
+    this.children.unshift(child);
   }
   addEventListener(event: string, listener: () => void) {
     this.listeners.set(event, [...this.listeners.get(event) ?? [], listener]);
@@ -35,7 +35,13 @@ class Element {
 const root = new Element();
 const login = new Element();
 login.id = "login-panel";
-root.append(login);
+const workspace = new Element();
+workspace.id = "workspace";
+workspace.hidden = true;
+const property = new Element();
+property.id = "property-step";
+workspace.append(property);
+root.append(login, workspace);
 function descendants(node: Element): Element[] { return [node, ...node.children.flatMap(descendants)]; }
 function byId(id: string): Element {
   const node = descendants(root).find(node => node.id === id);
@@ -53,6 +59,7 @@ let locked = false;
 const context = createContext({
   document: { createElement: () => new Element(), getElementById: byId },
   options: {
+    container: workspace,
     choices: [{ id: "bygg", label: "Frittliggende bygg" }, { id: "gjerde", label: "Gjerde" }, { id: "annet", label: "Annet eller usikkert" }],
     unknownType: "annet",
     suggest: (text: string) => text === "Et stakittgjerde" ? "gjerde" : null,
@@ -64,7 +71,11 @@ const context = createContext({
 runInContext(stripTypeScriptTypes(await readFile("apps/demo-gui/src/client/garasje-tiltak.ts", "utf8"))
   .replace("export function createTiltaksvalg", "function createTiltaksvalg"), context);
 const ui = runInContext("createTiltaksvalg(options)", context);
-assert.equal(root.children[0].id, "measure-step");
+assert.equal(root.children[0].id, "login-panel", "Innlogging skal komme før tiltaksvalg");
+assert.equal(byId("measure-step").parentElement, workspace, "Tiltaksvalg må ligge bak samme innlogging som eiendomsvalget");
+assert.equal(workspace.hidden, true, "Opprettelse av tiltaksvalg må ikke åpne arbeidsområdet før innlogging");
+assert.equal(workspace.children[0].id, "measure-step");
+assert.equal(workspace.children[1], property, "Tiltakstypen skal fortsatt komme før eiendomsvalget etter innlogging");
 for (const type of ["bygg", "gjerde", "annet"]) {
   byId("measure-type").value = type;
   for (const text of ["", " \n\t", "x".repeat(501)]) {

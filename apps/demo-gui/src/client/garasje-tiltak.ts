@@ -1,5 +1,6 @@
 type MeasureOption<T extends string> = { id: T; label: string };
 type Options<T extends string> = {
+  container: HTMLElement;
   choices: readonly MeasureOption<T>[];
   unknownType: T;
   suggest: (description: string) => T | null;
@@ -63,9 +64,7 @@ export function createTiltaksvalg<T extends string>(options: Options<T>) {
   confirm.type = "button";
   confirm.textContent = "Bekreft tiltakstype";
   panel.append(heading, field, propose, choices, status, confirm);
-  const before = document.getElementById("login-panel");
-  if (!before?.parentElement) throw new Error("Tiltaksvalget mangler et sted på siden.");
-  before.parentElement.insertBefore(panel, before);
+  options.container.prepend(panel);
   function validDescription(focus = true): boolean {
     const text = description.value.trim();
     const valid = text.length > 0 && text.length <= 500;
