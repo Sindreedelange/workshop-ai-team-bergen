@@ -12,10 +12,10 @@ type Options<T extends string> = {
 export function createTiltaksvalg<T extends string>(options: Options<T>) {
   const panel = document.createElement("section");
   panel.className = "panel stack";
-  panel.id = "measure-step";
-  panel.setAttribute("aria-labelledby", "measure-heading");
+  panel.id = "measure-choice-step";
+  panel.setAttribute("aria-labelledby", "measure-choice-heading");
   const heading = document.createElement("h2");
-  heading.id = "measure-heading";
+  heading.id = "measure-choice-heading";
   heading.className = "ds-heading";
   heading.dataset.size = "md";
   heading.textContent = "Hva vil du gjøre på eiendommen?";

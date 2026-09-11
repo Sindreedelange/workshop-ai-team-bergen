@@ -40,7 +40,21 @@ workspace.id = "workspace";
 workspace.hidden = true;
 const property = new Element();
 property.id = "property-step";
-workspace.append(property);
+const details = new Element();
+details.id = "measure-step";
+details.hidden = true;
+const detailsHeading = new Element();
+detailsHeading.id = "measure-heading";
+const form = new Element();
+form.id = "measure-form";
+form.hidden = true;
+details.append(detailsHeading, form);
+workspace.append(property, details);
+for (const id of ["property-controls", "edit-property", "placement-step", "placement-summary"]) {
+  const node = new Element();
+  node.id = id;
+  property.append(node);
+}
 root.append(login, workspace);
 function descendants(node: Element): Element[] { return [node, ...node.children.flatMap(descendants)]; }
 function byId(id: string): Element {
@@ -58,24 +72,50 @@ const confirmed: { type: string; description: string }[] = [];
 let locked = false;
 const context = createContext({
   document: { createElement: () => new Element(), getElementById: byId },
+  krevEl: byId, form,
   options: {
     container: workspace,
     choices: [{ id: "bygg", label: "Frittliggende bygg" }, { id: "gjerde", label: "Gjerde" }, { id: "annet", label: "Annet eller usikkert" }],
     unknownType: "annet",
     suggest: (text: string) => text === "Et stakittgjerde" ? "gjerde" : null,
     locked: () => locked,
-    changed: () => { changed++; },
-    confirmed: (type: string, description: string) => { confirmed.push({ type, description }); }
+    changed: () => {
+      changed++;
+      runInContext("tiltakstypeBekreftet = false; renderPropertySteps();", context);
+    },
+    confirmed: (type: string, description: string) => {
+      confirmed.push({ type, description });
+      runInContext("tiltakstypeBekreftet = true; renderPropertySteps();", context);
+    }
   }
 });
+const clientSource = stripTypeScriptTypes(await readFile("apps/demo-gui/src/client/tiltakshjelpen.ts", "utf8"));
+const renderStart = clientSource.indexOf("function renderPropertySteps");
+const renderEnd = clientSource.indexOf("function clearConfirmation", renderStart);
+assert(renderStart >= 0 && renderEnd > renderStart);
+runInContext(`
+  let propertyConfirmed = false, placementConfirmed = false, tiltakstypeBekreftet = false;
+  ${clientSource.slice(renderStart, renderEnd)}
+`, context);
 runInContext(stripTypeScriptTypes(await readFile("apps/demo-gui/src/client/tiltakshjelpen-tiltak.ts", "utf8"))
   .replace("export function createTiltaksvalg", "function createTiltaksvalg"), context);
 const ui = runInContext("createTiltaksvalg(options)", context);
+const choicePanel = workspace.children[0];
 assert.equal(root.children[0].id, "login-panel", "Innlogging skal komme før tiltaksvalg");
-assert.equal(byId("measure-step").parentElement, workspace, "Tiltaksvalg må ligge bak samme innlogging som eiendomsvalget");
+assert.equal(choicePanel.parentElement, workspace, "Tiltaksvalg må ligge bak samme innlogging som eiendomsvalget");
 assert.equal(workspace.hidden, true, "Opprettelse av tiltaksvalg må ikke åpne arbeidsområdet før innlogging");
-assert.equal(workspace.children[0].id, "measure-step");
 assert.equal(workspace.children[1], property, "Tiltakstypen skal fortsatt komme før eiendomsvalget etter innlogging");
+login.hidden = true;
+workspace.hidden = false;
+runInContext("renderPropertySteps()", context);
+assert.equal(choicePanel.hidden, false, "Eiendomsvalg etter innlogging må ikke skjule tiltaksvalget");
+assert.equal(details.hidden, true, "Utfyllingen skal vente på bekreftet tiltakstype og plassering");
+const html = await readFile("apps/demo-gui/src/tiltakshjelpen.html", "utf8");
+const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map(match => match[1]);
+ids.push(...descendants(choicePanel).map(node => node.id).filter(Boolean));
+assert.equal(new Set(ids).size, ids.length, "Dynamisk tiltaksvalg må ikke duplisere ID-er fra HTML-siden");
+assert.equal(byId(choicePanel.attributes["aria-labelledby"]).parentElement, choicePanel);
+assert.equal(byId("measure-heading"), detailsHeading, "Fokus etter plassering skal treffe utfyllingssteget");
 for (const type of ["bygg", "gjerde", "annet"]) {
   byId("measure-type").value = type;
   for (const text of ["", " \n\t", "x".repeat(501)]) {
@@ -94,6 +134,12 @@ assert.equal(confirmed.length, 0, "Et forslag er ikke et bekreftet tiltak");
 button("Bekreft tiltakstype").dispatch("click");
 assert.deepEqual(confirmed, [{ type: "gjerde", description: "Et stakittgjerde" }]);
 assert.equal(byId("measure-description").attributes["aria-invalid"], "false");
+assert.equal(choicePanel.hidden, false);
+assert.equal(details.hidden, true, "Bekreftet tiltakstype alene skal ikke åpne utfyllingen");
+runInContext("propertyConfirmed = true; placementConfirmed = true; renderPropertySteps();", context);
+assert.equal(choicePanel.hidden, false, "Tiltakstypen skal fortsatt kunne endres etter plassering");
+assert.equal(details.hidden, false, "Bekreftet plassering og tiltakstype skal åpne riktig utfyllingssteg");
+assert.equal(form.hidden, false);
 const tiltak = {
   tiltakstype: confirmed[0].type, tiltaksbeskrivelse: confirmed[0].description,
   tiltakstypeBekreftet: true, hoyde: 0.9, motVeg: true, friSikt: true, aapenLett: true
@@ -106,6 +152,9 @@ assert.doesNotThrow(() => normalizeTiltakshjelpenSvar({
 byId("measure-description").dispatch("input");
 assert.match(byId("measure-status").textContent, /endret/);
 assert(changed > 0);
+assert.equal(choicePanel.hidden, false, "Redigering må ikke skjule kontrollene som skal bekrefte endringen");
+assert.equal(details.hidden, true);
+assert.equal(form.hidden, true);
 byId("measure-description").value = "Flere uklare tiltak";
 button("Finn type tiltak").dispatch("click");
 assert.match(byId("measure-status").textContent, /uklar/);
@@ -116,14 +165,20 @@ assert.equal(byId("measure-description").disabled, true);
 button("Bekreft tiltakstype").dispatch("click");
 assert.equal(confirmed.length, 1);
 locked = false;
+ui.refresh();
+assert.equal(byId("measure-description").disabled, false);
 ui.restore("bygg", "En bod");
 assert.equal(byId("measure-type").value, "bygg");
 assert.equal(byId("measure-description").value, "En bod");
 assert.deepEqual(confirmed[1], { type: "bygg", description: "En bod" });
+assert.equal(choicePanel.hidden, false);
+assert.equal(details.hidden, false);
 const beforeRestore = changed;
 ui.restore("bygg", "");
 assert.equal(confirmed.length, 2, "Et gammelt utkast uten beskrivelse må ikke bekreftes som et nytt typet tiltak");
 assert.equal(changed, beforeRestore + 1);
 assert.match(byId("measure-status").textContent, /Skriv en kort beskrivelse/);
 assert.equal(byId("measure-description").attributes["aria-invalid"], "true");
-console.log("Tiltaksvalg: forslag krever bekreftelse, uklare beskrivelser vises, og lagret valg kan gjenopprettes.");
+assert.equal(choicePanel.hidden, false);
+assert.equal(details.hidden, true);
+console.log("Tiltaksvalg: tilgjengelig etter innlogging og redigering, uten ID-kollisjon med utfyllingssteget. Forslag og lagrede valg krever gyldig beskrivelse.");
