@@ -139,7 +139,7 @@ export function validateGarasjeDialogSvar(feltId: GarasjeDialogfeltId, answer: u
 }
 
 function validateDialogSvar(field: ReturnType<typeof getByggetiltakDialogfelt>, answer: unknown): GarasjeDialogValidering {
-  if (!field) return { valid: false, retryMessage: "Velg et kjent garasjefelt." };
+  if (!field) return { valid: false, retryMessage: "Velg et felt som hører til tiltaket." };
   const invalid = (message = field.hint): GarasjeDialogValidering => ({
     valid: false, retryMessage: `${field.label}: ${message}`
   });

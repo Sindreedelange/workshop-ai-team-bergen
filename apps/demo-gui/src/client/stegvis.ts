@@ -204,7 +204,7 @@ function renderAktivtSteg(): void {
           const saved = await postJson<Prosessoekt>(`${backendBase}/api/prosessoekter/${id}/svar`, { stegId, svar });
           if (aktivProsessoekt?.oektsId !== id) throw new Error("Prosessøkten er byttet. Svaret gjelder den opprinnelige økten.");
           updateSessionView(saved);
-          setStatus("Garasjeopplysninger lagret. Gå videre for å kjøre vurderingen.");
+          setStatus("Opplysningene om tiltaket er lagret. Gå videre for å kjøre vurderingen.");
         } finally {
           krevEl<HTMLButtonElement>("start").disabled = false;
           updateNavigation();

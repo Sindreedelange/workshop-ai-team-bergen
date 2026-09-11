@@ -34,6 +34,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readSpec } from "../apps/shared/openapi.ts";
+import { GARASJE_UTFALL } from "../apps/shared/garasje.ts";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const HTTP_METODER = ["get", "post", "put", "patch", "delete", "head", "options"];
@@ -128,6 +129,15 @@ function readEnum(tekst: string, skjema: string): string[] | null {
 function readNestedEnum(tekst: string, skjema: string, felt: string): string[] | null {
   const blokk = skjemablokk(tekst, skjema);
   if (blokk === null) return null;
+  // Feltet kan skrives på to måter i disse filene, og begge er i bruk: enten et
+  // nøstet kart med `enum:` på en egen linje under, eller hele typen inline i en
+  // flytmapping. Uten den andre formen leste sjekken ingen enum og rapporterte
+  // «fant ingen enum», altså den samme uoppløste subjekt-feilen som
+  // `security`-sammenligningen en gang hadde.
+  const inlineTreff = blokk.match(new RegExp(`^\\s+${felt}:\\s*\\{[^}]*enum:\\s*\\[([^\\]]*)\\]`, "m"));
+  if (inlineTreff) {
+    return inlineTreff[1].split(",").map((verdi) => verdi.trim()).filter(Boolean);
+  }
   const feltTreff = blokk.match(new RegExp(`^(\\s+)${felt}:\\s*$`, "m"));
   if (!feltTreff) return null;
   const innrykk = feltTreff[1].length;
@@ -385,6 +395,15 @@ const tjenester: Tjeneste[] = [
     // [BARN, FAR, MOR, MEDMOR] mens dataene skrev FORELDER, og rolle manglet
     // voksen.
     datakodeverk: [
+      {
+        // Utfallene er en as const-liste i koden og en enum i spesifikasjonen, og de
+        // to ble holdt i takt for hånd. Kilden er kodeverket, ikke en seed-fil:
+        // `meldeplikt` kom inn i begge samtidig, og neste verdi skal ikke kunne
+        // komme inn i bare én av dem.
+        skjema: "GarasjeVurdering",
+        felt: "utfall",
+        verdier: async () => GARASJE_UTFALL
+      },
       {
         skjema: "Person",
         felt: "personstatus",

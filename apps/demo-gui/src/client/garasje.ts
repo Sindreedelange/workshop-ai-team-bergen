@@ -1,5 +1,7 @@
-import type {
-  GarasjeAdresse, GarasjeGrunnlag, GarasjePlanflate, GarasjePolygon, GarasjePunkt, GarasjeTiltak, GarasjeVurdering
+import {
+  beskrivGarasjeUtfall, hensynssonenavn,
+  type GarasjeAdresse, type GarasjeGrunnlag, type GarasjePlanflate, type GarasjePolygon,
+  type GarasjePunkt, type GarasjeTiltak, type GarasjeVurdering
 } from "../../../shared/garasje.ts";
 import type { Hensynssonetype } from "../../../shared/hensynssoner.ts";
 import { findNabotomtLabel, fitKartutsnitt, nearestPolygonBoundary, projectGarasjePunkt, unprojectGarasjePunkt, type KartLabel } from "./garasje-kart.ts";
@@ -381,7 +383,7 @@ function renderGrunnlag(data: GarasjeGrunnlag): void {
     facts.append(p);
   }
   if (data.reguleringsplaner.some(p => p.planId === "6170063")) {
-    facts.append(element("p", "I denne demonstrasjonscasen skal bestemmelsene om garasje og gjerde undersøkes i plandokumentene. Karttreffet alene bekrefter ikke innholdet.", "ds-paragraph"));
+    facts.append(element("p", "I denne demonstrasjonscasen skal bestemmelsene om bygg og gjerde undersøkes i plandokumentene. Karttreffet alene bekrefter ikke innholdet.", "ds-paragraph"));
   }
   if (!data.eiendomsgrenser.length) {
     facts.append(element("p", "Tomtegrensen kunne ikke vises. Kartet er da bare et utsnitt rundt adressen, ikke en avgrensning av eiendommen.", "ds-paragraph"));
@@ -508,7 +510,7 @@ function zoneClass(flate: GarasjePlanflate): string {
 }
 
 function zoneName(flate: GarasjePlanflate): string {
-  return flate.kategori === "hensynssone" ? `${flate.navn} ${flate.sonenavn}` : flate.navn;
+  return flate.kategori === "hensynssone" ? hensynssonenavn(flate) : flate.navn;
 }
 
 function renderZones(data: GarasjeGrunnlag): void {
@@ -715,17 +717,24 @@ function renderVurdering(data: GarasjeSvar): void {
   renderGrunnlag(data.grunnlag);
   renderMap(data.grunnlag);
   updateMarker();
-  const labels = { ikke_soknadspliktig: "Ikke søknadspliktig", soknadspliktig: "Tiltaket faller utenfor unntaket", maa_avklares: "Dette må avklares før du bygger" };
-  const colors = { ikke_soknadspliktig: "success", soknadspliktig: "warning", maa_avklares: "info" };
-  krevEl("result-heading").textContent = labels[data.vurdering.utfall];
+  const colors = { ikke_soknadspliktig: "success", meldeplikt: "success", soknadspliktig: "warning", maa_avklares: "info" };
+  // Svaret først, og reglenes egne neste steg etterpå. Tidligere sto utfallets
+  // kodenavn som overskrift og én generisk setning under, mens `nesteSteg` - som
+  // navngir bestemmelsene innbyggeren skal spørre om - ble kastet her.
+  const svaret = beskrivGarasjeUtfall(data.vurdering);
+  krevEl("result-heading").textContent = svaret.tittel;
   const summary = krevEl("result-summary");
   summary.dataset.color = colors[data.vurdering.utfall];
-  summary.replaceChildren(element("p", data.vurdering.forklaring, "ds-paragraph"));
-  summary.append(element("p", data.vurdering.utfall === "maa_avklares"
-    ? "Neste steg: Kontakt kommunens plan- og byggesaksrådgivere. Ta med adressen, skissen og listen over uavklarte forhold. Ikke start arbeidet før disse er avklart."
-    : data.vurdering.utfall === "soknadspliktig"
-      ? "Neste steg: Tiltaket er ikke omfattet av det kontrollerte unntaket. Avklar søknad og eventuelle planavvik med kommunen før du starter."
-      : "Neste steg: Kontroller at alle forutsetningene fortsatt gjelder. For et søknadsfritt bygg må kommunen få nødvendig melding etter ferdigstillelse.", "ds-paragraph"));
+  summary.replaceChildren(...[svaret.svar, svaret.begrunnelse, data.vurdering.forklaring]
+    .filter(Boolean).map(tekst => element("p", tekst, "ds-paragraph")));
+  const nesteSteg = data.vurdering.nesteSteg ?? [];
+  if (nesteSteg.length) {
+    const heading = element("h3", "Dette er neste steg", "ds-heading");
+    heading.dataset.size = "xs";
+    const punkter = element("ul", undefined, "ds-list");
+    for (const steg of nesteSteg) punkter.append(element("li", steg));
+    summary.append(heading, punkter);
+  }
   const teigkilde = data.grunnlag.kilder.find(k => k.id === "eiendomsgrenser");
   if (teigkilde?.status === "ok") {
     summary.append(element("p", teigkilde.fil
@@ -1067,7 +1076,7 @@ krevEl("download").addEventListener("click", () => {
   const url = URL.createObjectURL(blob);
   const link = element("a");
   link.href = url;
-  link.download = "garasjesjekk.json";
+  link.download = "tiltakssjekk.json";
   document.body.append(link);
   link.click();
   link.remove();

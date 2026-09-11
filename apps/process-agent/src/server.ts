@@ -2334,7 +2334,7 @@ function validateGarasjeDialogRequest(body: unknown, validateField = true): Gara
   if (!isRecord(body) || Object.keys(body).some(key => !["tekst", "feltId", "tiltakstype", "kontekst", "sporingsId"].includes(key))
     || typeof body.tekst !== "string" || !body.tekst.trim() || body.tekst.length > 500
     || typeof body.feltId !== "string") {
-    throw new Verktoyfeil("Oppgi et kjent garasjefelt og en tekst på 1 til 500 tegn.", 400);
+    throw new Verktoyfeil("Oppgi et felt som hører til tiltaket og en tekst på 1 til 500 tegn.", 400);
   }
   if (body.sporingsId !== undefined && (typeof body.sporingsId !== "string"
     || !/^[a-zA-Z0-9_-]{1,100}$/.test(body.sporingsId))) {

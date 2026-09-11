@@ -1,4 +1,4 @@
-import { GARASJE_UTFALL, GARASJE_UTFALL_FRITAR, type GarasjeUtfall } from "../../shared/garasje.ts";
+import { GARASJE_UTFALL, GARASJE_UTFALL_FRITAR, utfallFritarForSoknad, type GarasjeUtfall } from "../../shared/garasje.ts";
 
 /**
  * Rådet på slutten av tiltakssjekken: modellen leser hele grunnlaget, måler det mot
@@ -46,15 +46,26 @@ function punktliste(verdi: unknown): string[] {
   return verdi.filter((punkt): punkt is string => typeof punkt === "string" && !!punkt.trim());
 }
 
+/**
+ * Reserveteksten per utfall. En tabell over hele kodeverket og ikke en if-kjede med
+ * en hale, av samme grunn som `beskrivGarasjeUtfall` i `apps/shared/garasje.ts`: et
+ * nytt utfall skal bli en kompileringsfeil der setningen velges.
+ */
+/** Utfallene slik prompten lister dem. Bygget én gang, av kodeverket. */
+const UTFALLSALTERNATIVER = GARASJE_UTFALL.join("|");
+
+const RESERVERAAD: Record<GarasjeUtfall, string> = {
+  soknadspliktig: "Den regelbaserte vurderingen sier at tiltaket er søknadspliktig. Kontakt kommunens byggesaksveileder for å avklare søknad, dokumentasjon og eventuelt behov for ansvarlig søker før du bygger.",
+  meldeplikt: "Den regelbaserte vurderingen fritar tiltaket fra søknadsplikt på det oppgitte grunnlaget, men det skal meldes inn til kommunen når det er ferdig bygget. Kontroller at opplysningene fortsatt gjelder, og spør kommunens byggesaksveileder hvis noe er uklart.",
+  ikke_soknadspliktig: "Den regelbaserte vurderingen angir fritak fra søknadsplikt på det oppgitte grunnlaget. Kontroller at opplysningene og alle vilkårene fortsatt gjelder før du går videre. Be kommunens byggesaksveileder om hjelp hvis noe er uklart.",
+  maa_avklares: "Det er ikke avklart om tiltaket kan bygges uten søknad. Ta med mål, plassering og punktene nedenfor til kommunens byggesaksveileder. Avklar gjeldende planbestemmelser og behovet for søknad eller dispensasjon før du bygger.",
+};
+
 export function buildGarasjeRaadFallback(vurdering: unknown): GarasjeRaad {
   const regel = record(vurdering);
   const antattUtfall = tilUtfall(regel.utfall) ?? "maa_avklares";
   const maaAvklares = punktliste(regel.uavklarteForhold);
-  const raad = antattUtfall === "soknadspliktig"
-    ? "Den regelbaserte vurderingen sier at tiltaket er søknadspliktig. Kontakt kommunens byggesaksveileder for å avklare søknad, dokumentasjon og eventuelt behov for ansvarlig søker før du bygger."
-    : antattUtfall === GARASJE_UTFALL_FRITAR
-      ? "Den regelbaserte vurderingen angir fritak fra søknadsplikt på det oppgitte grunnlaget. Kontroller at opplysningene og alle vilkårene fortsatt gjelder før du går videre. Be kommunens byggesaksveileder om hjelp hvis noe er uklart."
-      : "Det er ikke avklart om tiltaket kan bygges uten søknad. Ta med mål, plassering og punktene nedenfor til kommunens byggesaksveileder. Avklar gjeldende planbestemmelser og behovet for søknad eller dispensasjon før du bygger.";
+  const raad = RESERVERAAD[antattUtfall];
   return { antattUtfall, raad, maaAvklares, fraRegler: maaAvklares.length,
     begrunnelse: "Rådet gjengir den oppgitte regelbaserte vurderingen. Dokumentutdrag alene bekrefter ikke at planen er kontrollert eller at tiltaket er tillatt." };
 }
@@ -62,6 +73,59 @@ export function buildGarasjeRaadFallback(vurdering: unknown): GarasjeRaad {
 /** Et utfall fra en ukontrollert kilde, eller null. Kalleren velger reserven. */
 function tilUtfall(verdi: unknown): GarasjeUtfall | null {
   return GARASJE_UTFALL.includes(verdi as GarasjeUtfall) ? verdi as GarasjeUtfall : null;
+}
+
+/*
+ * Prosaen klemmen skal lese, og bare den.
+ *
+ * Modellen blir bedt om å gjenta reglenes uavklarte forhold, og de gjentas uansett
+ * lenger ned - men reglenes egen tekst må ikke leses som modellens løfte. Sjekken
+ * `hensynssoner` sier ordrett at sonen «sier at et hensyn gjelder for området, ikke
+ * om tiltaket er tillatt», og den setningen slo ut klemmen i fem av sju grener mot
+ * en lokal modell: rådet ble byttet ut fordi modellen siterte forbeholdet regelen
+ * hadde skrevet. Et sitat fra regelen er derfor luket ut her.
+ */
+function modellensEgenProsa(felt: Record<string, unknown>, regel: Record<string, unknown>): string {
+  const fraRegel = new Set([
+    ...punktliste(regel.uavklarteForhold),
+    ...(Array.isArray(regel.sjekker) ? regel.sjekker : [])
+      .map(sjekk => record(sjekk).forklaring).filter((f): f is string => typeof f === "string"),
+    ...punktliste(regel.nesteSteg),
+    ...(typeof regel.forklaring === "string" ? [regel.forklaring] : []),
+  ].map(punkt => punkt.trim()));
+  return [felt.raad, felt.begrunnelse, ...punktliste(felt.maaAvklares).filter(punkt => !fraRegel.has(punkt.trim()))]
+    .filter(del => typeof del === "string").join(" ");
+}
+
+/** Ordene som gjør en tillatelse til et forbehold eller et spørsmål om det motsatte. */
+const NEKTENDE_ORD = ["ikke", "aldri", "foer", "før", "om", "hvorvidt", "dersom", "hvis", "uten"];
+
+const TILLATENDE = /(?:kan|har lov til|tillatt å|fritt frem å)\s+(?:du\s+)?(?:bygge|sette opp|sette i gang|starte)|(?:trenger|behøver)\s+(?:du\s+)?ikke\s+(?:å\s+)?søke|(?:ikke|uten)\s+søknadsplikt|uten\s+(?:å\s+)?(?:søke|søknad)|(?:planen|planbestemmelsene)\s+(?:er\s+)?(?:kontrollert|verifisert|oppfylt)|(?:alle|samtlige)\s+(?:krav|vilkår)\s+er\s+oppfylt|(?:tiltaket|prosjektet|garasjen)\s+er\s+(?:tillatt|lovlig|godkjent|søknadsfritt)/g;
+
+/**
+ * Om prosaen lover innbyggeren at tiltaket er i orden.
+ *
+ * Mønstrene finner setninger som gir tillatelse, men de finner også den samme
+ * ordstillingen i en advarsel: «før du kan bygge» og «ikke om tiltaket er tillatt»
+ * er det motsatte av et løfte. Treffet avvises derfor når ordet eller de to ordene
+ * rett foran nekter eller gjør setningen betinget. Vinduet er bevisst kort: et
+ * «ikke» lenger tilbake i setningen kan gjelde et annet verb, og da skal treffet
+ * fortsatt stoppes - «Du trenger ikke søke, og tiltaket er tillatt» er et løfte.
+ */
+export function harTillatendeProsa(tekst: string): boolean {
+  const prosa = tekst.toLowerCase();
+  // Slutten på det forrige treffet som ble sluppet gjennom, slik at halen i
+  // «om du kan bygge uten å søke» ikke leses som en ny påstand: «uten å søke»
+  // står inntil «kan bygge», som allerede er nektet av «om».
+  let nektetSlutt = Number.NEGATIVE_INFINITY;
+  for (const treff of prosa.matchAll(TILLATENDE)) {
+    if (treff.index > nektetSlutt + 2) {
+      const foran = prosa.slice(0, treff.index).trim().split(/[^a-zæøåé]+/).filter(Boolean).slice(-2);
+      if (!foran.some(ord => NEKTENDE_ORD.includes(ord))) return true;
+    }
+    nektetSlutt = treff.index + treff[0].length;
+  }
+  return false;
 }
 
 export function validateGarasjeRaad(svar: unknown, vurdering: unknown): GarasjeRaad | null {
@@ -79,9 +143,12 @@ export function validateGarasjeRaad(svar: unknown, vurdering: unknown): GarasjeR
   // Klemmen: bare reglene kan si at noe ikke er søknadspliktig. Et strengere råd enn
   // regelen er trygt - ofte riktig, når planbestemmelsene ikke er lest. Et mildere
   // råd er det som ikke er trygt, og det er dette som stopper det.
-  const groent = oensket === GARASJE_UTFALL_FRITAR && regelutfall !== GARASJE_UTFALL_FRITAR;
-  const prose = [felt.raad, felt.begrunnelse, ...punktliste(felt.maaAvklares)].join(" ").toLowerCase();
-  const permission = /(?:kan|har lov til|tillatt å|fritt frem å)\s+(?:du\s+)?(?:bygge|sette opp|sette i gang|starte)|(?:trenger|behøver)\s+(?:du\s+)?ikke\s+(?:å\s+)?søke|(?:ikke|uten)\s+søknadsplikt|uten\s+(?:å\s+)?(?:søke|søknad)|(?:planen|planbestemmelsene)\s+(?:er\s+)?(?:kontrollert|verifisert|oppfylt)|(?:alle|samtlige)\s+(?:krav|vilkår)\s+er\s+oppfylt|(?:tiltaket|prosjektet|garasjen)\s+er\s+(?:tillatt|lovlig|godkjent|søknadsfritt)/.test(prose);
+  const groent = utfallFritarForSoknad(oensket) && !utfallFritarForSoknad(regelutfall);
+  // Prosasjekken er et anslag på «mildere enn reglene», og den skal bare kjøre når
+  // reglene ikke selv har gitt fritaket. Ellers ble et riktig råd om meldeplikt -
+  // «du trenger ikke å søke, men du må melde det inn» - kastet av sin egen sannhet.
+  const permission = !utfallFritarForSoknad(regelutfall)
+    && harTillatendeProsa(modellensEgenProsa(felt, regel));
   // Reject the complete explanation, not just its enum: prose can promise the
   // opposite of the clamped field even when the model already echoes that field.
   if (groent || permission || (regelutfall === "soknadspliktig" && oensket !== regelutfall)) {
@@ -98,9 +165,11 @@ export function validateGarasjeRaad(svar: unknown, vurdering: unknown): GarasjeR
 
   return {
     antattUtfall,
-    raad: antattUtfall !== GARASJE_UTFALL_FRITAR && !/byggesaksveileder/i.test(raad)
+    raad: !utfallFritarForSoknad(antattUtfall) && !/byggesaksveileder/i.test(raad)
       ? `${raad} Ta med mål, plassering og uavklarte forhold til kommunens byggesaksveileder for å avklare neste steg før du bygger.`
-      : raad,
+      : antattUtfall === "meldeplikt" && !/meld/i.test(raad)
+        ? `${raad} Husk å melde tiltaket inn til kommunen når det er ferdig bygget.`
+        : raad,
     maaAvklares,
     fraRegler: fraRegel.length,
     begrunnelse: tekst(felt.begrunnelse, 600)
@@ -136,7 +205,8 @@ export function buildGarasjeRaadPrompt(kunnskap: unknown, vurdering: unknown): s
     "Vurder hele grunnlaget under mot de kommunale planforholdene, og si hva som må avklares og hvorfor.",
     "",
     `Den regelbaserte vurderingen har allerede avgjort utfallet: «${String(regel.utfall ?? "ikke_vurdert")}». Du skal ikke overstyre det.`,
-    "Bare reglene kan si at noe ikke er søknadspliktig. Du kan si at mer må avklares.",
+    "Bare reglene kan si at noe ikke er søknadspliktig, og bare reglene kan si at det holder å melde inn. Du kan si at mer må avklares.",
+    "Gjenta ikke vurderingens egne uavklarte forhold ordrett i maaAvklares; de følger med uansett. Skriv det du selv ser.",
     "Bruk vurderingens tiltakstype. Kunnskapsgrunnlagets nasjonaleKrav gjelder bare frittliggende bygning, ikke tilbygg, gjerde eller fasade.",
     "En uavklart, ukontrollert eller mislykket kilde er aldri fravær av begrensninger.",
     "Et sonenavn alene avgjør ikke om det er lov å bygge, og en lenke til bestemmelsene er ikke en gjennomgått bestemmelse.",
@@ -149,7 +219,7 @@ export function buildGarasjeRaadPrompt(kunnskap: unknown, vurdering: unknown): s
     "Gi et konkret neste steg. Når noe er uavklart: si hva innbyggeren skal ta med til kommunens byggesaksveileder og hva de må spørre om.",
     "",
     "Svar med kun gyldig JSON og ingen tekst utenfor JSON-en:",
-    '{"antattUtfall":"<ikke_soknadspliktig|soknadspliktig|maa_avklares>","raad":"<to til fire setninger på bokmål>","maaAvklares":["<konkret punkt>"],"begrunnelse":"<kort>"}',
+    `{"antattUtfall":"<${UTFALLSALTERNATIVER}>","raad":"<to til fire setninger på bokmål>","maaAvklares":["<konkret punkt>"],"begrunnelse":"<kort>"}`,
     "",
     `Regelbasert vurdering: ${JSON.stringify(regel)}`,
     `Kunnskapsgrunnlag: ${JSON.stringify(kunnskap ?? {})}`

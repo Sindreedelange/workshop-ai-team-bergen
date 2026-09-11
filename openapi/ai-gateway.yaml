@@ -383,7 +383,8 @@ paths:
         `task: garasje-raad`, og tenkingen legges i `reasoningResponse` i sporet.
 
         **Rådet er et tillegg til den deterministiske vurderingen, ikke en
-        erstatning.** `antattUtfall` kan aldri bli `ikke_soknadspliktig` når den
+        erstatning.** `antattUtfall` kan aldri bli `ikke_soknadspliktig` eller
+        `meldeplikt` når den
         regelbaserte vurderingen sa noe annet - da erstattes også prosaen med
         regelbasert reserveveiledning og
         `overstyrt` forklarer hvorfor. Reglenes `uavklarteForhold` står alltid i
@@ -420,7 +421,7 @@ paths:
               schema:
                 type: object
                 properties:
-                  antattUtfall: { type: string, enum: [ikke_soknadspliktig, soknadspliktig, maa_avklares] }
+                  antattUtfall: { type: string, enum: [ikke_soknadspliktig, meldeplikt, soknadspliktig, maa_avklares] }
                   raad: { type: string }
                   maaAvklares:
                     type: array

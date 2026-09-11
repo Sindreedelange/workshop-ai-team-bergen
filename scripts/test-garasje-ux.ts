@@ -5,6 +5,7 @@ import { createContext, runInContext } from "node:vm";
 import { ringerInneholder } from "../apps/shared/geometri.ts";
 import { nearestPolygonBoundary } from "../apps/demo-gui/src/client/garasje-kart.ts";
 import { projectGarasjeDialogGrunnlag } from "../apps/shared/garasje-dialog.ts";
+import { beskrivGarasjeUtfall, hensynssonenavn } from "../apps/shared/garasje.ts";
 import type { GarasjeGrunnlag } from "../apps/shared/garasje.ts";
 
 type Event = { target?: Element; key?: string; shiftKey?: boolean; preventDefault?: () => void };
@@ -144,7 +145,7 @@ const send = async (text: string, response: typeof answer) => {
 };
 assert.equal(el("mode-agent").attributes["aria-pressed"], "true");
 assert.equal(el("dialog-group").children.length, 2, "BYA og BRA skal vises sammen i agentmodus");
-assert.match(el("dialog-input").placeholder, /m²/);
+assert.match(el("dialog-input").placeholder, /BYA.*m²/);
 assert.equal(el("dialog-next").disabled, true);
 el("mode-stepwise").dispatch("click");
 assert.equal(el("agent-interview").hidden, false, "Den samme tekstboksen skal være tilgjengelig i stegvis modus");
@@ -593,6 +594,8 @@ const mapView = createContext({
   async renderTiltaksraad() {},
   ringerInneholder,
   nearestPolygonBoundary,
+  beskrivGarasjeUtfall,
+  hensynssonenavn,
   bounds: {}, grunnlag: null, kartgrunnlag: null, plankilde: undefined,
   vurdering: null, planflater: [], plassering: mapGrunnlag.punkt
 });
@@ -619,6 +622,50 @@ for (const count of [1, 0, 2]) {
   }
   assert.equal(Boolean(mapEl("map-image").attributes.href), count > 0, "Gammelt bakgrunnskart skal fjernes ved kildefeil");
 }
+/*
+ * Svaret innbyggeren leser først, og reglenes egne neste steg.
+ *
+ * Gjennomgangen ba om «et tydelig svar, selv om det er «Du bør kontakte lokale
+ * rådgivere»». Utfallet sto som et kodenavn i overskriften, og `nesteSteg` - som
+ * navngir bestemmelsene innbyggeren skal spørre kommunen om - ble hentet fra
+ * backend og aldri vist.
+ */
+mapView.result = {
+  grunnlag: mapGrunnlag, sporingsId: "svartest",
+  vurdering: {
+    utfall: "soknadspliktig", nasjonaltUnntak: "brudd", forklaring: "Regelforklaringen.",
+    sjekker: [{ id: "areal", navn: "BRA og BYA", status: "brudd", forklaring: "For stort.", kilde: "https://dibk.test/4-1" }],
+    uavklarteForhold: [], nesteSteg: ["Send kommunen skisse og mål.", "Be om avklaring av dispensasjon."]
+  }
+};
+runInContext("renderVurdering(result)", mapView);
+assert.equal(mapEl("result-heading").textContent, "Nei, du må søke",
+  "Overskriften skal svare innbyggeren, ikke gjenta kodenavnet på utfallet");
+/** All tekst under en node, siden den falske DOM-en ikke arver textContent nedover. */
+const alleOrd = (node: Element): string =>
+  [node.textContent, ...node.children.map(alleOrd)].filter(Boolean).join(" ");
+const svartekst = alleOrd(mapEl("result-summary"));
+assert.match(svartekst, /Nei\. Slik tiltaket er beskrevet/, "Svaret skal stå som én setning");
+assert.match(svartekst, /Det avgjørende er bra og bya/, "Det avgjørende vilkåret skal navngis");
+assert.match(svartekst, /Regelforklaringen/, "Regelens egen forklaring skal fortsatt stå");
+assert.match(svartekst, /Send kommunen skisse og mål/, "nesteSteg fra reglene skal vises");
+assert.match(svartekst, /Be om avklaring av dispensasjon/, "alle punktene i nesteSteg skal vises");
+
+mapView.result = {
+  grunnlag: mapGrunnlag, sporingsId: "svartest",
+  vurdering: {
+    utfall: "maa_avklares", nasjonaltUnntak: "oppfylt", forklaring: "Planforhold er ikke avklart.",
+    sjekker: [{ id: "reguleringsplan", navn: "Reguleringsplanens bestemmelser", status: "uavklart", forklaring: "Ikke lest.", kilde: "https://plan.test" }],
+    uavklarteForhold: []
+  }
+};
+runInContext("renderVurdering(result)", mapView);
+assert.equal(mapEl("result-heading").textContent, "Kontakt kommunen",
+  "Et uavklart utfall skal også gi et tydelig svar");
+assert.match(alleOrd(mapEl("result-summary")),
+  /Vi kan ikke svare ja eller nei.*Det står igjen å avklare reguleringsplanens bestemmelser/s,
+  "Svaret skal si hva som står igjen å avklare");
+
 // Bygningsflatene dekker hele oppslagskonvolutten. Bare de som bebyggelsen har
 // sammenholdt med teigen er egne bygg; resten er nabobygg og skal se annerledes ut.
 const flate = (id: string) => ({ ...polygon, id });
@@ -714,3 +761,4 @@ console.log("Bygge-UX: tema, grupperte mål, lagrede svar, ny gjennomgang, skjul
 console.log("Eiendomsvalg: adresse før kart, bekreftet plassering før utfylling, nytt forsøk og avvisning av foreldede svar besto.");
 console.log("Vurderingskart: teiger, bygninger, nabogrenser og bakgrunn følger det ferske grunnlaget ved feil og gjenoppretting.");
 console.log("Bygningslaget: egne bygg skilles fra nabobygg, og kildestatusen forklares ved kartet.");
+console.log("Svaret: overskriften svarer ja, nei eller kontakt kommunen, og reglenes neste steg vises.");

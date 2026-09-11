@@ -13,6 +13,14 @@ export type GarasjeKommunekilder = {
   };
   reguleringsplan: GarasjeKartlag & { planportalUrl: string };
   bygninger: GarasjeKartlag;
+  /**
+   * Kommunens skjema for å melde inn et tiltak som ikke krever søknad.
+   *
+   * Plikten til å melde inn er kommunens egen, ikke en nasjonal regel, og skjemaet
+   * er derfor et kommuneoppsett og ikke en konstant. En kommune uten oppføring her
+   * kan ikke få utfallet `meldeplikt`: da vet vi ikke hvor innbyggeren skal melde.
+   */
+  meldeskjemaUrl?: string;
 };
 
 // Nasjonale adresse- og eiendomsoppslag er uavhengige av dette registeret.
@@ -39,6 +47,7 @@ export const GARASJE_KOMMUNER = {
       path: "Basis_kartdata/Bygning_Flate/MapServer/0",
       navn: "Bergen bygningsflater",
     },
+    meldeskjemaUrl: "https://www.bergen.kommune.no/innbyggerhjelpen/planer-bygg-og-eiendom/bygging/byggesak/bygge-uten-byggesoknad#3",
   },
 } as const satisfies Readonly<Record<string, GarasjeKommunekilder>>;
 

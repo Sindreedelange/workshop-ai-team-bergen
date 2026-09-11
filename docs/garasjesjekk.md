@@ -50,7 +50,9 @@ veiviser.
 Dette er fortsatt den samme casen. Prosess-ID, endepunkter og filnavn som inneholder
 `garasje` er beholdt for eksisterende klienter. Den synlige tjenesten omfatter
 frittliggende bygg, tilbygg, gjerde og fasadeendring, slik
-[fagpersonens flytkart](../data/Flytkart%20Hackathon.jpg) beskriver.
+[fagpersonens flytkart](../data/Flytkart%20Hackathon.jpg) beskriver. Kartet er
+skrevet ut node for node i [flytkart-tiltakssjekk.md](flytkart-tiltakssjekk.md), med
+en kolonne som sier hvor koden gjør det samme og hvor den med hensikt gjør noe annet.
 En beskrivelse gir bare et forslag til tiltakstype. Innbyggeren bekrefter eller
 retter typen før de relevante spørsmålene åpnes. Uklare eller sammensatte tiltak
 skal ikke presses inn i regelen for et frittliggende bygg.
@@ -196,6 +198,23 @@ tolket som fravær av begrensninger.** Tjenesten må da si at forholdet må avkl
 Den viser ikke et ubetinget «ikke søknadspliktig» bare fordi nasjonale
 størrelsesgrenser er oppfylt. Dispensasjon og byggetillatelse er heller ikke det
 samme; en slik avklaring må gjøres mot det konkrete plangrunnlaget.
+
+### Svaret innbyggeren leser
+
+Overskriften i vurderingen svarer på spørsmålet: **«Ja, men du må melde inn»**,
+**«Nei, du må søke»** eller **«Kontakt kommunen»**, med det avgjørende vilkåret
+navngitt i setningen under. Deretter følger regelens egen forklaring og de konkrete
+neste stegene, der bestemmelsene innbyggeren skal spørre om er navngitt.
+
+Det midterste svaret er utfallet `meldeplikt`, som er fagpersonens grønne boks i
+flytkartet: tiltaket er unntatt fra søknadsplikt, men skal meldes inn til kommunen
+når det er ferdig bygget, i kommunens eget skjema. Det er det ene fritaket tjenesten
+gir, og det ligger bak en hviteliste: frittstående bygning, alle nasjonale vilkår
+oppfylt, punktet på eiendommen, alle kartkilder besvart, kommuneplanbestemmelsen
+kontrollert og oppfylt, ingen reguleringsplan og ingen faresone på eiendommen, og et
+meldeskjema for kommunen. Faller ett ledd, er svaret «kontakt kommunen».
+Vilkårene og begrunnelsen for hvert ledd står i
+[flytkart-tiltakssjekk.md](flytkart-tiltakssjekk.md).
 
 ## Kilder og avgrensninger
 

@@ -2202,9 +2202,17 @@ components:
         mangler. Den returnerer da maa_avklares selv om nasjonaltUnntak er oppfylt.
         soknadspliktig betyr at det kontrollerte nasjonale unntaket ikke er oppfylt,
         ikke at en søknad er innsendt eller et vedtak fattet.
+        meldeplikt er det ene fritaket piloten kan gi, og bare når hvert ledd i
+        hvitelisten i vurderMeldeplikt holder: frittliggende bygning, alle
+        nasjonale vilkår oppfylt, skissepunktet på eiendommen, alle kartkilder ok,
+        kommuneplanbestemmelsen kontrollert og oppfylt, ingen reguleringsplan og
+        ingen faresone på eiendommen, og et meldeskjema for kommunen. Tiltaket skal
+        da meldes inn etter ferdigstillelse. Sjekken meldeplikt bærer skjemalenken.
+        Utfallet kan variere mellom to ellers like kall, fordi et kartoppslag som
+        ikke svarer gir maa_avklares i stedet - manglende kunnskap er aldri et fritak.
       properties:
         tiltakstype: { type: string, enum: [frittliggende, tilbygg, gjerde, fasade, ukjent] }
-        utfall: { type: string, enum: [ikke_soknadspliktig, soknadspliktig, maa_avklares] }
+        utfall: { type: string, enum: [ikke_soknadspliktig, meldeplikt, soknadspliktig, maa_avklares] }
         nasjonaltUnntak: { type: string, enum: [oppfylt, brudd, uavklart] }
         forklaring: { type: string }
         sjekker:

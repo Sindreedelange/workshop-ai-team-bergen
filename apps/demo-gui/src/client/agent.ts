@@ -42,7 +42,7 @@ async function showGarasjeView(data: AgentSvar, force = false): Promise<void> {
     return;
   }
   const response = await fetch(`${backendBase}/api/prosessoekter/${encodeURIComponent(data.oektsId)}`, { headers: withToken() });
-  if (!response.ok) throw new Error("Kunne ikke hente garasjesteget. Prøv igjen.");
+  if (!response.ok) throw new Error("Kunne ikke hente tiltakssteget. Prøv igjen.");
   const oekt: Prosessoekt = await response.json();
   const key = `${oekt.oektsId}:${oekt.aktivtSteg?.id}:${oekt.status}`;
   // A free question leaves the same iframe alive, preserving unsaved map/form input.
