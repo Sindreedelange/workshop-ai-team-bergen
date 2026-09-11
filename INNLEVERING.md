@@ -11,9 +11,10 @@ spaden går i jorden. Innbyggeren beskriver tiltaket sitt, og tjenesten slår op
 eiendommen, kartutsnittet, arealformålet, reguleringsplanen og hensynssonene, og avgjør
 mot faste regler etter SAK10 § 4-1. Modellen forklarer resultatet, den avgjør det ikke.
 
-Reglene er ikke våre. De kommer fra et flytkart tegnet av en domeneekspert på byggesak,
-som ligger i [`presentasjon/flytkart_hackathon.jpg`](presentasjon/flytkart_hackathon.jpg)
-og er skrevet ut node for node i
+Reglene er ikke våre. De kommer fra et flytkart tegnet av en domeneekspert i Plan- og
+bygningsetaten i Bergen kommune. Kartet ligger i
+[`presentasjon/flytkart_hackathon.jpg`](presentasjon/flytkart_hackathon.jpg) og er
+skrevet ut node for node i
 [`docs/flytkart-tiltakssjekk.md`](docs/flytkart-tiltakssjekk.md). De tre stedene koden
 med hensikt svarer noe annet enn kartet, er pinnet som avvik i `scripts/test-flytkart.ts`
 i stedet for å bli stille borte.
