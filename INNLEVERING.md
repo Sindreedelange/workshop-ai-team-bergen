@@ -220,20 +220,16 @@ løsningen gjør, ikke målinger av hva folk faktisk får til.
 ## Det som ikke ble ferdig
 
 - **Vi mangler ledningsdata fra Vann- og Avløpsetaten.** «Ikke over vann- eller
-  avløpsledninger» er et av vilkårene i det nasjonale unntaket, og det er det ene
-  vilkåret tjenesten må *spørre* innbyggeren om - `overVannAvlop`, med «vet ikke» som
-  gyldig svar - framfor å slå det opp selv. Grunnen er ikke at vi ikke kom i gang:
-  ledningskartet er ikke åpent tilgjengelig slik de øvrige kartlagene er, fordi vann- og
-  avløpsnettet er kritisk infrastruktur og skjermet etter beredskapslovverket. Med tilgang
-  til de dataene ville dette leddet blitt slått opp for innbyggeren, slik eiendom,
+  avløpsledninger» er et av vilkårene i det nasjonale unntaket, og tjenesten må spørre
+  innbyggeren om det - `overVannAvlop`, med «vet ikke» som gyldig svar - framfor å slå det
+  opp. Ledningskartet er ikke åpent tilgjengelig slik de øvrige kartlagene er, fordi vann-
+  og avløpsnettet er kritisk infrastruktur og skjermet etter beredskapslovverket. Med
+  tilgang til de dataene kunne leddet blitt slått opp for innbyggeren, slik eiendom,
   arealformål og bebyggelse blir i dag.
 - **Bare Bergen har en oppføring.** De øvrige 356 kommunene får en tom kildeliste og
   «må avklares», med vilje: en kommune uten oppsett skal aldri arve Bergens kart eller
   regler. Hvor mye arbeid de andre oppføringene er, har vi ikke undersøkt - ikke alle
   kommuner publiserer plandata over et åpent kart-API i samme form.
-- **Det nasjonale tallet er et overslag skalert fra et overslag.** Befolkningsandel er
-  den groveste nøkkelen som finnes, gebyrsatsene er Bergens egne, og usikkerheten i
-  forutsetningene blir ikke mindre av å ganges med 19.
 - **De store datafilene ligger i forken, mot anbefalingen.**
   [`docs/innlevering.md`](docs/innlevering.md) ber om at datasett på flere megabyte ikke
   commites. Vi har dem likevel med: Bergens teiguttrekk (`data/matrikkel_bk_25.json`,
@@ -260,6 +256,8 @@ løsningen gjør, ikke målinger av hva folk faktisk får til.
   arealdelen 2018 (KPA2018) er den eneste planbestemmelsen vi faktisk kontrollerer.
   `meldeplikt` er det ene fritaket piloten gir: du trenger ikke å søke, men må melde inn
   når du er ferdig å bygge.
-- **Tallene i kostnadsoverslaget er et overslag**, ikke et regnskap. Timeforbruket per sak
-  og den andelen som kan unngås, er våre antakelser; bare gebyrsatsene er hentet fra
-  Bergen kommunes egen gebyrforskrift.
+- **Tallene er overslag, ikke regnskap.** Timeforbruket per sak og den andelen som kan
+  unngås, er våre antakelser; bare gebyrsatsene er hentet fra Bergen kommunes egen
+  gebyrforskrift. Det nasjonale tallet er i tillegg skalert fra det lokale med
+  befolkningsandel, som er den groveste nøkkelen som finnes, og usikkerheten blir ikke
+  mindre av å ganges med 19.
