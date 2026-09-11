@@ -3,6 +3,7 @@ import {
   type TiltakshjelpenAdresse, type TiltakshjelpenGrunnlag, type TiltakshjelpenPlanflate, type TiltakshjelpenPolygon,
   type TiltakshjelpenPunkt, type FrittliggendeTiltak, type TiltakshjelpenVurdering
 } from "../../../shared/tiltakshjelpen.ts";
+import { findTiltakshjelpenKommunekilder } from "../../../shared/tiltakshjelpen-kommuner.ts";
 import type { Hensynssonetype } from "../../../shared/hensynssoner.ts";
 import { findNabotomtLabel, fitKartutsnitt, nearestPolygonBoundary, projectTiltakshjelpenPunkt, unprojectTiltakshjelpenPunkt, type KartLabel } from "./tiltakshjelpen-kart.ts";
 import { ringerInneholder } from "../../../shared/geometri.ts";
@@ -754,6 +755,18 @@ function renderVurdering(data: TiltakshjelpenSvar): void {
     const punkter = element("ul", undefined, "ds-list");
     for (const steg of nesteSteg) punkter.append(element("li", steg));
     summary.append(heading, punkter);
+  }
+  if (data.vurdering.utfall === "maa_avklares") {
+    const veiledning = findTiltakshjelpenKommunekilder(data.grunnlag.adresse.kommunenummer)?.uavklartVeiledning;
+    if (veiledning) {
+      const kontakt = element("p", `${veiledning.tekst} `, "ds-paragraph");
+      const link = element("a", veiledning.lenketekst, "ds-link");
+      link.href = veiledning.url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      kontakt.append(link, element("span", "."));
+      summary.append(kontakt);
+    }
   }
   const teigkilde = data.grunnlag.kilder.find(k => k.id === "eiendomsgrenser");
   if (teigkilde?.status === "ok") {

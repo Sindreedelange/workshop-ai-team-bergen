@@ -21,6 +21,15 @@ export type TiltakshjelpenKommunekilder = {
    * kan ikke få utfallet `meldeplikt`: da vet vi ikke hvor innbyggeren skal melde.
    */
   meldeskjemaUrl?: string;
+  /**
+   * Kontaktinformasjon som vises når Tiltakshjelpen ikke kan svare ja eller nei.
+   * Den er kommunespesifikk, slik at en kommune uten oppsett ikke arver Bergens tilbud.
+   */
+  uavklartVeiledning?: {
+    tekst: string;
+    lenketekst: string;
+    url: string;
+  };
 };
 
 // Nasjonale adresse- og eiendomsoppslag er uavhengige av dette registeret.
@@ -48,6 +57,11 @@ export const TILTAKSHJELPEN_KOMMUNER = {
       navn: "Bergen bygningsflater",
     },
     meldeskjemaUrl: "https://www.bergen.kommune.no/innbyggerhjelpen/planer-bygg-og-eiendom/bygging/byggesak/bygge-uten-byggesoknad#3",
+    uavklartVeiledning: {
+      tekst: "Jeg anbefaler deg å kontakte en av våre veiledere for mer veiledning. Du kan bestille 15 minutters veiledning her:",
+      lenketekst: "Detaljer - Bergen kommune",
+      url: "https://billett.bergen.kommune.no/Detaljer/EVENT/L0EJCc_QgK0aPZxOdubFjw$$/O2tBqPIXaEx-O3OkdCqCRYGttGB2VrtIiaTf-LlsFT1K6ZQMM-MmWG02wTX6lT-gXRXuePSO2tG6gmuzmlyhIQ$$?unpublished=CEyPlOoPzhvD5goXu5JRlg$$",
+    },
   },
 } as const satisfies Readonly<Record<string, TiltakshjelpenKommunekilder>>;
 

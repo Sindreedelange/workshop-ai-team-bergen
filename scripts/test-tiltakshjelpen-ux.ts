@@ -7,6 +7,7 @@ import { nearestPolygonBoundary } from "../apps/demo-gui/src/client/tiltakshjelp
 import { projectTiltakshjelpenDialogGrunnlag } from "../apps/shared/tiltakshjelpen-dialog.ts";
 import { beskrivTiltakshjelpenUtfall, hensynssonenavn } from "../apps/shared/tiltakshjelpen.ts";
 import type { TiltakshjelpenGrunnlag } from "../apps/shared/tiltakshjelpen.ts";
+import { findTiltakshjelpenKommunekilder, TILTAKSHJELPEN_KOMMUNER } from "../apps/shared/tiltakshjelpen-kommuner.ts";
 
 type Event = { target?: Element; key?: string; shiftKey?: boolean; preventDefault?: () => void };
 class Element {
@@ -615,6 +616,7 @@ const mapView = createContext({
   ringerInneholder,
   nearestPolygonBoundary,
   beskrivTiltakshjelpenUtfall,
+  findTiltakshjelpenKommunekilder,
   hensynssonenavn,
   bounds: {}, grunnlag: null, kartgrunnlag: null, plankilde: undefined,
   vurdering: null, planflater: [], plassering: mapGrunnlag.punkt
@@ -670,6 +672,8 @@ assert.match(svartekst, /Det avgjørende er bra og bya/, "Det avgjørende vilkå
 assert.match(svartekst, /Regelforklaringen/, "Regelens egen forklaring skal fortsatt stå");
 assert.match(svartekst, /Send kommunen skisse og mål/, "nesteSteg fra reglene skal vises");
 assert.match(svartekst, /Be om avklaring av dispensasjon/, "alle punktene i nesteSteg skal vises");
+assert.doesNotMatch(svartekst, /15 minutters veiledning/,
+  "Kontaktbestilling skal ikke vises når vurderingen allerede sier at tiltaket er søknadspliktig");
 
 mapView.result = {
   grunnlag: mapGrunnlag, sporingsId: "svartest",
@@ -685,6 +689,15 @@ assert.equal(mapEl("result-heading").textContent, "Kontakt kommunen",
 assert.match(alleOrd(mapEl("result-summary")),
   /Vi kan ikke svare ja eller nei.*Det står igjen å avklare reguleringsplanens bestemmelser/s,
   "Svaret skal si hva som står igjen å avklare");
+const uavklartTekst = alleOrd(mapEl("result-summary"));
+assert.match(uavklartTekst, /Jeg anbefaler deg å kontakte en av våre veiledere/);
+assert.match(uavklartTekst, /Du kan bestille 15 minutters veiledning her/);
+const veiledningslenke = mapEl("result-summary").children
+  .flatMap(node => node.children)
+  .find(node => node.textContent === "Detaljer - Bergen kommune") as Element & { href?: string; target?: string; rel?: string };
+assert.equal(veiledningslenke?.href, TILTAKSHJELPEN_KOMMUNER["4601"].uavklartVeiledning.url);
+assert.equal(veiledningslenke?.target, "_blank");
+assert.equal(veiledningslenke?.rel, "noopener noreferrer");
 
 const mixedVurdering = {
   utfall: "maa_avklares", nasjonaltUnntak: "oppfylt", forklaring: "Planforhold er ikke avklart.",

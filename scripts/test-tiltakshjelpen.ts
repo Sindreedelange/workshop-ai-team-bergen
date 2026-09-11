@@ -413,6 +413,11 @@ try {
     assert.equal(findTiltakshjelpenKommunekilder("4601"), TILTAKSHJELPEN_KOMMUNER["4601"]);
     assert.equal(getTiltakshjelpenKartlagUrl(TILTAKSHJELPEN_KOMMUNER["4601"], "kpa"), KPA2018_SONEKILDE.url);
     assert.equal(new URL(TILTAKSHJELPEN_KOMMUNER["4601"].kpa.bestemmelserUrl).hostname, "api.arealplaner.no");
+    assert.equal(
+      TILTAKSHJELPEN_KOMMUNER["4601"].uavklartVeiledning.url,
+      "https://billett.bergen.kommune.no/Detaljer/EVENT/L0EJCc_QgK0aPZxOdubFjw$$/O2tBqPIXaEx-O3OkdCqCRYGttGB2VrtIiaTf-LlsFT1K6ZQMM-MmWG02wTX6lT-gXRXuePSO2tG6gmuzmlyhIQ$$?unpublished=CEyPlOoPzhvD5goXu5JRlg$$",
+      "Bergens bestillingslenke skal være synlig og enkel å kontrollere i kommuneoppsettet",
+    );
   });
   await test("Flat kommunekonfigurasjon gir dokument- og kartkilder uten reservekommune", () => {
     assert.equal(findTiltakshjelpenKommune("0301"), undefined);
