@@ -4,7 +4,7 @@
  * Flytkartet, gren for gren, mot regelen som faktisk kjører.
  *
  * `docs/flytkart-tiltakssjekk.md` gjengir fagpersonens flytkart
- * (`data/Flytkart Hackathon.jpg`) som tekst, og sier for hver node om koden gjør
+ * (`presentasjon/flytkart_hackathon.jpg`) som tekst, og sier for hver node om koden gjør
  * det samme. En slik påstand uten en navngitt sjekk er et ønske, og det er dette
  * skriptet som er sjekken: hvert vilkår i kartet har et tilfelle her, og de tre
  * stedene koden med hensikt svarer noe annet enn kartet er pinnet som avvik, slik

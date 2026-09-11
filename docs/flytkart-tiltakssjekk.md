@@ -1,10 +1,13 @@
 # Flytkartet for tiltakssjekken
 
-Fagpersonens flytkart for **«Kan du bygge uten å søke?»** ligger som et bilde i
-[data/Flytkart Hackathon.jpg](../data/Flytkart%20Hackathon.jpg). Dette er samme kart
-skrevet ned: én node per punkt, med hjemmelen og kilden i samme punkt, og med en
-kolonne som sier hva koden faktisk gjør. Hensikten er at både en deltaker og en
-språkmodell skal kunne følge kartet uten å åpne og zoome i et bilde.
+Flytkartet for **«Kan du bygge uten å søke?»** ligger som et bilde i
+[presentasjon/flytkart_hackathon.jpg](../presentasjon/flytkart_hackathon.jpg). Det er
+**tegnet av en domeneekspert i Plan- og bygningsetaten i Bergen kommune**, ikke av oss og
+ikke av en modell, og det er derfor kartet og ikke koden som er utgangspunktet her.
+
+Dette er samme kart skrevet ned: én node per punkt, med hjemmelen og kilden i samme
+punkt, og med en kolonne som sier hva koden faktisk gjør. Hensikten er at både en
+deltaker og en språkmodell skal kunne følge kartet uten å åpne og zoome i et bilde.
 
 Kartet gjelder byggetiltak generelt. En garasje er ett eksempel på et tiltak, ikke
 navnet på casen. Se [tiltakssjekken](tiltakshjelpen.md) for selve tjenesten.
