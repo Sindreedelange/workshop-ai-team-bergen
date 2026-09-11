@@ -1,7 +1,7 @@
 # Flytkartet for tiltakssjekken
 
 Fagpersonens flytkart for **«Kan du bygge uten å søke?»** ligger som et bilde i
-[data/Flytkart Hackathon.jpg](../data/Flytkart%20Hackathon.jpg). Dette er samme kart
+[presentasjon/Flytkart Hackathon.jpg](../presentasjon/Flytkart%20Hackathon.jpg). Dette er samme kart
 skrevet ned: én node per punkt, med hjemmelen og kilden i samme punkt, og med en
 kolonne som sier hva koden faktisk gjør. Hensikten er at både en deltaker og en
 språkmodell skal kunne følge kartet uten å åpne og zoome i et bilde.
