@@ -234,6 +234,16 @@ løsningen gjør, ikke målinger av hva folk faktisk får til.
 - **Det nasjonale tallet er et overslag skalert fra et overslag.** Befolkningsandel er
   den groveste nøkkelen som finnes, gebyrsatsene er Bergens egne, og usikkerheten i
   forutsetningene blir ikke mindre av å ganges med 19.
+- **De store datafilene ligger i forken, mot anbefalingen.**
+  [`docs/innlevering.md`](docs/innlevering.md) ber om at datasett på flere megabyte ikke
+  commites. Vi har dem likevel med: Bergens teiguttrekk (`data/matrikkel_bk_25.json`,
+  21 258 teiger) og de seks KPA2018-lagene som GeoJSON, til sammen rundt 150 MB i
+  arbeidstreet, pluss de seks referanse-PDF-ene på om lag 22 MB. Grunnen er at det er
+  disse som gjør at teigoppslaget, kartsteget og dokumentsøket virker uten nett, og et
+  hackathon uten nett skal ikke miste dem. Alt kan hentes på nytt - teigene fra Geonorge,
+  planlagene fra Bergen kommunes karttjenester, og PDF-ene fra utstederne med sha256 i
+  `data/pdf/fixtures/manifest.json` - så skal de ut av historikken, er det mulig, men det
+  er en egen jobb vi ikke har gjort.
 - **Dokumentkildene indekseres ikke ved oppstart.** Verken `start.sh` eller
   `docker-compose.yml` laster dem inn, så steget over må kjøres for hånd.
 - **Dokumentchatten har ingen tester.** Verken klienten eller siden er dekket.
