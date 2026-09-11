@@ -68,27 +68,29 @@ function element<K extends keyof HTMLElementTagNameMap>(tag: K, text?: string, c
   return el;
 }
 
+function expireLogin(): never {
+  logOut();
+  valgtAdresse = null;
+  plassering = null;
+  grunnlag = null;
+  clearConfirmation();
+  krevEl("workspace").hidden = true;
+  krevEl("property-workspace").hidden = true;
+  krevEl("property-facts").hidden = true;
+  krevEl("logged-in").textContent = "";
+  krevEl("logout").hidden = true;
+  krevEl("login-panel").hidden = false;
+  throw new Error("Innloggingen er utløpt eller ugyldig. Logg inn igjen for å fortsette.");
+}
+
 async function api<T>(path: string): Promise<T> {
-  if (!tokenValid()) throw new Error("Innloggingen er utløpt. Logg ut og inn igjen for å fortsette.");
+  if (!tokenValid()) expireLogin();
   const response = await fetch(`${backendBase}${path}`, {
     headers: withToken(), signal: AbortSignal.timeout(60000), cache: "no-store"
   });
   const data = await response.json();
   if (!response.ok) {
-    if (response.status === 401) {
-      logOut();
-      valgtAdresse = null;
-      plassering = null;
-      grunnlag = null;
-      clearConfirmation();
-      krevEl("workspace").hidden = true;
-      krevEl("property-workspace").hidden = true;
-      krevEl("property-facts").hidden = true;
-      krevEl("logged-in").textContent = "";
-      krevEl("logout").hidden = true;
-      krevEl("login-panel").hidden = false;
-      throw new Error("Innloggingen er utløpt eller ugyldig. Logg inn igjen for å fortsette.");
-    }
+    if (response.status === 401) expireLogin();
     throw new Error(data.feil || `Oppslaget feilet (HTTP ${response.status}).`);
   }
   return data as T;
@@ -860,6 +862,7 @@ async function loadPerson(): Promise<void> {
       const isBosted = (a: Adressevalg) => a.tekst === bostedsadresse && a.kommune === bosted?.kommunenummer;
       adressevalg.sort((a, b) => Number(isBosted(b)) - Number(isBosted(a)));
     } catch (error) {
+      if (!tokenValid()) throw error;
       note.textContent += ` Egne eiendommer kunne ikke hentes: ${feilmelding(error)} Du kan fortsatt søke på adresse.`;
     }
   }
@@ -922,6 +925,7 @@ function configureFields(type: Byggetiltakstype): void {
 }
 configureFields(tiltakstype);
 tiltaksvalg = createTiltaksvalg({
+  container: krevEl("workspace"),
   choices: BYGGETILTAK_KATALOG.map(type => ({ id: type.id, label: type.navn })),
   unknownType: "ukjent",
   suggest: description => {

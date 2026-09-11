@@ -33,8 +33,8 @@ assert.equal(url.origin, config.idportenBaseUrl);
 assert.equal(url.searchParams.get("state"), "/chat?prosess=garasjesjekk");
 assert.equal(url.searchParams.get("redirect_uri"), "http://localhost:13001/callback");
 assert(Object.hasOwn(storage, "sandkasse-pkce-verifier"));
-const token = (issuer: string) => `header.${Buffer.from(JSON.stringify({
-  iss: `${issuer}/idporten`, pid: "syntetisk-test", exp: Math.floor(Date.now() / 1000) + 100
+const token = (issuer: string, pid = "syntetisk-test", lifetime = 100) => `header.${Buffer.from(JSON.stringify({
+  iss: `${issuer}/idporten`, pid, exp: Math.floor(Date.now() / 1000) + lifetime
 })).toString("base64url")}.signature`;
 storage["sandkasse-idporten-token"] = token(config.idportenBaseUrl);
 for (const page of ["/chat", "/agent", "/stegvis", "/garasje"]) {
@@ -50,7 +50,9 @@ class Element {
   isConnected = true;
   hidden = true;
   textContent = "";
+  value = "";
   children: Element[] = [];
+  get options() { return this.children; }
   contentWindow = { postMessage: (message: unknown) => { replies.push(message); } };
   height = "";
   attributes: Record<string, string> = {};
@@ -76,12 +78,13 @@ Object.assign(login, {
   fetch: async () => { requests++; return Response.json({ feil: "Avvist forespørsel" }, { status: responseStatus }); }
 });
 const garageSource = stripTypeScriptTypes(await readFile("apps/demo-gui/src/client/garasje.ts", "utf8"));
-const apiStart = garageSource.indexOf("async function api");
+const apiStart = garageSource.indexOf("function expireLogin");
 const apiEnd = garageSource.indexOf("async function perform", apiStart);
 assert(apiStart >= 0 && apiEnd > apiStart);
 runInContext(`
   let valgtAdresse = {}, plassering = {}, grunnlag = {}, vurdering = {};
   let propertyConfirmed = true, propertyVersion = 0, placementChosen = true, placementConfirmed = true;
+  let kartgrunnlag = null, planflater = [], plankilde, tiltakstypeBekreftet = false;
   ${garageSource.slice(apiStart, apiEnd)}
 `, login);
 for (const issuer of ["http://localhost:8086", config.idportenBaseUrl]) {
@@ -104,6 +107,92 @@ responseStatus = 503;
 storage["sandkasse-idporten-token"] = token(config.idportenBaseUrl);
 await assert.rejects(runInContext('api("/api/personer")', login), /Avvist forespørsel/);
 assert.equal(runInContext("tokenValid()", login), true, "En kildefeil skal ikke logge brukeren ut");
+
+storage["sandkasse-idporten-token"] = token(config.idportenBaseUrl, "syntetisk-test", -1);
+requests = 0;
+authEl("workspace").hidden = false;
+authEl("login-panel").hidden = true;
+await assert.rejects(runInContext('api("/api/personer")', login), /Logg inn igjen/);
+assert.equal(requests, 0, "Et utløpt token skal avvises før nettverkskallet");
+assert.equal(authEl("workspace").hidden, true, "Utløpt innlogging skal skjule både tiltak og eiendom");
+assert.equal(authEl("login-panel").hidden, false, "Utløpt innlogging skal gi en vei tilbake til ID-porten");
+
+const personer = [
+  { personId: "person-395", syntetiskFodselsnummer: "syntetisk-milda", visningsnavn: "Milda Garasjetest",
+    skjermet: false, bostedsadresse: { adressenavn: "Litle Milde", husnummer: 65, kommunenummer: "4601" } },
+  { personId: "person-396", syntetiskFodselsnummer: "syntetisk-kaare", visningsnavn: "Kåre Garasjetest",
+    skjermet: false, bostedsadresse: { adressenavn: "Kråkenestoppen", husnummer: 60, kommunenummer: "4601" } }
+];
+const personRequests: string[] = [];
+const searches: { tekst: string; kommune: string }[] = [];
+let activePerson = personer[0];
+let propertyStatus = 200;
+Object.assign(login, {
+  myAddress: authEl("my-address"), searchInput: authEl("address-search"),
+  element: (_tag: string, text: string) => Object.assign(new Element(), { textContent: text }),
+  searchAdresse: async (tekst: string, kommune: string) => { searches.push({ tekst, kommune }); },
+  fetch: async (url: string, options: RequestInit) => {
+    assert.equal(new Headers(options.headers).get("Authorization"), `Bearer ${storage["sandkasse-idporten-token"]}`);
+    const path = url.slice(config.backendBaseUrl.length);
+    personRequests.push(path);
+    if (path === "/api/personer") return Response.json(personer);
+    if (path === `/api/personer/${activePerson.personId}`) return Response.json(activePerson);
+    assert.equal(path, `/api/matrikkel/mine-eiendommer?personId=${activePerson.personId}`,
+      "Eieroppslaget skal gjelde den innloggede personen");
+    if (propertyStatus !== 200) return Response.json({ feil: "Eieroppslaget feilet" }, { status: propertyStatus });
+    const bosted = {
+      adresse: `${activePerson.bostedsadresse.adressenavn} ${activePerson.bostedsadresse.husnummer}`,
+      kommune: "BERGEN", kommunenummer: "4601", gnr: 105, bnr: 209
+    };
+    return Response.json({ eiendommer: [
+      { adresse: "Annen eiendom 1", kommune: "BERGEN", kommunenummer: "4601", gnr: 20, bnr: 1 },
+      bosted, bosted
+    ] });
+  }
+});
+const personStart = garageSource.indexOf("async function loadPerson");
+const personEnd = garageSource.indexOf("function configureFields", personStart);
+assert(personStart >= 0 && personEnd > personStart);
+runInContext(`let embeddedOekt = null, adressevalg = []; ${garageSource.slice(personStart, personEnd)}`, login);
+for (const person of personer) {
+  activePerson = person;
+  storage["sandkasse-idporten-token"] = token(config.idportenBaseUrl, person.syntetiskFodselsnummer);
+  personRequests.length = 0;
+  searches.length = 0;
+  await runInContext("loadPerson()", login);
+  assert.equal(authEl("login-panel").hidden, true);
+  assert.equal(authEl("workspace").hidden, false);
+  assert.equal(authEl("logged-in").textContent, `Innlogget som ${person.visningsnavn}`);
+  assert.equal(authEl("logout").hidden, false);
+  assert.deepEqual(personRequests, ["/api/personer", `/api/personer/${person.personId}`,
+    `/api/matrikkel/mine-eiendommer?personId=${person.personId}`]);
+  const adresse = `${person.bostedsadresse.adressenavn} ${person.bostedsadresse.husnummer}`;
+  assert.deepEqual(searches, [{ tekst: adresse, kommune: "4601" }], "Eid bosted skal foreslås før andre eiendommer");
+  assert.equal(authEl("my-address").children.length, 3, "Eierlisten skal fjerne duplikater");
+  assert.match(authEl("my-address").children[1].textContent, /Bosted og registrert eiendom/);
+}
+propertyStatus = 401;
+searches.length = 0;
+await assert.rejects(runInContext("loadPerson()", login), /Logg inn igjen/,
+  "Avvist innlogging under eieroppslaget må ikke skjules som en kildefeil");
+assert.equal(authEl("workspace").hidden, true);
+assert.equal(authEl("login-panel").hidden, false);
+assert.equal(searches.length, 0, "Ingen adresse skal velges etter avvist innlogging");
+
+propertyStatus = 503;
+storage["sandkasse-idporten-token"] = token(config.idportenBaseUrl, activePerson.syntetiskFodselsnummer);
+await runInContext("loadPerson()", login);
+assert.equal(authEl("workspace").hidden, false, "En kildefeil skal fortsatt tillate manuelt adressesøk");
+assert.match(authEl("address-note").textContent, /Egne eiendommer kunne ikke hentes/);
+assert.equal(runInContext("tokenValid()", login), true);
+
+activePerson = { ...activePerson, skjermet: true };
+personRequests.length = 0;
+await runInContext("loadPerson()", login);
+assert.deepEqual(personRequests, ["/api/personer", `/api/personer/${activePerson.personId}`],
+  "Skjermet adresse skal ikke utløse eieroppslag");
+assert.match(authEl("address-note").textContent, /Adressen er skjermet/);
+assert.equal(searches.length, 0);
 
 const replies: unknown[] = [];
 let listener: ((event: Record<string, unknown>) => Promise<void>) | null = null;
@@ -147,4 +236,4 @@ assert.equal(frame.height, "1500");
 dispose();
 assert.equal(listener, null);
 assert.equal(frame.isConnected, false);
-console.log("Garasjeklient: delt ID-porten, ny innlogging etter 401, klientkonfigurasjon og avgrenset kartkommunikasjon besto.");
+console.log("Garasjeklient: innlogging først, person og eiendom, utløpt innlogging, skjerming og avgrenset kartkommunikasjon besto.");
