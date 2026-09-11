@@ -85,8 +85,9 @@ Tre ting er våre. Alt annet i repoet kommer fra sandkassen slik den var.
   frittliggende bygg, tilbygg, gjerde og fasade eller tak. Reglene er faste og ligger i
   backend, utenfor modellen: modellen forklarer, den avgjør ikke. Utfallene er
   `meldeplikt`, `soknadspliktig` og `maa_avklares`.
-  [Fagpersonens flytkart](docs/flytkart-tiltakssjekk.md) er skrevet ut node for node, med
-  en kolonne som sier hvor koden er enig og hvor den med vilje ikke er det.
+  Reglene kommer fra et [flytkart tegnet av en domeneekspert på
+  byggesak](docs/flytkart-tiltakssjekk.md), som er skrevet ut node for node med en
+  kolonne som sier hvor koden er enig og hvor den med vilje ikke er det.
 - **[`pdf-extractor`](apps/pdf-extractor/README.md) (port `8089`)** - kildeforankret
   uttrekk fra lover, forskrifter og arealplaner, med en vektordatabase under
   `state/pdf-extractor/`. Side, koordinater og metode bevares gjennom hele kjeden, så et
@@ -357,8 +358,8 @@ Tretten kjørende tjenester, én valgfri avhengighet i kjøretid, sju komplette 
 
 Det vi la til:
 
-- Tiltakshjelpen, med faste regler etter SAK10 § 4-1 og et fagpersonflytkart skrevet ut
-  node for node i `docs/flytkart-tiltakssjekk.md`
+- Tiltakshjelpen, med faste regler etter SAK10 § 4-1 og en domeneeksperts flytkart
+  skrevet ut node for node i `docs/flytkart-tiltakssjekk.md`
 - kildeforankret uttrekk og vektorsøk i lover, forskrifter og arealplaner
   (`pdf-extractor`), der side og koordinater følger med hele veien
 - dokumentchat mot de samme kildene, på `/dokumentchat`
@@ -779,7 +780,7 @@ Dette repoet er lagt opp for flere team. Se:
 ## Viktige filer
 
 - [`docs/tiltakshjelpen.md`](docs/tiltakshjelpen.md) - casen vi bygde, med kilder og avgrensninger
-- [`docs/flytkart-tiltakssjekk.md`](docs/flytkart-tiltakssjekk.md) - fagpersonens flytkart som tekst
+- [`docs/flytkart-tiltakssjekk.md`](docs/flytkart-tiltakssjekk.md) - domeneekspertens flytkart som tekst
 - [`apps/pdf-extractor/README.md`](apps/pdf-extractor/README.md) - uttrekk, vektorsøk og lagring
 - [`docs/README.md`](docs/README.md) - kartet over all dokumentasjonen
 - `docs/deltakerstart.md` - start her hvis du er deltaker

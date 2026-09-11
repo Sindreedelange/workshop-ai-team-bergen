@@ -11,6 +11,13 @@ spaden går i jorden. Innbyggeren beskriver tiltaket sitt, og tjenesten slår op
 eiendommen, kartutsnittet, arealformålet, reguleringsplanen og hensynssonene, og avgjør
 mot faste regler etter SAK10 § 4-1. Modellen forklarer resultatet, den avgjør det ikke.
 
+Reglene er ikke våre. De kommer fra et flytkart tegnet av en domeneekspert på byggesak,
+som ligger i [`presentasjon/flytkart_hackathon.jpg`](presentasjon/flytkart_hackathon.jpg)
+og er skrevet ut node for node i
+[`docs/flytkart-tiltakssjekk.md`](docs/flytkart-tiltakssjekk.md). De tre stedene koden
+med hensikt svarer noe annet enn kartet, er pinnet som avvik i `scripts/test-flytkart.ts`
+i stedet for å bli stille borte.
+
 Bakgrunnen er at det i 2025 ble meldt inn 700 tilsynssaker på boligtiltak manuelt, hver
 med to tilsynsbetjenter. De nasjonale veilederne stopper der spørsmålet blir konkret, og
 henviser til de lokale planene som innbyggeren selv må finne fram i. Vårt overslag, med
