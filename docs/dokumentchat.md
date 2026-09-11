@@ -13,6 +13,16 @@ opplysninger om en person eller en eiendom - så det er ingenting her å logge i
 relevante utdrag i de indekserte dokumentene», og `GET http://localhost:8089/dokumenter`
 viser hva som faktisk ligger inne.
 
+**Og `./start.sh --reset` sletter indeksen.** Den gjør `rm -rf state`, og indeksen ligger i
+`state/pdf-extractor`. Etter en reset svarer chatten derfor «Søket fant ingen relevante
+utdrag» til kommandoen over er kjørt på nytt. Kildene er trygge: de seks PDF-ene og
+manifestet ligger i `data/pdf/fixtures/`, som er seed-data og ikke røres av en reset, så
+opplastingen trenger ikke nett - bare de par minuttene uttrekket tar.
+
+Verdt å vite om plassen: `--reset` kopierer hele `state/` til `_backup/` før den sletter,
+indeksen inkludert. Med de seks kildene inne er det om lag 350 MB per reset, og ingenting
+leser kopien. `_backup/README.md` sier at katalogene der kan slettes for hånd.
+
 ## Hva den er til for
 
 Gebyrtallene i kostnadsoverslaget i [`README.md`](../README.md#hva-de-700-sakene-koster)

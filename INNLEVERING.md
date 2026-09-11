@@ -85,6 +85,10 @@ Så:
 | <http://localhost:8082/trace> | KI-sporet: hva modellen faktisk fikk og svarte, tenkingen inkludert |
 | <http://localhost:3001> | Oversikten, med helsestatus for alle tjenestene og lenker til de to |
 
+Kjører du `./start.sh --reset` senere, må opplastingen over gjentas: reset gjør `rm -rf
+state`, og indeksen ligger i `state/pdf-extractor`. PDF-ene selv ligger i
+`data/pdf/fixtures/` og røres ikke, så det trengs ikke nett.
+
 De to demo-eiendommene er valgt fordi de svarer forskjellig: LNF - landbruks-, natur- og
 friluftsformål - er ikke automatisk et nei, og arealformålet i kommuneplanen er ikke nok
 alene. Bakgrunnen står i [`docs/tiltakshjelpen.md`](docs/tiltakshjelpen.md).
