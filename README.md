@@ -2,17 +2,257 @@
   <img src="docs/assets/ks-digital-logo.png" alt="KS Digital" width="360">
 </p>
 
-# Innbyggerdialog Sandbox
+# Kan du bygge uten å søke?
 
-En samarbeidsvennlig sandkasse for hackathon og utforskning av moderne innbyggerdialog i kommunal sektor.
+**Team Bergen** sin fork av [KS Digital sin Innbyggerdialog Sandbox](https://github.com/ks-no/workshop-ai).
 
-Målet er å gjøre det enkelt for interne og eksterne utviklingsteam å prototype kommunale tjenester med syntetiske data, tydelige API-er, sporbarhet og mockede integrasjoner. Hvilken form tjenesten får - dialog, skjema, oversikt, varsling eller noe annet - er teamets valg.
+Tiltakshjelpen svarer innbyggeren på om et byggetiltak er søknadspliktig, og slår opp
+eiendommen, kartet og de lokale planene for henne. Sandkassen under er base-repoets og er
+fortsatt beskrevet i denne filen. Det vi la til, står i de fem neste seksjonene.
+
+## Problemet vi tar tak i
+
+I 2025 ble det meldt inn 700 tilsynssaker på boligtiltak manuelt, og hver sak krever to
+tilsynsbetjenter. Det er arbeid som oppstår etter at noe allerede er bygget.
+
+Det finnes nasjonale veiledere for søknadsprosessen, men de stopper der spørsmålet blir
+konkret: de henviser til de lokale planene, og å finne fram i dem er noe innbyggeren må
+gjøre selv. I praksis står den som skal bygge igjen med tre valg:
+
+- bygge, og håpe at det ikke var ulovlig
+- lete gjennom flere hundre sider med reguleringsplaner og planbestemmelser
+- kontakte Plan- og bygningsetaten og be om en konsultasjon
+
+Det første er det som skaper tilsynssakene. Det andre krever at innbyggeren kan lese en
+arealplan. Det tredje flytter arbeidet til kommunen, én samtale av gangen.
+
+Tiltakshjelpen er et fjerde valg. Innbyggeren beskriver tiltaket sitt, og tjenesten slår
+opp eiendommen, kartutsnittet og de lokale planene og svarer på om tiltaket er
+søknadspliktig, med kilde på hvert ledd. Svaret er veiledning, ikke et vedtak: et
+nasjonalt unntak er ikke en byggetillatelse, og det tjenesten ikke kan avgjøre, sier den
+at må avklares.
+
+## Hva de 700 sakene koster
+
+Et overslag, ikke et regnskap. Under står forutsetningene hver for seg, slik at den som
+er uenig i én av dem kan bytte den ut og regne om.
+
+**Det vi vet.** 700 tilsynssaker på boligtiltak i 2025, to tilsynsbetjenter per sak.
+Prisene er Bergen kommunes egne, fra gebyrforskriften for 2026 - som ligger i
+dokumentbasen vår, og som vi fant tallene i ved å spørre dokumentchatten:
+
+| Artikkel | Hva | Pris |
+|---|---|---|
+| `2026-440` | Gebyr for medgått tid, kontorarbeid, per påbegynt time | 1 920 kr |
+| `2026-441` | Gebyr for medgått tid, markarbeid, per påbegynt time | 2 400 kr |
+| `2026-3191` | Tilleggsgebyr per søknad om tiltak som er registrert som ulovlighet | 9 810 kr |
+
+**Det vi antar.** At en tilsynssak koster 4 til 12 timer per betjent: varsel, forberedelse,
+befaring med reise, rapport, korrespondanse og eventuell oppfølging. Og at innbyggeren
+bruker 10 til 40 timer på sin side: finne fram dokumentasjon, stille på befaring, søke i
+ettertid, og i verste fall rive eller bygge om.
+
+**Regnestykket.** Et årsverk er satt til 1 695 timer.
+
+| | Lavt anslag | Høyt anslag |
+|---|---|---|
+| Kommunale timer i året | 700 × 8 = **5 600 t** | 700 × 24 = **16 800 t** |
+| Tilsvarer | **3,3 årsverk** | **9,9 årsverk** |
+| Verdsatt til kommunens egne satser | **10,8 mill. kr** | **40,3 mill. kr** |
+| Innbyggertimer i året | 700 × 10 = **7 000 t** | 700 × 40 = **28 000 t** |
+
+I tillegg kommer 9 810 kroner i tilleggsgebyr for hver sak som ender med en søknad i
+ettertid, og kostnaden ved å rive eller bygge om, som vi ikke har tall på og derfor ikke
+gjetter på.
+
+**Hva en avklaring på forhånd kan ta av dette.** Ikke alt. Saker som skyldes uenighet om
+grenser, eller tiltak noen visste var ulovlige, forsvinner ikke av en veiviser. Men den
+delen som skyldes at innbyggeren ikke fant ut hva som gjaldt, gjør det. Antar vi at
+**20 til 40 prosent** av sakene er av den typen:
+
+- **1 100 til 6 700 kommunale timer i året**, altså 0,7 til 4,0 årsverk
+- **2,2 til 16,1 millioner kroner** målt mot kommunens egne satser for medgått tid
+- **1 400 til 11 200 timer** spart hos innbyggerne, før gebyrer og riving
+
+Det er intervallet vi mener er verdt å prøve, og tallet vi ville målt en pilot mot.
+
+## Det vi bygget
+
+Tre ting er våre. Alt annet i repoet kommer fra sandkassen slik den var.
+
+- **[Tiltakshjelpen](docs/tiltakshjelpen.md)** - prosessen i Chat, AI-agent og Stegvis,
+  og den frittstående veiviseren på <http://localhost:3001/tiltakshjelpen>. Den dekker
+  frittliggende bygg, tilbygg, gjerde og fasade eller tak. Reglene er faste og ligger i
+  backend, utenfor modellen: modellen forklarer, den avgjør ikke. Utfallene er
+  `meldeplikt`, `soknadspliktig` og `maa_avklares`.
+  [Fagpersonens flytkart](docs/flytkart-tiltakssjekk.md) er skrevet ut node for node, med
+  en kolonne som sier hvor koden er enig og hvor den med vilje ikke er det.
+- **[`pdf-extractor`](apps/pdf-extractor/README.md) (port `8089`)** - kildeforankret
+  uttrekk fra lover, forskrifter og arealplaner, med en vektordatabase under
+  `state/pdf-extractor/`. Side, koordinater og metode bevares gjennom hele kjeden, så et
+  svar kan føres tilbake til siden det kom fra. Modelltekst får aldri overskrive kilden.
+- **Dokumentchat** på <http://localhost:3001/dokumentchat> - fritekstspørsmål mot de
+  indekserte PDF-ene. Den kjører uten prosessøkt og uten innlogging, med vilje.
+
+To ting du ellers oppdager selv, så de står heller her. Dokumentchatten er ikke lenket
+fra oversikten på `:3001`, så URL-en må skrives direkte. Og **PDF-ene indekseres ikke ved
+oppstart**: med stacken oppe laster denne kommandoen inn de seks kildene i
+`data/pdf/fixtures/` med profilen hver av dem skal ha.
+
+```bash
+node -e "
+const m = JSON.parse(require('node:fs').readFileSync('data/pdf/fixtures/manifest.json','utf8'));
+for (const d of m.documents) console.log(d.filename, d.profile);
+" | while read -r fil profil; do
+  curl -s -F "fil=@data/pdf/fixtures/$fil" -F "profil=$profil" \
+    http://localhost:8089/dokumenter
+  echo
+done
+```
+
+Uten den svarer dokumentchatten «Søket fant ingen relevante utdrag i de indekserte
+dokumentene». `GET http://localhost:8089/dokumenter` viser hva som ligger inne.
+
+## Dataflyten
+
+Ingen av tjenestene holder en kopi av svaret. Hvert ledd i vurderingen er et oppslag mot
+kilden som eier det, og kilden følger med videre: hvilket API som svarte, når, og med
+hvilket forbehold. Det er det som gjør at utfallet kan etterprøves i stedet for å måtte
+stoles på.
+
+### Datakilder
+
+Oversikten er ikke ferdig. Den er ment å fylles på etter hvert som flere kilder kobles inn.
+
+**Kart og eiendom, live over API:**
+
+| Kilde | Hva den svarer på | Hvordan |
+|---|---|---|
+| [Kartverkets adresse-API](https://ws.geonorge.no/adresser/v1/) | adresse, matrikkelidentitet og adressepunkt | REST, åpent |
+| [Matrikkelen - Eiendomskart Teig](https://kartkatalog.geonorge.no/metadata/uuid/74340c24-1c8a-4454-b813-bfe498e80f16) hos Geonorge | teiggeometrien for en konkret matrikkelidentitet | REST, GeoJSON |
+| [Bergen kommunes karttjenester](https://kart.bergen.kommune.no/arcgis/rest/services) | arealformål, reguleringsplanområder og bygninger | ArcGIS REST |
+| KPA2018, plankartet | hensynssoner og arealformål over hele eiendommen | GeoJSON gjennom `plan-mock` |
+
+**Regelverk og dokumenter, indeksert i `pdf-extractor`:**
+
+| Kilde | Hva den svarer på |
+|---|---|
+| Byggesaksforskriften (SAK10) med veiledning, Direktoratet for byggkvalitet | vilkårene for unntak fra søknad |
+| Byggteknisk forskrift (TEK17) med veiledning, Direktoratet for byggkvalitet | høyder, avstander og tekniske krav |
+| Plan- og bygningsloven, Lovdata | hjemlene vurderingen bygger på |
+| KPA2018: bestemmelser og retningslinjer, Bergen kommune | planbestemmelsene selv |
+| Bergen kommunes gebyrforskrift | hva en søknad eller en tilsynssak koster |
+| Statens vegvesen: veiledning om avkjørsel | frisikt og avkjørsel mot vei |
+
+Hver PDF er registrert med utsteder, hentetidspunkt og sha256 i
+`data/pdf/fixtures/manifest.json`, og uttrekket beholder side og koordinater, så et svar
+kan spores tilbake til siden det står på. Ingen av dem er kontrollert av en fagperson, og
+et treff i en PDF gjør derfor aldri et vilkår kontrollert på egen hånd.
+
+**To snarveier finnes bare for at demoen skal kjøre uten nett.** Et lokalt
+Bergen-uttrekk brukes til de to demo-eiendommene, og `digdir-mock` utsteder tokenene i
+stedet for ID-porten og Maskinporten. Begge byttes ut med den ekte kilden i en pilot.
+Mangler en adresse i det lokale uttrekket, går oppslaget til Kartverkets API-er over,
+og grensesnittet sier hvilken av dem som svarte.
+
+### Tiltakshjelpen, fra innlogging til utfall
+
+```mermaid
+flowchart TB
+  I["Innbygger"] -->|"BankID"| DM["ID-porten"]
+  I --> DG["demo-gui :3001<br/>/tiltakshjelpen"]
+  DG --> SB["sandbox-backend :8080<br/>prosessmotor, regler, revisjon"]
+
+  SB -->|"adresse og matrikkelidentitet"| KV["Kartverkets adresse-API<br/>ws.geonorge.no"]
+  SB -->|"teiggeometri"| GN["Geonorge<br/>Eiendomskart Teig"]
+  SB -->|"arealformål, reguleringsplan, bygninger"| BK["Bergen kommune<br/>ArcGIS REST"]
+  SB -->|"hensynssoner og arealformål"| PM["KPA2018-plankartet"]
+  SB -->|"regelverk og planbestemmelser"| PE["pdf-extractor :8089<br/>vektorsøk i kildene"]
+
+  SB -->|"forklaring, ikke avgjørelse"| AG["ai-gateway :8082"]
+  AG --> TF["Telenor AI Factory"]
+
+  SB --> U["Utfall: meldeplikt,<br/>soknadspliktig eller maa_avklares"]
+```
+
+Hvem som svarer på hva, og hva svaret er verdt:
+
+| Spørsmål i vurderingen | Kilde | Forbehold |
+|---|---|---|
+| Hvilke eiendommer eier innbyggeren? | eierforhold mot matrikkelidentiteten | Hjemmel ligger i grunnboken, ikke i matrikkelen |
+| Hvor går tomtegrensen? | Kartverkets eiendoms-API | Kartanslag, ikke oppmålingsbevis |
+| Hva er arealformålet, og finnes en reguleringsplan? | Bergens karttjenester, live | Tilgjengelig geometri er ikke nøyaktige grenser |
+| Berører tiltaket en hensynssone? | KPA2018-plankartet | Frosset i 2018, og flatene er klippet til kartutsnittet |
+| Finnes det bebyggelse på eiendommen? | Bergens bygningslag, live | Treg kilde: oppslaget prøves to ganger før det gis opp |
+| Er tiltaket søknadspliktig? | `sandbox-backend`, faste regler etter SAK10 § 4-1 | Ingen modell er involvert |
+| Hvordan forklares det? | `ai-gateway` mot Telenor AI Factory | Kan ikke gjøre utfallet mildere enn reglene |
+
+Den siste raden er en sperre i kode, ikke en instruks i prompten:
+`apps/sandbox-backend/src/tiltakshjelpen-raad.ts` leser modellens egne setninger og avviser
+prosa som gjør utfallet mildere enn den deterministiske vurderingen.
+
+### Dokumentchatten, to kall per spørsmål
+
+```mermaid
+sequenceDiagram
+  participant I as Innbygger
+  participant D as demo-gui /dokumentchat
+  participant T as tools-api :8083
+  participant P as pdf-extractor :8089
+  participant A as ai-gateway :8082
+
+  I->>D: spørsmål i fritekst
+  D->>T: POST /verktoy/pdf_search_chunks/invoke
+  T->>P: POST /sok
+  P-->>T: treff med dokument, side og kvalitetsvarsel
+  T-->>D: treff
+  D->>A: POST /ai/sporsmaal med dokumentkunnskap
+  A-->>D: svar, forankret i grunnlaget
+  D-->>I: svar med kildene under
+```
+
+Tre ting er verdt å vite om det siste kallet. `ai-gateway` beholder høyst tre treff og
+kutter hver tekst, så et bredt søk gir ikke et bredere svar. Prompten sier at modellen
+bare skal svare ut fra grunnlaget, og spørsmålet sendes inn som data, ikke som en
+instruks. Og tjenestenavnet er `Dokumentarkiv` med vilje, så spørsmålet ikke havner på
+Tiltakshjelpens egen svarvei.
+
+`/ai/sporsmaal` har ingen egen datatilgang. Den svarer bare fra grunnlaget kalleren
+sender med, og det er det som gjør at den strukturelt ikke kan nå data bak samtykkeporten.
+
+## Modellene vi kjører på
+
+Vi kjører mot **Telenor AI Factory**, et OpenAI-kompatibelt LiteLLM-endepunkt. Sett
+`AI_PROVIDER=telenor-ai-factory` og `TELENOR_AI_FACTORY_API_KEY` i `.env`, eller bytt
+provider live på <http://localhost:8082/admin>. Tre modeller er tilgjengelige:
+
+| Modell | Tenker | Hva målingen viste |
+|---|---|---|
+| `NVIDIA-Nemotron-3-Super-120B-A12B-FP8` | ja | Rakk den tunge tiltaksvurderingen på 8,4 sekunder. Standardvalget for reasoning-oppgavene |
+| `GLM-5.2-FP8` | ja | Ble kuttet av taket på en full tiltaksvurdering i tre av tre forsøk |
+| `Qwen3-Coder-Next-FP8` | nei | Ingen tenkemodus: svarer likt med og uten `enable_thinking` |
+
+Tenkingen slås på per oppgave, ikke som en global innstilling. Policyen er
+`OPPGAVE_REASONING` i `apps/ai-gateway/src/reasoning.ts`, og `pnpm test:reasoning` gjør en
+ny oppgave rød i stedet for at den arver «tenker ikke» i stillhet. Selve tenkingen lagres
+i `reasoningResponse` i KI-sporet og vises som en egen blokk i `/trace`, så en modell som
+tenkte er like etterprøvbar som en som ikke gjorde det.
+
+Endepunktet ligger bak en API Gateway som kutter forbindelsen etter 30 sekunder.
+`TELENOR_AI_FACTORY_TIMEOUT_MS` er derfor taket for denne provideren, ikke `AI_TIMEOUT_MS`.
+Variablene står i `.env.example`; verdiene deres hører hjemme i din lokale `.env`, som er
+gitignorert.
 
 ## Innhold
 
 <details>
 <summary>Alle seksjonene</summary>
 
+- [Problemet vi tar tak i](#problemet-vi-tar-tak-i)
+- [Hva de 700 sakene koster](#hva-de-700-sakene-koster)
+- [Det vi bygget](#det-vi-bygget)
+- [Dataflyten](#dataflyten)
+- [Modellene vi kjører på](#modellene-vi-kjører-på)
 - [Før du begynner](#før-du-begynner)
 - [Hva sandkassen er](#hva-sandkassen-er)
 - [Designprinsipp for hackathon](#designprinsipp-for-hackathon)
@@ -56,7 +296,7 @@ Sjekk at du har det:
 docker --version && node --version && git --version
 ```
 
-**Portene `3000`, `3001` og `8080`–`8088` må være ledige.** Med modell trengs også
+**Portene `3000`, `3001` og `8080`-`8090` må være ledige.** Med modell trengs også
 `11434` til Ollama. Er en av dem
 opptatt, står det i `docs/feilsoking.md` hvordan du finner ut hvilken.
 
@@ -85,17 +325,16 @@ På Windows: kjør fra Git Bash (følger med Git for Windows) eller [WSL](https:
 
 ## Hva sandkassen er
 
-Sandkassen er en lokal utviklingsarena for å utforske hvordan innbyggere kan møte kommunen. Demoene her er dialogbaserte fordi en samtale var raskeste vei til å ta i bruk alle API-ene samtidig - ikke fordi dialog er svaret. Se `docs/oppdraget.md`.
+Resten av denne filen beskriver gulvet Tiltakshjelpen står på: sandkassen slik den kom
+fra KS Digital. Den er en lokal utviklingsarena for å utforske hvordan innbyggere kan møte
+kommunen, med prosessmotor, samtykke som faktisk sperrer, deterministiske regler utenfor
+modellen, revisjonslogg og mockede integrasjoner. Demoene der er dialogbaserte fordi en
+samtale var raskeste vei til å ta i bruk alle API-ene samtidig - ikke fordi dialog er
+svaret. Se `docs/oppdraget.md`.
 
-Sju demo-case er publisert; `Redusert foreldrebetaling i barnehage` er
-flaggskipet og det eneste som er dekket av en informasjonsmodell. Casene og hvilken
-testbruker som hører til hver, står i `docs/deltakerstart.md`.
-
-I tillegg finnes [**Tiltakshjelpen: Kan du bygge uten å søke?**](docs/tiltakshjelpen.md):
-tiltakssjekken for frittliggende bygg, tilbygg, gjerde og fasade eller tak.
-Den kombinerer eiendom, kart, lokale planer og PDF-kilder med faste regler og
-KI-forklaringer. Casen avsluttes med veiledning, ikke innsending. Den viser et
-mønster for søknadsavklaring som andre tjenester kan bygge videre på med egne regler.
+Sju demo-case fulgte med; `Redusert foreldrebetaling i barnehage` er flaggskipet blant dem
+og det eneste som er dekket av en informasjonsmodell. Casene og hvilken testbruker som
+hører til hver, står i `docs/deltakerstart.md`.
 
 Arkitekturen er lagt opp for samarbeid mellom flere team, med tydelige grenser mellom frontend, backend, simulatorer, policyer og datasett.
 
@@ -115,6 +354,16 @@ Tretten kjørende tjenester, én valgfri avhengighet i kjøretid, sju komplette 
 - evals av KI-laget: `pnpm test:eval`
 - OpenAPI for alle elleve API-tjenestene, komplett og holdt i takt med koden av
   `pnpm test:openapi`: hver rute dokumentert, med `security:` per rute
+
+Det vi la til:
+
+- Tiltakshjelpen, med faste regler etter SAK10 § 4-1 og et fagpersonflytkart skrevet ut
+  node for node i `docs/flytkart-tiltakssjekk.md`
+- kildeforankret uttrekk og vektorsøk i lover, forskrifter og arealplaner
+  (`pdf-extractor`), der side og koordinater følger med hele veien
+- dokumentchat mot de samme kildene, på `/dokumentchat`
+- Telenor AI Factory som provider, med tenking slått på per oppgave og pinnet av
+  `pnpm test:reasoning`
 
 ## Hva som logges
 
@@ -342,6 +591,9 @@ To ting tabellen ikke sier, og som er verdt å vite før noe feiler:
 - **`matrikkel-mock` (`8085`) er kjerne, selv om den ser valgfri ut.** Uten den feiler
   alle `matrikkel_*`-verktøy og hele `fartsdempende-tiltak`-casen med «fetch failed»,
   mens alt annet ser normalt ut.
+- **`pdf-extractor` (`8089`) starter tom.** Dokumentene indekseres ikke ved oppstart, så
+  dokumentchatten og dokumentkildene svarer ingenting før kildene er lastet inn. Kommandoen
+  står under [«Det vi bygget»](#det-vi-bygget).
 
 Hver API-tjeneste serverer sin egen spesifikasjon på `/openapi.yaml`, samme spesifikasjon
 lest som JSON på `/openapi-ruter.json`, og en lesbar side på `/docs`. Den midterste er det
@@ -363,7 +615,15 @@ delene. `docs/syntetiske-data.md` forklarer datagrunnlaget.
 
 ## Demo-flyt
 
-Flaggskipcaset *Redusert foreldrebetaling (barnehage)* kjører hele kjeden i én økt:
+*Tiltakshjelpen* er casen vi bygde, og den kjører slik: innbyggeren logger inn med BankID,
+velger en av sine egne eiendommer, beskriver tiltaket i fritekst, bekrefter hvilken type
+det er, og plasserer det i kartet. Backend slår opp teiggeometri, arealformål,
+reguleringsplan, hensynssoner og eksisterende bebyggelse, vurderer vilkårene
+deterministisk, og KI-laget forklarer resultatet med kilde per ledd. Utfallet er
+`meldeplikt`, `soknadspliktig` eller `maa_avklares`. Ingen søknad sendes inn. Bruk
+`person-395` **Milda Garasjetest** eller `person-396` **Kåre Garasjetest**.
+
+Basens flaggskipcase *Redusert foreldrebetaling (barnehage)* kjører hele kjeden i én økt:
 husstanden hentes og vises, samtykke innhentes før inntektsdata leses, vilkårene
 vurderes deterministisk i backend, KI-laget oppsummerer i klarspråk, innbyggeren
 bekrefter, søknaden sendes inn og oppretter en oppgave i Fiks-simulatoren - og
@@ -518,6 +778,9 @@ Dette repoet er lagt opp for flere team. Se:
 
 ## Viktige filer
 
+- [`docs/tiltakshjelpen.md`](docs/tiltakshjelpen.md) - casen vi bygde, med kilder og avgrensninger
+- [`docs/flytkart-tiltakssjekk.md`](docs/flytkart-tiltakssjekk.md) - fagpersonens flytkart som tekst
+- [`apps/pdf-extractor/README.md`](apps/pdf-extractor/README.md) - uttrekk, vektorsøk og lagring
 - [`docs/README.md`](docs/README.md) - kartet over all dokumentasjonen
 - `docs/deltakerstart.md` - start her hvis du er deltaker
 - `docs/ordliste.md` - forvaltningstermene forklart slik de brukes i sandkassen
