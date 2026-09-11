@@ -131,12 +131,29 @@ function clearConfirmation(): void {
   invalidateResult();
 }
 
+/**
+ * Hva som står i statuslinjen mens et kartoppslag drar ut, og etter hvor lenge.
+ *
+ * Kommunens kartlag svarer nesten alltid på et øyeblikk, men har en hale på flere
+ * sekunder, og serveren prøver da en gang til. Uten disse setningene sto den
+ * første etiketten helt stille i opptil tolv sekunder, og det ser ut som om siden
+ * har hengt seg opp. Tekstene sier hva som skjer og hos hvem, slik at ventingen er
+ * noe man kan forstå framfor noe man må tolke.
+ */
+const VENTEMELDINGER: readonly { etter: number; tekst: string }[] = [
+  { etter: 2500, tekst: "Henter fortsatt kart og planer fra kommunen. Dette tar av og til noen sekunder." },
+  { etter: 6000, tekst: "Kommunens kartlag svarer tregt akkurat nå, og vi prøver en gang til. Du trenger ikke gjøre noe." },
+  { etter: 13000, tekst: "Kartlaget svarte ikke i tid. Vi gjør ferdig vurderingen med de kildene som svarte, og sier hva som mangler." },
+];
+
 async function perform(label: string, action: () => Promise<void>): Promise<void> {
   if (busy || pendingSave) return;
   busy = true;
   tiltaksvalg?.refresh();
   krevEl("error").hidden = true;
   krevEl("progress").textContent = label;
+  const ventetimere = VENTEMELDINGER.map(melding =>
+    setTimeout(() => { krevEl("progress").textContent = melding.tekst; }, melding.etter));
   const controls = document.querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement>(
     "button, #workspace input, #workspace select"
   );
@@ -149,6 +166,7 @@ async function perform(label: string, action: () => Promise<void>): Promise<void
     krevEl("error").hidden = false;
     krevEl("progress").textContent = "Kunne ikke fullføre. Kontroller meldingen og prøv igjen.";
   } finally {
+    for (const timer of ventetimere) clearTimeout(timer);
     controls.forEach(control => { control.disabled = pendingSave; });
     busy = false;
     tiltaksvalg?.refresh();
