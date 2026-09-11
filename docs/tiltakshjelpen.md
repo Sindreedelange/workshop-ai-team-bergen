@@ -8,8 +8,8 @@ byggesøknad.
 ## Kan du bygge uten å søke?
 
 **Tiltakshjelpen** svarer på «Kan du bygge uten å søke?», som også er navnet i
-prosesskatalogen. Tjenesten gjelder avklaring av søknadsplikt for byggetiltak,
-ikke alle typer kommunale søknader. Garasje er ett av tiltakene, ikke navnet
+prosesskatalogen. Tjenesten avklarer om et byggetiltak er søknadspliktig.
+Den dekker ikke andre kommunale søknader. Garasje er ett av tiltakene, ikke navnet
 på den felles tjenesten.
 
 | Tiltak | Hva veiledningen dekker |
@@ -20,10 +20,11 @@ på den felles tjenesten.
 | Fasade eller tak | Skillet mellom vedlikehold, endret utseende og inngrep i bæring eller brannsikring |
 | Annet eller uavklart tiltak | En uttrykkelig avklaring hos kommunens byggesaksveiledning, ikke et automatisk valg av garasjereglene |
 
-Felles for alle er bekreftet tiltakstype og eiendom, kart og dokumentkilder,
-spørsmål som passer tiltaket, faste regler og et tydelig neste steg. Et nasjonalt
-unntak er ikke en byggetillatelse: lokale planforhold, dokumentenes gyldighet og
-andre krav kan fortsatt være uavklart. Ingen byggesøknad sendes inn av denne casen.
+Alle grenene gjør det samme: bekrefter tiltakstype og eiendom, henter kart og
+dokumentkilder, spør bare om det tiltaket krever, vurderer mot faste regler og gir
+ett tydelig neste steg. Et nasjonalt unntak er ikke en byggetillatelse: lokale
+planforhold, dokumentenes gyldighet og andre krav kan fortsatt være uavklart. Ingen
+byggesøknad sendes inn av denne casen.
 
 ## Referanse for andre søknadsprosesser
 
@@ -59,9 +60,9 @@ leses fortsatt, mens nye temavalg lagres under navnet `tiltakshjelpen`.
 
 Den synlige tjenesten omfatter
 frittliggende bygg, tilbygg, gjerde og fasadeendring, slik
-[fagpersonens flytkart](../data/Flytkart%20Hackathon.jpg) beskriver. Kartet er
+[flytkartet fra Plan- og bygningsetaten i Bergen kommune](../presentasjon/flytkart_hackathon.jpg) beskriver. Kartet er
 skrevet ut node for node i [flytkart-tiltakssjekk.md](flytkart-tiltakssjekk.md), med
-en kolonne som sier hvor koden gjør det samme og hvor den med hensikt gjør noe annet.
+en kolonne som sier hvor koden gjør det samme og hvor den med vilje gjør noe annet.
 En beskrivelse gir bare et forslag til tiltakstype. Innbyggeren bekrefter eller
 retter typen før de relevante spørsmålene åpnes. Uklare eller sammensatte tiltak
 skal ikke presses inn i regelen for et frittliggende bygg.
@@ -93,33 +94,34 @@ kildelenke og forbehold vises sammen med rådet. Et søketreff er ikke bevis på
 hele planen er gjennomgått eller at bestemmelsen gjelder tiltaket.
 
 Rådet er et tillegg, ikke en erstatning for den deterministiske vurderingen.
-Et modelldrevet forslag om et mildere utfall kan ikke bli stående som en
-byggetillatelse i teksten. Alle uavklarte forhold fra reglene beholdes, uten å
-kutte bort de siste punktene. I mock-modus brukes et regelbasert råd. Feil i
-dokumenttjenesten eller modellen vises uttrykkelig; de blir ikke et automatisk ja.
+Foreslår modellen et mildere utfall, blir forslaget ikke stående. Alle uavklarte
+forhold fra reglene beholdes, uten å kutte bort de siste punktene. I mock-modus
+brukes et regelbasert råd. Feil i dokumenttjenesten eller modellen vises
+uttrykkelig; de blir ikke et automatisk ja.
 Siden viser alltid et konkret neste steg, også når svaret er å kontakte kommunens
 plan- og byggesaksrådgivere. Et ferdig hentet råd og kildehenvisningene følger med
 i den lokale nedlastingen.
 `pnpm test:tiltakshjelpen-raad` kontrollerer kodegrensene uten en ekstern modell.
 
-Resultatet viser vilkår som ikke er oppfylt og vilkår som må avklares før de
-oppfylte vilkårene. Forbehold som usikker grensekvalitet står i en egen del om
+Resultatet lister først vilkårene som ikke er oppfylt, så de som må avklares, og
+til slutt de oppfylte. Forbehold som usikker grensekvalitet står i en egen del om
 begrensninger i sjekken, ikke som flere spørsmål innbyggeren må fylle ut.
 De blir ikke borte ved å svare på alle spørsmålene: kommunen kan veilede om
-planforhold og om grensen må dokumenteres eller måles opp. Gjentakelser mellom
-sjekklisten og forbeholdene vises bare én gang. Reglene, utfallet og grunnlaget
-i nedlastingen er uendret.
+planforhold og om grensen må dokumenteres eller måles opp. Et punkt som står både i
+sjekklisten og i forbeholdene vises bare én gang. Reglene, utfallet og grunnlaget i
+nedlastingen er uendret.
 
 Kartet lar innbyggeren klikke eller dra markøren, eller bruke piltastene.
 Planvarsler står under kartet slik at kartet ikke flytter seg når et varsel
-fjernes under dragging. Kartbakgrunnen kan ikke dras som et bilde, og et avbrutt
-drag skal ikke hindre neste forsøk. Dette flytter plasseringen, ikke kartutsnittet.
+fjernes mens markøren dras. Kartbakgrunnen kan ikke dras som et bilde, og et
+avbrutt forsøk på å dra markøren skal ikke hindre neste forsøk. Dette flytter
+plasseringen, ikke kartutsnittet.
 
-Tiltakssjekken starter i mørkt tema. Valget av lyst eller mørkt tema lagres lokalt
+Tiltakshjelpen starter i mørkt tema. Valget av lyst eller mørkt tema lagres lokalt
 i nettleseren og gjenbrukes ved omlasting og i den innebygde tiltaksvisningen.
 Bare temavalget lagres der, ikke opplysninger om eiendommen eller tiltaket.
-Den lokale rettelsen i `apps/shared/ds-morketema.css` lastes etter de vendorede
-stilarkene, også i den innebygde visningen.
+Den lokale rettelsen i `apps/shared/ds-morketema.css` lastes etter stilarkene som
+er kopiert inn, også i den innebygde visningen.
 
 Innloggingen og eieropplysningene er syntetiske. Testpersonen eier **ikke**
 dermed en virkelig eiendom. Adresse- og kartoppslag bruker offentlige tjenester,
@@ -142,7 +144,7 @@ Logg inn som **Milda Garasjetest** (`person-395`) for Litle Milde, eller
 **Kåre Garasjetest** (`person-396`) for Kråkenestoppen. Bosted, husstand og eierskap
 genereres fra `data/kuratert.json` med den vanlige importeren. Adresseidentitetene
 ligger i matrikkelmockens seed, så oppslaget av egne eiendommer ikke er avhengig av
-et eksternt fallback-kall.
+et eksternt reservekall.
 
 Testpersonene ligger i det felles personregisteret og kan også brukes i TT-kort,
 politiattest og andre prosesser. Det betyr ikke at de har legeerklæring,
@@ -210,7 +212,7 @@ Bygningsflatene i kartutsnittet tegnes på samme måte. Bygg som er sammenholdt
 med den valgte teigen har heltrukket fyll; bygg på nabotomter er stiplet og
 nedtonet, og de inngår ikke i bebyggelsen eller arealberegningen for eiendommen.
 Er tilknytningen til teigen uavklart, skilles flatene ikke, fordi kartet ikke
-skal påstå mer enn bebyggelsen faktisk vet. En tegnforklaring under kartet
+skal påstå mer enn bygningsdataene faktisk sier. En tegnforklaring under kartet
 navngir flatetypene, og en statuslinje sier hvor mange flater som vises eller
 hvorfor bygningskartet mangler. Uten den så et mislykket bygningsoppslag ut som
 et tomt kart.
@@ -262,7 +264,12 @@ Vilkårene og begrunnelsen for hvert ledd står i
 | [`tiltakshjelpen-kunnskap.ts`](../apps/shared/tiltakshjelpen-kunnskap.ts) | Et begrenset, strukturert grunnlag for språkmodellen, uten persondata eller rå kartgeometri. |
 
 En ny kommune legges til med egne kilder og kontrollerte sone-/planopplysninger,
-ikke ved å endre den generelle prosessflyten. Et sonenavn gir ikke alene en
+ikke ved å endre den generelle prosessflyten. Skillet er at regelen er nasjonal og
+kartet lokalt: SAK10 § 4-1, TEK17 og plan- og bygningsloven gjelder i hele landet, og
+adresse- og teigoppslagene går mot Kartverket og Geonorge, som også dekker hele landet.
+Det som må legges til per kommune, er pekerne til kommunens kartlag, planbestemmelser,
+planportal og meldeskjema. Hva det kan bety i skala står i
+[`README.md`](../README.md#bergen-er-én-av-357). Et sonenavn gir ikke alene en
 utnyttelsesgrense eller byggetillatelse. Slike regler trenger en konkret,
 kontrollert bestemmelse med kilde.
 
@@ -298,7 +305,7 @@ planbestemmelsene.
 
 Kommuneplanoppslaget mot Bergens kart spør om **ett punkt** og får ingen geometri
 tilbake. Det kan ikke svare på om en sonegrense går tvers gjennom tomten, som er
-spørsmålet innbyggeren stiller når hun plasserer tiltaket i kartet.
+spørsmålet innbyggeren stiller når tiltaket plasseres i kartet.
 
 Derfor leses KPA2018 også som flater, fra et frosset uttrekk hos
 [`plan-mock`](../apps/plan-mock/README.md): de seks hensynssonene - gule støysoner,
@@ -328,7 +335,7 @@ dem.
 
 - [`matrikkel_bk_25.json`](../data/matrikkel_bk_25.json): lokalt Bergen-uttrekk,
   merket 2025, med teigpolygoner og oppgitt areal. Matrikkelmocken er eneste
-  tjeneste som leser filen. Tiltakssjekken slår opp på kommunenummer, gnr./bnr.
+  tjeneste som leser filen. Tiltakshjelpen slår opp på kommunenummer, gnr./bnr.
   og festenummer gjennom API-et.
 - [Kartverkets adresse-API](https://ws.geonorge.no/adresser/v1/): adresse,
   eiendomsidentifikator og adressepunkt. Et adressepunkt er ikke tomten.
@@ -386,7 +393,7 @@ ikke i seg selv rett til å hente opplysninger fra grunnboken.
 
 ## Teknisk
 
-Tiltakssjekken er en prosess med veiledning som avslutning, ikke innsending.
+Tiltakshjelpen er en prosess med veiledning som avslutning, ikke innsending.
 Prosessdefinisjonen er felles for alle klientene. Den henter egne eiendommer,
 samler eiendomsbekreftelse, plassering og prosjektopplysninger, og kjører
 den deterministiske vurderingen. En fullført sjekk oppretter ingen søknad,
@@ -410,8 +417,9 @@ peke til de samme mockene som backend bruker.
 Standardene er de vanlige sandkasseportene. `TILTAKSHJELPEN_BACKEND_PUBLIC_URL` og
 `TILTAKSHJELPEN_IDPORTEN_PUBLIC_URL` kan også brukes. De felles variablene går
 foran disse. De tidligere variablene `GARASJE_BACKEND_PUBLIC_URL` og
-`GARASJE_IDPORTEN_PUBLIC_URL` støttes som siste alias og gjelder også de andre
-klientene, så personregisteret ikke blir delt.
+`GARASJE_IDPORTEN_PUBLIC_URL` støttes som siste alias. De leses i
+`buildClientKonfigurasjon` i `apps/shared/client-konfigurasjon.ts`, som er felles for
+hele `demo-gui`, så de peker også Chat, AI-agent og Stegvis mot samme backend.
 En separat backend må bruke samme utsteder i `DIGDIR_ISSUER` og ha riktig
 `DIGDIR_BASE_URL`. Tools-api må bruke samme backend og tokenutsteder.
 

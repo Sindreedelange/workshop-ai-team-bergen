@@ -7,7 +7,7 @@
 **Team Bergen** sin fork av [KS Digital sin Innbyggerdialog Sandbox](https://github.com/ks-no/workshop-ai).
 
 Tiltakshjelpen svarer innbyggeren på om et byggetiltak er søknadspliktig, og slår opp
-eiendommen, kartet og de lokale planene for henne. Sandkassen under er base-repoets og er
+eiendommen, kartet og de lokale planene selv. Sandkassen under er base-repoets og er
 fortsatt beskrevet i denne filen. Det vi la til, står i de fem neste seksjonene.
 
 ## Problemet vi tar tak i
@@ -76,6 +76,71 @@ delen som skyldes at innbyggeren ikke fant ut hva som gjaldt, gjør det. Antar v
 
 Det er intervallet vi mener er verdt å prøve, og tallet vi ville målt en pilot mot.
 
+## Bergen er én av 357
+
+Tallene over gjelder én kommune. Tiltakshjelpen kjører i dag for Bergen alene, og det er
+et pilotvalg, ikke en grense i løsningen. Hva som skiller de to er verdt å vise, for det
+er det som avgjør om regnestykket over gjelder en by eller et land.
+
+**Regelen er nasjonal. Kartet er lokalt.** Det er hele skillet, og det går rett gjennom
+vurderingen:
+
+| Ledd i vurderingen | Hvor det gjelder |
+|---|---|
+| Er tiltaket søknadspliktig? | Nasjonalt. SAK10 § 4-1, TEK17 og plan- og bygningsloven er de samme i Utsira som i Bergen |
+| Hva heter eiendommen, og hvor går grensen? | Nasjonalt. Kartverkets adresse-API og Geonorges teigdata dekker hele landet |
+| Hva er arealformålet, finnes en reguleringsplan, står det noe der alt? | Lokalt. Kommunens eget kart |
+| Hvor melder innbyggeren inn et tiltak som ikke krever søknad? | Lokalt. Kommunens eget skjema |
+
+De to øverste leddene er de tunge, og de er ferdige. Det som må legges til per kommune,
+er pekere til kommunens kart og kommunens skjema.
+
+**En ny kommune er en oppføring, ikke ny kode.** `TILTAKSHJELPEN_KOMMUNER` i
+[`apps/shared/tiltakshjelpen-kommuner.ts`](apps/shared/tiltakshjelpen-kommuner.ts) tar
+kommunenummer, base-URL for kartet, tre kartlag, plan-ID og bestemmelser, planportal,
+meldeskjema og kontaktinformasjonen som vises når svaret er «må avklares». Prosessflyten
+og regelen endres ikke. Én ting peker dessuten på at oppføringen kan bli en mal framfor
+357 håndskrevne: Bergens bestemmelser hentes fra
+`api.arealplaner.no/api/kunder/bergen4601/…`, en flerkundeplattform nøklet på
+kommunenummer, som mange kommuner alt ligger på.
+
+**Og en kommune uten oppføring arver aldri Bergens regler.** `if (!kommune)` gir en tom
+kildeliste og en uttrykkelig merknad, ikke Bergens kart med et annet navn på. Det er den
+sperren som gjør at piloten kan si «vi dekker én kommune» og mene det. Uten den ville
+tjenesten svart selvsikkert på 356 kommuner den ikke har data for, og det er verre enn å
+ikke svare.
+
+**Hva skalaen kan bety.** Bergen hadde 294 860 innbyggere ved inngangen til 2026, av
+5 627 400 i landet - 5,2 prosent. Samme sakstall per innbygger over hele landet gir
+om lag 13 400 tilsynssaker i året. Skalerer vi intervallet over med
+befolkningsandelen, og holder alle forutsetningene fra avsnittene over:
+
+| | Lavt anslag | Høyt anslag |
+|---|---|---|
+| Kommunale timer en avklaring på forhånd kan ta | **21 000 t** | **128 000 t** |
+| Tilsvarer | **12 årsverk** | **75 årsverk** |
+| Verdsatt til Bergens satser for medgått tid | **40 mill. kr** | **307 mill. kr** |
+| Innbyggertimer spart | **27 000 t** | **214 000 t** |
+
+**Les tallene som en størrelsesorden, ikke et budsjett.** Fire forbehold, og de er
+viktigere enn tallene:
+
+- **Befolkning er den groveste nøkkelen som finnes.** Bergen er en by med press på
+  arealene og mange små tiltak på små tomter. Det er ikke opplagt at en spredtbygd
+  kommune har like mange tilsynssaker per innbygger, og den kan like godt ha flere som
+  færre.
+- **Gebyrsatsene er Bergens egne.** Hver kommune har sin egen gebyrforskrift, og
+  kronebeløpet er derfor Bergens pris ganget opp, ikke landets.
+- **Det er et overslag skalert fra et overslag.** Forutsetningene i avsnittene over -
+  timer per sak og andelen som kan unngås - er våre antakelser, og usikkerheten i dem blir
+  ikke mindre av å ganges med 19.
+- **Ikke alle kommuner publiserer plandata over et åpent kart-API** i samme form som
+  Bergen, som bruker ArcGIS REST. Hvor mye arbeid de 356 andre oppføringene er, vet vi
+  ikke, og vi har ikke undersøkt det.
+
+Det er likevel forskjellen som er poenget: dette er en løsning der arbeidet med å legge
+til kommune nummer to er å finne fram til tre kartlag, ikke å skrive regelverket på nytt.
+
 ## Det vi bygget
 
 Tre ting er våre. Alt annet i repoet kommer fra sandkassen slik den var.
@@ -92,12 +157,20 @@ Tre ting er våre. Alt annet i repoet kommer fra sandkassen slik den var.
   uttrekk fra lover, forskrifter og arealplaner, med en vektordatabase under
   `state/pdf-extractor/`. Side, koordinater og metode bevares gjennom hele kjeden, så et
   svar kan føres tilbake til siden det kom fra. Modelltekst får aldri overskrive kilden.
-- **Dokumentchat** på <http://localhost:3001/dokumentchat> - fritekstspørsmål mot de
-  indekserte PDF-ene. Den kjører uten prosessøkt og uten innlogging, med vilje.
+- **[Dokumentchat](docs/dokumentchat.md)** på <http://localhost:3001/dokumentchat> -
+  fritekstspørsmål mot de indekserte PDF-ene, med dokument og sidetall under svaret. Den
+  kjører uten prosessøkt og uten innlogging, med vilje: den leser bare offentlig
+  regelverk, så det er ingenting her å logge inn for. Gebyrsatsene i
+  kostnadsoverslaget over ble funnet ved å spørre den, og det er det beste vi har å si om
+  nytten - den svarte på et spørsmål vi faktisk hadde.
 
-To ting du ellers oppdager selv, så de står heller her. Dokumentchatten er ikke lenket
-fra oversikten på `:3001`, så URL-en må skrives direkte. Og **PDF-ene indekseres ikke ved
-oppstart**: med stacken oppe laster denne kommandoen inn de seks kildene i
+De to leveransene leser **de samme seks kildene**. Tiltakshjelpen henter fra dem gjennom
+`pdf_search_chunks` når rådet skrives, dokumentchatten gjennom det samme verktøyet uten
+en prosess rundt. Én dokumentbase, to innganger - og det er derfor uttrekket er en egen
+tjeneste framfor en del av casen.
+
+Én ting du ellers oppdager selv, så den står heller her: **PDF-ene indekseres ikke ved
+oppstart**. Med stacken oppe laster denne kommandoen inn de seks kildene i
 `data/pdf/fixtures/` med profilen hver av dem skal ha.
 
 ```bash
@@ -118,12 +191,12 @@ dokumentene». `GET http://localhost:8089/dokumenter` viser hva som ligger inne.
 
 Ingen av tjenestene holder en kopi av svaret. Hvert ledd i vurderingen er et oppslag mot
 kilden som eier det, og kilden følger med videre: hvilket API som svarte, når, og med
-hvilket forbehold. Det er det som gjør at utfallet kan etterprøves i stedet for å måtte
+hvilket forbehold. Det er det som gjør at utfallet kan etterprøves, ikke bare
 stoles på.
 
 ### Datakilder
 
-Oversikten er ikke ferdig. Den er ment å fylles på etter hvert som flere kilder kobles inn.
+Oversikten er ikke ferdig. Vi fyller den på etter hvert som flere kilder kobles inn.
 
 **Kart og eiendom, live over API:**
 
@@ -148,7 +221,7 @@ Oversikten er ikke ferdig. Den er ment å fylles på etter hvert som flere kilde
 Hver PDF er registrert med utsteder, hentetidspunkt og sha256 i
 `data/pdf/fixtures/manifest.json`, og uttrekket beholder side og koordinater, så et svar
 kan spores tilbake til siden det står på. Ingen av dem er kontrollert av en fagperson, og
-et treff i en PDF gjør derfor aldri et vilkår kontrollert på egen hånd.
+et treff i en PDF kontrollerer derfor aldri et vilkår alene.
 
 **To snarveier finnes bare for at demoen skal kjøre uten nett.** Et lokalt
 Bergen-uttrekk brukes til de to demo-eiendommene, og `digdir-mock` utsteder tokenene i
@@ -251,6 +324,7 @@ gitignorert.
 
 - [Problemet vi tar tak i](#problemet-vi-tar-tak-i)
 - [Hva de 700 sakene koster](#hva-de-700-sakene-koster)
+- [Bergen er én av 357](#bergen-er-én-av-357)
 - [Det vi bygget](#det-vi-bygget)
 - [Dataflyten](#dataflyten)
 - [Modellene vi kjører på](#modellene-vi-kjører-på)

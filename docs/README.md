@@ -57,6 +57,8 @@ Resten av filene er oppslagsverk. Du trenger ingen av dem før du trenger dem.
 | Lage en ny case inne i prosessmotoren | [`docs/prosessmodell.md`](prosessmodell.md) |
 | Se Tiltakshjelpen og hva andre søknadsprosesser kan gjenbruke | [Tiltakshjelpen: Kan du bygge uten å søke?](tiltakshjelpen.md) - tiltakstyper, kart, dokumentkilder og avklaring uten innsending |
 | Følge fagpersonens flytkart for tiltakssjekken node for node | [flytkart-tiltakssjekk.md](flytkart-tiltakssjekk.md) - kartet som tekst, samsvaret med koden og de tre avvikene |
+| Spørre lover, forskrifter og arealplaner i fritekst, og se hvor svaret kom fra | [dokumentchat.md](dokumentchat.md) - de to kallene, sporet, og hva et treff i en PDF ikke er |
+| Forstå kildeforankret uttrekk fra PDF, og hva vektorsøket faktisk lover | [`apps/pdf-extractor/README.md`](../apps/pdf-extractor/README.md) |
 | Style frontenden din som resten av KS Digital | [`docs/designsystem.md`](designsystem.md) |
 | Vite hva sandkassen logger, og hvordan du sletter det | [`docs/hva-logges.md`](hva-logges.md) |
 | Vite hva som forlater maskinen din før du demonstrerer | [`docs/sikkerhet-og-personvern.md`](sikkerhet-og-personvern.md) |

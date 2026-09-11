@@ -74,7 +74,7 @@ Derfra deler kartet seg i fire grener, og koden har en femte for et uavklart til
 2. Koden går videre på egen hånd, og gir tilbygget sju sjekker: bruksareal og bebygd
    areal høyst 15 m², understøttet tilbygg, høyst to etasjer eller plan, ingen endring
    av godkjent bruk, ingen ny selvstendig boenhet, og eksisterende bebyggelse.
-3. To forhold er alltid uavklarte for et tilbygg, og de er det med hensikt:
+3. To forhold er alltid uavklarte for et tilbygg, og de er det med vilje:
    - avstanden til nabogrensen, etter plan- og bygningsloven § 29-4 andre og tredje
      ledd. Utgangspunktet er minst halve bygningens høyde og minst 4 meter, med mindre
      planen bestemmer annet. **Garasjens 1-metersregel gjelder ikke her.**
@@ -269,7 +269,7 @@ Tre ting gjør ventingen til å leve med:
 Rådet på slutten av sjekken hentes fra `POST /agent/garasje/raad`, som lar en modell
 formulere et råd oppå den regelbaserte vurderingen. Kjørt med Ollama og
 `mistral-small3.2:24b` svarte modellen gyldig JSON i alle sju grenene, på mellom 16 og
-55 sekunder. Reasoning var slått av, fordi gatewayen ikke setter Ollamas tenkefelt -
+55 sekunder. Tenking var slått av, fordi gatewayen ikke setter Ollamas tenkefelt -
 oppgaven ber om det, men provideren kan det ikke her.
 
 Modellen traff reglenes utfall i fem av sju grener, og modellens egne setninger ble
@@ -304,11 +304,11 @@ Punktene er fra gjennomgangen av løsningen 10. september 2026, etterprøvd mot 
 | 1 | Ikke kall den garasjesjekken | løst: «Kan du bygge uten å søke?» i tittel, dashbord og prosesskatalog |
 | 2 | Slutt å nevne garasje spesifikt | løst i brukervendt tekst: de gjenstående strengene som påsto garasje for et gjerde eller en fasade er rettet |
 | 3 | Bygninger, nabotomter og hensynssoner i kartet | løst, med nedtrekksmeny og tegnforklaring |
-| 4 | Nærmeste punkt til nabotomter, sperre og varsel | delvis: nærmeste grense til egen teig måles og tegnes, og et punkt utenfor egen tomt sperrer. Nabopolygonene testes ikke, så «på nabotomten» er en antakelse, og manglende grensedata slipper brukeren videre |
+| 4 | Nærmeste punkt til nabotomter, sperre og varsel | delvis: nærmeste grense til egen teig måles og tegnes, og et punkt utenfor egen tomt sperrer. Nabopolygonene testes ikke, så «på nabotomten» er en antakelse, og manglende grensedata slipper innbyggeren videre |
 | 5 | Fjern nord, sør, øst, vest | løst: bare en statisk nordpil igjen |
 | 6 | Én side per spørsmål, ingen chatlogg videre, klyngede spørsmål, lagrede svar | løst |
 | 7 | Modellen må omtale hensynssoner og LNF | løst: LNF med mer enn 1 meter til nabogrensen oppfyller § 31.3-vilkåret |
-| 8 | Bekreft svar og flere spørsmål erstatter dialogboksen | løst, men byttet skjer etter agentens svar, ikke idet brukeren skriver |
+| 8 | Bekreft svar og flere spørsmål erstatter dialogboksen | løst, men byttet skjer etter agentens svar, ikke idet innbyggeren skriver |
 | 9 | Standardteksten ikke alltid «f.eks 35 kvadratmeter» | løst: egen ledetekst per felt |
 | 10 | Ja/nei-knapper eller «Jeg lurer på noe» | løst |
 | 11 | Vi må gi et tydelig svar | løst: overskriften svarer «Ja, men du må melde inn», «Nei, du må søke» eller «Kontakt kommunen», med det avgjørende vilkåret navngitt, og reglenes egne neste steg vises |

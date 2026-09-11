@@ -27,7 +27,7 @@
     {
       "filename": "statens-vegvesen-avkjorsel-veiledning.pdf",
       "provenance": "provided",
-      "profile": "generic",
+      "profile": "legal",
       "retrievedAt": "2026-09-10",
       "sha256": "cfc33683de388298ba06ccdf4ad43dff23ae82efcabcec2079341929b3310a05",
       "description": "«Dette må du tenke på», Statens vegvesens veiledning om avkjørsel."
@@ -35,7 +35,7 @@
     {
       "filename": "bergen-kommune-gebyrer.pdf",
       "provenance": "provided",
-      "profile": "generic",
+      "profile": "legal",
       "retrievedAt": "2026-09-10",
       "sha256": "92924a8fb838729f7b8b6909118e39aa44e2b5908ffd0578676db3508b4215ef",
       "description": "Bergen kommunes gebyrer for byggesaksbehandling."

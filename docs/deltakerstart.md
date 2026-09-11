@@ -106,6 +106,12 @@ Beskriv et frittliggende bygg, tilbygg, gjerde eller en fasadeendring, og bekref
 typen før du svarer videre. Casen gir veiledning og viser hva som må avklares;
 den sender ingen søknad og lover ikke et innvilget utfall.
 
+[**Dokumentchatten**](dokumentchat.md) på <http://localhost:3001/dokumentchat> er den
+andre inngangen til de samme kildene: du spør lover, forskrifter og arealplaner i
+fritekst, og får dokument og sidetall under svaret. Den krever ingen innlogging, fordi
+den bare leser offentlig regelverk. PDF-ene må lastes inn først, og kommandoen står i
+[`README.md`](../README.md#det-vi-bygget).
+
 > [!WARNING]
 > **Den vanligste snublesteinen:** `person-001` har *ikke* barn i SFO, og heller
 > ikke barn i fritidskortets aldersgruppe. Prøver du de casene med henne, får du et

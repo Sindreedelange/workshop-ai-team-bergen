@@ -29,8 +29,23 @@ barn. Brukes i barnehage, skole og SFO.
 som sier hvilket formål og hvilken hjemmel kontrollen bygger på. Innbyggeren legger det
 ved søknaden til politiet. I sandkassen: `GET /api/vandel/formaal`.
 
+**BYA og BRA** - bebygd areal og bruksareal, de to arealmålene et byggetiltak vurderes
+mot. BYA er hvor stor del av tomten bygget dekker sett ovenfra, BRA er arealet innenfor
+veggene. Tiltakshjelpen spør om begge, fordi vilkårene i det nasjonale unntaket bruker
+dem hver for seg. Kommunens bygningskart oppgir bare BRA.
+
 **Fiks** - KS' plattform for felleskomponentene kommunene deler: registeroppslag, samtykke,
 oppgaver og utsending. I sandkassen etterlignes hele plattformen av `fiks-simulator` (`:8081`).
+
+**frisikt** - den frie sikten som må være i behold der en avkjørsel eller et kryss møter
+veien, slik at en bil både ser og blir sett. Et gjerde mot vei kontrolleres mot den, og
+Tiltakshjelpen setter den alltid til noe som må avklares framfor å avgjøre den fra kartet.
+
+**gesimshøyde og mønehøyde** - de to høydene et bygg måles på. Gesimshøyden er der veggen
+møter taket, mønehøyden er til toppen av taket. Begge måles fra gjennomsnittet av bakken
+rundt bygget etter at terrengarbeidene er gjort. I det nasjonale unntaket for
+frittliggende bygg er grensene 3 meter gesims og 4 meter møne
+(`apps/shared/frittliggende-regelgrunnlag.ts`).
 
 **gnr/bnr** - gårds- og bruksnummer: nummeret som identifiserer en matrikkelenhet (en eiendom)
 innenfor en kommune. Verktøyet `matrikkel_hent_eiendom` i `tools-api` slår opp på det.
@@ -38,6 +53,12 @@ innenfor en kommune. Verktøyet `matrikkel_hent_eiendom` i `tools-api` slår opp
 **grunnbok** - det tinglyste eierregisteret. Matrikkelen sier hva en eiendom er, grunnboken
 hvem som eier den - derfor ligger eierskapet i egen fil, `data/eierforhold.json`, som
 `matrikkel-mock` slår sammen med matrikkeldataene ved innlasting.
+
+**hensynssone** - et område der kommuneplanen sier at et særskilt hensyn gjelder,
+hjemlet i plan- og bygningsloven § 11-8: støy, fare for ras eller flom, eller et angitt
+hensyn som friluftsliv eller kulturmiljø. Sonen sier at hensynet gjelder for området,
+ikke om et tiltak er tillatt - det står i planbestemmelsene. Kodeverket er
+`apps/shared/hensynssoner.ts`.
 
 **hjemmel** - rettslig grunnlag for å gjøre noe, for eksempel lese en dataressurs. En `403`
 fra backend er hjemmelslaget som virker - feil hjemmel eller manglende samtykke - ikke en
@@ -53,9 +74,18 @@ navn som ikke står i modulen - det er ikke en liste å kopiere hit.
 innlasting (`apps/shared/skjerming.ts`): API-et viser «Skjermet person», mens seedfilen med
 vilje står i klartekst. Kode 7 (fortrolig adresse) gir nullet adresse.
 
+**KPA2018** - Bergens kommuneplan, arealdelen 2018-2030: plankartet og bestemmelsene som
+sier hva et areal i kommunen kan brukes til. Plankartet svares av `plan-mock` (`:8090`)
+fra ekte, åpne data; bestemmelsene ligger som PDF i dokumentbasen. § 31.3 er den eneste
+planbestemmelsen Tiltakshjelpen faktisk kontrollerer.
+
 **KRR** - Kontakt- og reservasjonsregisteret: innbyggerens e-post, telefon og eventuelle
 reservasjon mot digital post. Ligger i `data/krr.json`, serveres av `fiks-simulator`, og
 avgjør kanalen i SvarUt - reservert betyr print.
+
+**LNF** - landbruks-, natur- og friluftsformål: arealformålet for områder som ikke er
+satt av til utbygging. Det er ikke automatisk et nei til et byggetiltak, men det er det
+ene stedet Tiltakshjelpen i dag kan gi et fritak, fordi KPA2018 § 31.3 gjelder der.
 
 **Maskinporten-scope** - Maskinporten utsteder token til maskiner, og scopet i tokenet er
 selve hjemmelen: ett scope per Fiks-flate (`ks:fiks:samtykke`, `ks:fiks:svarut`, …). Et
@@ -65,6 +95,11 @@ etterlignes av `digdir-mock` (`:8086`).
 **matrikkel** - Norges offisielle register over eiendommer, adresser og bygninger
 (Kartverket). I sandkassen er det `matrikkel-mock` (`:8085`), som svarer på både SOAP og
 REST. Eierskap står ikke der - se grunnbok.
+
+**meldeplikt** - utfallet «du trenger ikke å søke, men må melde inn når du er ferdig å
+bygge». Det er det ene fritaket Tiltakshjelpen gir, og det ligger bak en hviteliste av
+vilkår i `apps/sandbox-backend/src/tiltakshjelpen.ts`: manglende kunnskap er aldri et
+fritak.
 
 **MinID** - den enkleste elektroniske ID-en, og den første man kan få: den kan bestilles fra
 det året man fyller 13. Derfor kan ingen testperson under 13 logge inn i sandkassen.
@@ -87,11 +122,23 @@ navngir de foresatte som kan være avsender. Regelen ligger i `apps/shared/handl
 rolle kommunen spør i. Den snevrer inn innenfor scopet: Folkeregisterflaten gir bare
 informasjonsdelene rollen har hjemmel til, og ukjent rolleId er `403 UKJENT_ROLLE`.
 
+**SAK10** - byggesaksforskriften, som sier hvilke tiltak som er unntatt fra
+søknadsplikt. § 4-1 er paragrafen Tiltakshjelpen vurderer mot. Forskriften med veiledning
+ligger i dokumentbasen - se [`docs/dokumentchat.md`](dokumentchat.md).
+
 **SvarUt** - Fiks-tjenesten for utsending av post fra det offentlige, digitalt eller på
 papir. Innsending oppretter en forsendelse hos `fiks-simulator`; KRR avgjør kanalen ved
 opprettelse, og statusen (MOTTATT → SENDT_DIGITALT/SENDT_PRINT → LEST/PRINTET) utledes av
 tiden siden.
 Kvitteringen vises i `/chat`.
+
+**teig** - et sammenhengende stykke av en matrikkelenhet. En eiendom kan bestå av flere
+teiger som ikke henger sammen, og det er teiggeometrien, ikke gnr/bnr, som sier hvor
+grensen går i kartet. `matrikkel-mock` svarer på `/mock/matrikkel/teiger`.
+
+**TEK17** - byggteknisk forskrift: kravene til hvordan noe skal bygges, blant annet
+høyder, avstander og brannsikring. Den avgjør ikke om du må søke; den gjelder uansett.
+Forskriften med veiledning ligger i dokumentbasen.
 
 **Tenor** - Skatteetatens testdatasøk, kilden til den syntetiske befolkningen. Et syntetisk
 fødselsnummer kjennes igjen på at 80 er lagt til måneden. Råuttrekkene ligger i `data/tenor/`.
