@@ -70,6 +70,7 @@ export function createTiltakshjelpenUtfylling(options: Options) {
   let fieldId = fields[0].id;
   let proposal: { fieldId: string; value: number | boolean | null; text: string } | null = null;
   let editing: { fieldId: string; message: string } | null = null;
+  let resumeIndex: number | null = null;
   let helping = false;
   let request: AbortController | null = null;
   const error = el("interview-error");
@@ -115,8 +116,7 @@ export function createTiltakshjelpenUtfylling(options: Options) {
 
   function changed(field: TiltakshjelpenInputField): void {
     if (saved.get(field.id) !== input(field).value || (!accepted.has(field.id) && unknown.has(field.id))) {
-      // Keep later drafts, but require a new review after changing their basis.
-      for (const later of fields.slice(fields.indexOf(field))) accepted.delete(later.id);
+      accepted.delete(field.id);
       saved.set(field.id, input(field).value);
       options.changed();
     }
@@ -165,6 +165,14 @@ export function createTiltakshjelpenUtfylling(options: Options) {
     return node;
   }
 
+  function updateChoiceState(choice: HTMLButtonElement, field: TiltakshjelpenInputField): void {
+    const selected = choice.dataset.value === input(field).value
+      && (choice.dataset.value !== "" || unknown.has(field.id));
+    choice.setAttribute("aria-pressed", String(selected));
+    if (selected) delete choice.dataset.variant;
+    else choice.dataset.variant = "secondary";
+  }
+
   function choiceButtons(field: TiltakshjelpenInputField, advance: boolean): HTMLButtonElement[] {
     const values: (boolean | null)[] = field.type === "valg" ? [true, false] : [];
     if (field.ukjentTillatt) values.push(null);
@@ -180,6 +188,7 @@ export function createTiltakshjelpenUtfylling(options: Options) {
       });
       choice.setAttribute("aria-label", `${field.label}: ${choice.textContent}`);
       choice.dataset.value = value === null ? "" : String(value);
+      updateChoiceState(choice, field);
       return choice;
     });
   }
@@ -228,8 +237,7 @@ export function createTiltakshjelpenUtfylling(options: Options) {
       input(candidate).disabled = locked;
       for (const choice of choices.get(candidate.id) || []) {
         choice.disabled = blocked;
-        choice.setAttribute("aria-pressed", String(choice.dataset.value === input(candidate).value
-          && (choice.dataset.value !== "" || unknown.has(candidate.id))));
+        updateChoiceState(choice, candidate);
       }
     }
     el<HTMLButtonElement>("field-previous").disabled = locked || index === 0;
@@ -250,7 +258,12 @@ export function createTiltakshjelpenUtfylling(options: Options) {
     const separator = /[.!?]$/.test(field.label) ? " " : ". ";
     el("dialog-question").textContent = `${field.label}${field.hint ? separator + field.hint : ""}` +
       (input(field).value || unknown.has(field.id) ? ` Nåværende svar: ${label(field)}.` : "");
-    el("field-next").textContent = el("dialog-next").textContent = index === groups.length - 1 ? "Se over svarene" : "Neste spørsmål";
+    const nextLabel = resumeIndex === groups.length
+      ? "Tilbake til oversikten"
+      : resumeIndex !== null
+        ? `Tilbake til spørsmål ${resumeIndex + 1}`
+        : index === groups.length - 1 ? "Se over svarene" : "Neste spørsmål";
+    el("field-next").textContent = el("dialog-next").textContent = nextLabel;
     const groupFields = el("dialog-group");
     groupFields.hidden = reviewing || mode !== "agent" || group.length < 2;
     groupFields.replaceChildren();
@@ -287,7 +300,8 @@ export function createTiltakshjelpenUtfylling(options: Options) {
           if (options.locked()) return;
           selectField(candidate);
           index = groupIndex(candidate);
-          editing = { fieldId: candidate.id, message: `Du endrer «${candidate.label}». Nåværende svar er ${label(candidate)}. Senere svar beholdes, men må gjennomgås hvis du endrer dette svaret.` };
+          resumeIndex = groups.length;
+          editing = { fieldId: candidate.id, message: `Du endrer «${candidate.label}». Nåværende svar er ${label(candidate)}. Senere svar beholdes, og du går tilbake til oversikten når svaret er bekreftet.` };
           render();
           focusAnswer();
         });
@@ -308,7 +322,8 @@ export function createTiltakshjelpenUtfylling(options: Options) {
     clearConversation();
     for (const field of group) accepted.add(field.id);
     editing = null;
-    index++;
+    index = resumeIndex !== null && resumeIndex > index ? resumeIndex : index + 1;
+    resumeIndex = null;
     if (index < groups.length) selectField(groups[index][0]);
     else textInput.value = "";
     render();
@@ -344,6 +359,7 @@ export function createTiltakshjelpenUtfylling(options: Options) {
       if (options.locked() || index === 0) return;
       rememberDraft();
       clearConversation();
+      resumeIndex ??= index;
       index--;
       selectField(groups[index][0]);
       editing = null;
