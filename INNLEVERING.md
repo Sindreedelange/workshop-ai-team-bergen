@@ -97,6 +97,85 @@ bak samtykkeporten. Hvert modellkall ligger i KI-sporet med prompt, svar og tenk
 **I utviklingen.** Claude Code, brukt til kode, tester og dokumentasjon. Vi har lest og
 svart for alt som er sjekket inn.
 
+## Slik kan du etterprøve det
+
+Hver påstand under har et sted å se etter. Kjør kommandoen, eller åpne filen.
+
+### Det tekniske grunnlaget
+
+Reglene er rene funksjoner uten I/O. `apps/sandbox-backend/src/vilkaar.ts` og
+`tiltakshjelpen.ts` tar tilstanden inn som en parameter, så et utfall kan pinnes med et
+literal og uten en eneste kjørende tjeneste. Det er dette som gjør at en vurdering kan
+etterprøves i stedet for å måtte stoles på.
+
+Flytkartet fra Plan- og bygningsetaten er skrevet ut node for node, og de tre stedene
+koden med hensikt svarer noe annet enn kartet, er pinnet som avvik framfor å bli stille
+borte. `pnpm test:flytkart` kjører 57 tilfeller fra kartet mot regelen som faktisk kjører.
+
+En påstand uten en navngitt sjekk er et ønske, så påstandene har sjekker:
+`pnpm test:imports` (importgrafen mellom tjenestene er en DAG), `pnpm test:openapi`
+(hver rute dokumentert, begge veier), `pnpm test:kodeverk` (et kodeverk ingen leser er en
+påstand koden ikke innfrir) og `pnpm test:docs`, som fanget to reelle feil i README-en
+mens den ble skrevet. Ingen av dem trenger modell eller kjørende stack.
+
+`pdf-extractor` beholder side, koordinater og metode gjennom hele kjeden fra PDF til
+vektortreff, så et svar kan spores tilbake til siden det står på. Alt dette uten
+byggesteg og med én avhengighet i kjøretid.
+
+### Sperrene rundt modellen
+
+Det interessante er ikke at vi kaller en modell. Det er hva vi hindrer den i å gjøre.
+
+**Modellen kan ikke gjøre utfallet mildere enn reglene.** Klemmen i
+`apps/ai-gateway/src/tiltakshjelpen-raad.ts` leser modellens egne setninger, ikke bare
+utfallsfeltet, og forkaster tillatende prosa som motsier vurderingen. Den skiller
+modellens egne ord fra det som er sitert fra regelen, fordi den første versjonen traff
+reglenes egne forbehold og byttet ut rådet i fem av sju grener.
+`pnpm test:tiltakshjelpen-raad` pinner begge retninger.
+
+**Tenking er en målt beslutning per oppgave, ikke en global bryter.** Policyen er
+`OPPGAVE_REASONING`, hver oppgave står der med målingen som er grunnen, og
+`pnpm test:reasoning` gjør en ny oppgave rød i stedet for at den arver «tenker ikke» i
+stillhet. Selve tenkingen havner i `/trace` som en egen blokk: en reasoning-modell uten
+tenkingen i sporet er mindre etterprøvbar enn en modell uten tenking, ikke mer.
+
+**Sperrene ligger i kode, ikke i prompten.** `apps/ai-gateway/src/sporsmaalsperrer.ts` er
+en modul uten avhengigheter nettopp så den kan testes: `pnpm test:sperrer`. Og
+`/ai/sporsmaal` har ingen egen datatilgang, så den kan strukturelt ikke nå data bak
+samtykkeporten, uansett hva noen skriver inn i feltet.
+
+**Gjenfinningen er forankret, ikke fri.** Dokumentchatten svarer bare fra utdragene søket
+faktisk fant, med dokument og side under hvert svar, og et treff i en PDF gjør aldri et
+vilkår kontrollert på egen hånd.
+
+### Det innbyggeren møter
+
+**Tjenesten begynner ikke med et skjema.** Den begynner med at innbyggeren beskriver
+tiltaket sitt med egne ord, og så henter tjenesten det den trenger selv: eiendom,
+kartutsnitt, arealformål, reguleringsplan, hensynssoner og bebyggelse. Innbyggeren blir
+ikke bedt om å slå opp noe hun ikke har forutsetning for å finne.
+
+**Svaret kommer før du bygger, ikke etter.** Det er hele poenget: de 700 tilsynssakene er
+samtaler som skjer for sent.
+
+**«Må avklares» er et ekte svar, ikke en feil.** Der tjenesten ikke kan avgjøre, sier den
+det, og gir kontaktinformasjonen til kommunens veiledere i stedet for å gjette.
+`pnpm test:tiltakshjelpen` pinner det.
+
+**Siden sier hva som skjer når en kilde er treg.** Bergens bygningskart svarer av og til
+ikke, og da byttes statuslinjen ut etter 2,5, 6 og 13 sekunder med tekst som navngir
+kommunen, at oppslaget prøves på nytt, og hva som skjer hvis kilden forblir taus. Uten
+det sto én etikett stille i opptil tolv sekunder og siden leste som hengt.
+
+**Hvert ledd har kilde og forbehold.** Innbyggeren ser hva svaret hviler på, og hvor det
+er usikkert, framfor et grønt eller rødt lys uten begrunnelse.
+
+**Ingen søknad sendes inn.** Casen gir veiledning, og sier uttrykkelig at et nasjonalt
+unntak ikke er en byggetillatelse.
+
+Det vi ikke har: dette er ikke testet på ekte innbyggere. Vurderingene over er om hva
+løsningen gjør, ikke målinger av hva folk faktisk får til.
+
 ## Det som ikke ble ferdig
 
 - **Dokumentchatten er ikke lenket fra oversikten** på `:3001`, og står ikke i

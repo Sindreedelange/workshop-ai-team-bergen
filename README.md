@@ -189,7 +189,7 @@ Hvem som svarer på hva, og hva svaret er verdt:
 | Hvordan forklares det? | `ai-gateway` mot Telenor AI Factory | Kan ikke gjøre utfallet mildere enn reglene |
 
 Den siste raden er en sperre i kode, ikke en instruks i prompten:
-`apps/sandbox-backend/src/tiltakshjelpen-raad.ts` leser modellens egne setninger og avviser
+`apps/ai-gateway/src/tiltakshjelpen-raad.ts` leser modellens egne setninger og avviser
 prosa som gjør utfallet mildere enn den deterministiske vurderingen.
 
 ### Dokumentchatten, to kall per spørsmål
