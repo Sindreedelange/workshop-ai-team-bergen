@@ -32,6 +32,11 @@ søknadspliktig, med kilde på hvert ledd. Svaret er veiledning, ikke et vedtak:
 nasjonalt unntak er ikke en byggetillatelse, og det tjenesten ikke kan avgjøre, sier den
 at må avklares.
 
+Bergen er caset vårt, men problemet er ikke Bergens. Regelverket er nasjonalt, og skalert
+til hele landet er potensialet 12 til 75 kommunale årsverk i året og 27 000 til 214 000
+timer spart hos innbyggerne. Hvordan vi kommer dit, og de fire forbeholdene som hører
+med, står i [Bergen er én av 357](#bergen-er-én-av-357).
+
 ## Hva de 700 sakene koster
 
 Et overslag, ikke et regnskap. Under står forutsetningene hver for seg, slik at den som

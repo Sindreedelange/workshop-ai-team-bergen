@@ -19,23 +19,28 @@ skrevet ut node for node i
 [`docs/flytkart-tiltakssjekk.md`](docs/flytkart-tiltakssjekk.md), med en kolonne som sier
 hvor koden er enig med kartet og hvor den med vilje ikke er det.
 
-Bakgrunnen er at det i 2025 ble meldt inn 700 tilsynssaker på boligtiltak manuelt, hver
-med to tilsynsbetjenter. De nasjonale veilederne stopper der spørsmålet blir konkret, og
-henviser til de lokale planene som innbyggeren selv må finne fram i. Vårt overslag, med
-forutsetningene i [`README.md`](README.md#hva-de-700-sakene-koster), er at en avklaring på
-forhånd kan spare 0,7 til 4 kommunale årsverk i året, og 1 400 til 11 200 timer hos
-innbyggerne.
+Regelverket tjenesten avgjør etter er nasjonalt, og verdien av å avklare før spaden går i
+jorden er derfor nasjonal. Skalert til hele landet er potensialet **12 til 75 kommunale
+årsverk i året** og **27 000 til 214 000 timer spart hos innbyggerne** - om lag 13 400
+tilsynssaker som ikke trenger å oppstå. Målt mot Bergens egne satser for medgått tid er
+det 40 til 307 millioner kroner i året. Det er en størrelsesorden og ikke et budsjett, og
+de fire forbeholdene står i [`README.md`](README.md#bergen-er-én-av-357).
 
-Og det er **én kommune av 357**. Bergen er piloten, ikke grensen: regelen tjenesten
-avgjør etter er nasjonal - SAK10 § 4-1, TEK17 og plan- og bygningsloven er de samme i
-hele landet - og adresse- og eiendomsoppslagene går mot Kartverket og Geonorge, som
-dekker hele landet. Det som er lokalt, er pekerne til kommunens kart og kommunens
-meldeskjema, og en ny kommune er derfor en oppføring i
-`apps/shared/tiltakshjelpen-kommuner.ts` framfor ny kode. Skalert med befolkningsandelen
-blir intervallet over 12 til 75 kommunale årsverk i året og 27 000 til 214 000
-innbyggertimer. Det er en størrelsesorden og ikke et budsjett, og forbeholdene står i
-[`README.md`](README.md#bergen-er-én-av-357) - men forskjellen er reell: arbeidet med
-kommune nummer to er å finne fram til tre kartlag, ikke å skrive regelverket på nytt.
+**Tallene er regnet ut fra Bergen, som har vært caset vårt.** I 2025 ble det meldt inn 700
+tilsynssaker på boligtiltak manuelt, hver med to tilsynsbetjenter. Det er arbeid som
+oppstår etter at noe alt er bygget, og det oppstår fordi de nasjonale veilederne stopper
+der spørsmålet blir konkret og henviser til de lokale planene innbyggeren selv må finne
+fram i. Med forutsetningene i [`README.md`](README.md#hva-de-700-sakene-koster) kan en
+avklaring på forhånd spare 0,7 til 4 kommunale årsverk i året i Bergen alene, og 1 400 til
+11 200 timer hos innbyggerne. Bergen har 5,2 prosent av landets befolkning, og det er den
+andelen tallene over er skalert med.
+
+**Bergen er piloten, ikke grensen.** SAK10 § 4-1, TEK17 og plan- og bygningsloven er de
+samme i hele landet, og adresse- og eiendomsoppslagene går mot Kartverket og Geonorge, som
+også dekker hele landet. Det som er lokalt, er pekerne til kommunens kart og kommunens
+meldeskjema, så kommune nummer to er en oppføring i
+`apps/shared/tiltakshjelpen-kommuner.ts` framfor ny kode. Arbeidet er å finne fram til tre
+kartlag, ikke å skrive regelverket på nytt.
 
 Nytt i forhold til sandkassen slik den kom, er tre ting: selve Tiltakshjelpen,
 `pdf-extractor` med kildeforankret uttrekk og vektorsøk i lover, forskrifter og
@@ -91,18 +96,25 @@ Ingen eksterne repoer. Alt ligger i forken, presentasjonen inkludert:
 
 ## Slik brukte vi KI
 
-**I løsningen.** Modellene kjører på Telenor AI Factory, og vi bruker tre av dem:
-`NVIDIA-Nemotron-3-Super-120B-A12B-FP8` til de tunge oppgavene der tenking er målt å
-lønne seg, `GLM-5.2-FP8` og `Qwen3-Coder-Next-FP8` ellers. Tenking er en avgjørelse per
-oppgave, ikke en global bryter, og hver oppgave står med målingen som er grunnen.
+**I løsningen.** All KI innbyggeren møter går gjennom Telenor AI Factory, og ingen annen
+leverandør er i bildet. Vi bruker tre modeller der:
+`NVIDIA-Nemotron-3-Super-120B-A12B-FP8` til de tunge oppgavene der tenking er målt å lønne
+seg, `GLM-5.2-FP8` og `Qwen3-Coder-Next-FP8` ellers. Tenking er en avgjørelse per oppgave,
+ikke en global bryter, og hver oppgave står med målingen som er grunnen. Ett unntak finnes,
+og det ligger utenfor innbyggerveien: skal en dokumentside leses som bilde, går kallet til
+en lokal Ollama-modell (`qwen3-vl:4b`), fordi ingen av de tre modellene på AI Factory tar
+imot bilder.
 
 **Det modellen ikke får gjøre.** Den avgjør ingenting. Vilkårene vurderes deterministisk
 utenfor modellen, så et utfall kan reproduseres. Modellen formulerer: den forklarer et
 utfall den ikke har regnet ut, og den kan ikke gjøre det mildere enn reglene. Svarene i
 dokumentchatten er bundet til de utdragene søket faktisk fant.
 
-**I utviklingen.** Claude Code, brukt til kode, tester og dokumentasjon. Vi har lest og
-svart for alt som er sjekket inn.
+**I utviklingen.** Claude Code til kode, tester og dokumentasjon, GitHub Copilot ved siden
+av, og OpenCode med Telenor AI Factory som modelleverandør - altså samme leverandør
+tjenesten selv kjører på. Det er også der vi målte modellene mens vi valgte dem, og de
+målingene er grunnen til at reasoning-policyen ser ut som den gjør. Vi har lest og svart
+for alt som er sjekket inn.
 
 Hvordan vi vet at dette stemmer, står i seksjonen under. Der er hver påstand over knyttet
 til en fil du kan åpne eller en kommando du kan kjøre.
@@ -207,6 +219,14 @@ løsningen gjør, ikke målinger av hva folk faktisk får til.
 
 ## Det som ikke ble ferdig
 
+- **Vi mangler ledningsdata fra Vann- og Avløpsetaten.** «Ikke over vann- eller
+  avløpsledninger» er et av vilkårene i det nasjonale unntaket, og det er det ene
+  vilkåret tjenesten må *spørre* innbyggeren om - `overVannAvlop`, med «vet ikke» som
+  gyldig svar - framfor å slå det opp selv. Grunnen er ikke at vi ikke kom i gang:
+  ledningskartet er ikke åpent tilgjengelig slik de øvrige kartlagene er, fordi vann- og
+  avløpsnettet er kritisk infrastruktur og skjermet etter beredskapslovverket. Med tilgang
+  til de dataene ville dette leddet blitt slått opp for innbyggeren, slik eiendom,
+  arealformål og bebyggelse blir i dag.
 - **Bare Bergen har en oppføring.** De øvrige 356 kommunene får en tom kildeliste og
   «må avklares», med vilje: en kommune uten oppsett skal aldri arve Bergens kart eller
   regler. Hvor mye arbeid de andre oppføringene er, har vi ikke undersøkt - ikke alle
