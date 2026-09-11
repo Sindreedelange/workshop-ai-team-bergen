@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { buildGarasjeRaadPrompt, validateGarasjeRaad } from "../apps/ai-gateway/src/garasje-raad.ts";
+import { buildGarasjeRaadFallback, buildGarasjeRaadPrompt, harTillatendeProsa, validateGarasjeRaad } from "../apps/ai-gateway/src/garasje-raad.ts";
 import { GARASJE_UTFALL, GARASJE_UTFALL_FRITAR } from "../apps/shared/garasje.ts";
 import { createServer, type Server } from "node:http";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -41,6 +41,84 @@ for (const raad of ["Du kan bygge uten å søke.", "Du trenger ikke søke.", "Pl
   assert.notEqual(result.raad, raad, "Også grønn prosa med et allerede konservativt utfallsfelt må erstattes");
   assert.ok(result.overstyrt);
 }
+/*
+ * Klemmen skal lese modellens løfte, ikke regelens forbehold.
+ *
+ * Målt mot en lokal modell ble rådet erstattet i fem av sju grener, og hver gang
+ * på reglenes egen tekst: sjekken `hensynssoner` sier at sonen «sier at et hensyn
+ * gjelder for området, ikke om tiltaket er tillatt», og modellen gjentok den fordi
+ * prompten ber om det. Advarselen «før du kan bygge» slo ut på samme måte. Begge
+ * er det motsatte av en tillatelse.
+ */
+const sitertForbehold = {
+  utfall: "maa_avklares",
+  uavklarteForhold: ["Sonen sier at et hensyn gjelder for området, ikke om tiltaket er tillatt."],
+  sjekker: [{ id: "hensynssoner", status: "uavklart", forklaring: "Skissepunktet ligger inne i sonen. Sonen sier at et hensyn gjelder for området, ikke om tiltaket er tillatt." }]
+};
+const beholdt = kreves(validateGarasjeRaad({
+  antattUtfall: "maa_avklares",
+  raad: "Gjerdet må avklares med kommunen før du kan bygge. Planbestemmelsen i § 7 bokstav d krever godkjenning.",
+  maaAvklares: ["Sonen sier at et hensyn gjelder for området, ikke om tiltaket er tillatt."],
+  begrunnelse: "Planbestemmelsene og hensynssonene er ikke kontrollert."
+}, sitertForbehold), "et forbehold sitert fra regelen");
+assert.equal(beholdt.overstyrt, undefined, "et sitat fra regelen er ikke modellens løfte om tillatelse");
+assert.match(beholdt.raad, /§ 7 bokstav d/, "den konkrete begrunnelsen skal nå innbyggeren");
+assert.match(beholdt.begrunnelse, /ikke kontrollert/);
+
+// Meldeplikt er også et fritak, og klemmen leser hele kodeverket og ikke ett navn.
+const forsoktMeldeplikt = kreves(validateGarasjeRaad({
+  antattUtfall: "meldeplikt",
+  raad: "Meld tiltaket inn til kommunen når det er ferdig.",
+  maaAvklares: [], begrunnelse: "Vilkårene ser oppfylt ut."
+}, uavklart), "et meldepliktforslag mot en uavklart vurdering");
+assert.equal(forsoktMeldeplikt.antattUtfall, "maa_avklares", "modellen kan ikke gi fritak med meldeplikt");
+assert(forsoktMeldeplikt.overstyrt?.includes("maa_avklares"));
+const meldepliktFraRegel = kreves(validateGarasjeRaad({
+  antattUtfall: "meldeplikt",
+  raad: "Meld tiltaket inn til kommunen når det er ferdig bygget.",
+  maaAvklares: [], begrunnelse: "Vilkårene i hvitelisten er oppfylt."
+}, { utfall: "meldeplikt", uavklarteForhold: [] }), "et meldepliktråd når regelen sa meldeplikt");
+assert.equal(meldepliktFraRegel.antattUtfall, "meldeplikt");
+assert.equal(meldepliktFraRegel.overstyrt, undefined);
+assert.doesNotMatch(meldepliktFraRegel.raad, /byggesaksveileder/,
+  "et fritak skal ikke få påklistret setningen om å ta forholdene til byggesaksveilederen");
+/*
+ * Klemmens predikat er «mildere enn reglene», og prosasjekken er bare et anslag på
+ * det. Har reglene selv gitt fritaket, må anslaget være av: ellers kastes et riktig
+ * råd om meldeplikt fordi det sier sant at innbyggeren ikke trenger å søke.
+ */
+const meldepliktGrunnlag = { utfall: "meldeplikt", uavklarteForhold: [], sjekker: [] };
+const riktigMeldeplikt = kreves(validateGarasjeRaad({
+  antattUtfall: "meldeplikt",
+  raad: "Du trenger ikke å søke for denne garasjen, men du må melde den inn til kommunen når den er ferdig.",
+  maaAvklares: [], begrunnelse: "Vilkårene i hvitelisten er oppfylt."
+}, meldepliktGrunnlag), "et råd som gjentar reglenes eget fritak");
+assert.equal(riktigMeldeplikt.overstyrt, undefined,
+  "«du trenger ikke å søke» er reglenes eget svar når utfallet er meldeplikt, ikke modellens løfte");
+assert.match(riktigMeldeplikt.raad, /melde den inn/);
+
+// Og plikten må stå i teksten selv når modellen glemmer den, siden prosasjekken er
+// av for denne grenen.
+const glemtMelding = kreves(validateGarasjeRaad({
+  antattUtfall: "meldeplikt", raad: "Du trenger ikke å søke for denne garasjen.", maaAvklares: []
+}, meldepliktGrunnlag), "et fritaksråd uten meldeplikten");
+assert.match(glemtMelding.raad, /Husk å melde tiltaket inn til kommunen når det er ferdig bygget/);
+assert.equal(glemtMelding.overstyrt, undefined);
+
+const meldepliktReserve = buildGarasjeRaadFallback({ utfall: "meldeplikt", uavklarteForhold: [] });
+assert.equal(meldepliktReserve.antattUtfall, "meldeplikt");
+assert.match(meldepliktReserve.raad, /meldes inn til kommunen når det er ferdig bygget/);
+
+assert(!harTillatendeProsa("sonen sier at et hensyn gjelder for området, ikke om tiltaket er tillatt."));
+assert(!harTillatendeProsa("avklar dette med kommunen før du kan bygge."));
+assert(!harTillatendeProsa("det er ikke avklart om du kan bygge uten å søke."));
+assert(harTillatendeProsa("du kan bygge uten å søke."));
+assert(harTillatendeProsa("du trenger ikke søke."));
+assert(harTillatendeProsa("planbestemmelsene er kontrollert."));
+assert(harTillatendeProsa("tiltaket er lovlig."));
+assert(harTillatendeProsa("du trenger ikke søke, og tiltaket er tillatt."),
+  "et nektende ord lenger tilbake i setningen gjelder et annet verb og skal ikke slippe løftet gjennom");
+
 const manyConditions = Array.from({ length: 15 }, (_, i) => `${i}: ${"vilkår ".repeat(70)}Behold siste setning.`);
 const complete = kreves(validateGarasjeRaad({ raad: "Kontakt byggesaksveilederen.", maaAvklares: ["Nytt punkt"] },
   { ...uavklart, uavklarteForhold: manyConditions }), "lange regelvilkår");
@@ -100,7 +178,7 @@ const prompt = buildGarasjeRaadPrompt(
   uavklart
 );
 assert(prompt.includes("«maa_avklares»"), "prompten skal si hva reglene allerede har avgjort");
-assert(prompt.includes("Bare reglene kan si at noe ikke er søknadspliktig."));
+assert(prompt.includes("Bare reglene kan si at noe ikke er søknadspliktig, og bare reglene kan si at det holder å melde inn."));
 assert(prompt.includes("aldri fravær av begrensninger"));
 assert(!/fødselsnummer|personId/i.test(prompt));
 const projectedPrompt = buildGarasjeRaadPrompt({}, { ...uavklart, personId: "SKAL_IKKE_MED",

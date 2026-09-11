@@ -60,7 +60,7 @@ function readNumber(sok: URLSearchParams, felt: string, min: number, max: number
 export function readGarasjeTiltakJson(sok: URLSearchParams): unknown {
   const tekst = sok.get("tiltak");
   if (!tekst || tekst.length > 5000) {
-    throw new HttpError("Garasjeopplysninger er påkrevd i tiltak (maks 5000 tegn).", 400);
+    throw new HttpError("Opplysninger om tiltaket er påkrevd i tiltak (maks 5000 tegn).", 400);
   }
   try {
     return JSON.parse(tekst);

@@ -89,6 +89,12 @@ jobs:
       - name: Tiltakssjekk, adresser og plangrunnlag
         run: pnpm test:garasje
 
+      # The flowchart in data/ is the only record of what the caseworker meant each
+      # branch to do, and docs/flytkart-tiltakssjekk.md says where the code agrees.
+      # This pins both the agreements and the three deliberate divergences.
+      - name: Flytkartet, gren for gren
+        run: pnpm test:flytkart
+
       # Modulus 11 and Skatteetaten's +80 marker, as pure functions. The seed only
       # contains numbers we generate, so every *rejection* - an ordinary month, a
       # wrong second control digit, an individual number whose mod-11 rest is 10 -

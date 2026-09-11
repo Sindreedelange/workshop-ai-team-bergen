@@ -1,10 +1,15 @@
-import type { GarasjeGrunnlag, GarasjePolygon, GarasjePunkt, GarasjeSjekk, GarasjeTiltak, GarasjeVurdering } from "../../shared/garasje.ts";
+import type { GarasjeGrunnlag, GarasjePlanflate, GarasjePolygon, GarasjePunkt, GarasjeSjekk, GarasjeTiltak, GarasjeVurdering } from "../../shared/garasje.ts";
+import { hensynssonenavn } from "../../shared/garasje.ts";
+import { soneHindrerFritak } from "../../shared/hensynssoner.ts";
 import { HttpError } from "./errors.ts";
 import { GARASJE_NASJONALE_KRAV } from "../../shared/garasje-regelgrunnlag.ts";
 import { findGarasjeKommunekilder } from "../../shared/garasje-kommuner.ts";
 import { KPA2018_SONEKILDE } from "../../shared/arealsoner.ts";
 import { ringerInneholder } from "../../shared/geometri.ts";
 import { getByggetiltakSporsmaal, isByggetiltakstype, type Byggetiltak, type ByggetiltakInput, type Byggetiltakstype } from "../../shared/byggetiltak.ts";
+
+/** En hensynssone slik grunnlaget bærer den: `sonenavn` og `hensynstype` finnes bare her. */
+type Hensynsflate = Extract<GarasjePlanflate, { kategori: "hensynssone" }>;
 
 export const GARASJE_SAK10_URL = GARASJE_NASJONALE_KRAV.kilde;
 export const GARASJE_KPA_URL = findGarasjeKommunekilder(KPA2018_SONEKILDE.kommunenummer)!.kpa.bestemmelserUrl;
@@ -237,6 +242,78 @@ export function getByggetiltakPlanvarsler(tiltakstype: Byggetiltakstype, grunnla
   return sjekker;
 }
 
+/**
+ * Kartets grønne gren: «Du trenger ikke å søke, men må melde inn etter du er ferdig
+ * å bygge.»
+ *
+ * Dette er det ene stedet piloten sier at et tiltak ikke er søknadspliktig, og
+ * vilkårene er derfor en hviteliste og ikke «ingen sjekk er uavklart». Sjekkene
+ * `kommuneplan`, `reguleringsplan` og `hensynssoner` er uavklarte ved design - de
+ * navngir et forhold i stedet for å avgjøre det - så et krav om at ingenting er
+ * uavklart ville aldri slått til, og et krav om at bare noen få er uavklarte ville
+ * sluppet gjennom hva som helst.
+ *
+ * Hvert ledd står her fordi det mangler noe uten det:
+ *
+ *  - `frittliggende`, fordi kartet bare har denne grenen. Tilbygg har et
+ *    avstandsvilkår i pbl. § 29-4 som ingen har lest, gjerde har planbestemmelsen
+ *    om utførelse og farge, og fasade er et skjønn kommunen tar. Leddet kan ikke
+ *    felle et kall alene i dag: `kommuneplanOppfylt` kan bare bli sann for et
+ *    frittliggende bygg, fordi det er den eneste grenen 1-metersvilkåret nedenfor
+ *    gjelder for. Det står likevel, slik at hvitelisten sier hva den krever i
+ *    stedet for å arve det fra en annen sjekk.
+ *  - `nasjonaltUnntak === "oppfylt"`, altså alle vilkårene i SAK10 § 4-1 første ledd
+ *    bokstav a besvart og innenfor. Et ukjent svar er ikke oppfylt.
+ *  - `punktPaaEiendom === true`, fordi et fritak for en plassering utenfor
+ *    eiendommen ikke gjelder noe.
+ *  - `alleKilderOk`, fordi et mislykket kartoppslag aldri skal leses som fravær av
+ *    begrensninger. Dette leddet er også grunnen til at utfallet kan variere mellom
+ *    to ellers like kjøringer: bygningslaget hos kommunen svarer ikke alltid.
+ *  - `kommuneplan === "oppfylt"`, som i dag bare kan skje i LNF med mer enn 1 m til
+ *    nabogrensen, altså KPA2018 § 31.3. Det er den eneste planbestemmelsen piloten
+ *    faktisk kontrollerer. Utenfor LNF står bestemmelsene ulest, og da er «må
+ *    avklares» det sanne svaret selv om sonen er en byggesone.
+ *  - ingen reguleringsplan traff eiendommen, fordi en plan går foran kommuneplanen
+ *    og bestemmelsene i den ikke er lest.
+ *  - ingen faresone berører eiendommen. Dette er en tilføyelse til regelen om at en
+ *    hensynssone navngis og ikke avgjør: en sone kan fortsatt ikke gjøre et tiltak
+ *    søknadspliktig, men den kan holde tilbake et fritak, fordi et fritak er en
+ *    påstand om at alt som gjelder er kontrollert. Støy- og angitthensynssoner
+ *    stopper det ikke; de navngis i stedet i sjekkens tekst.
+ *  - kommunen har et meldeskjema. Uten det vet vi ikke hvor innbyggeren skal melde.
+ */
+function vurderMeldeplikt(input: {
+  tiltakstype: Byggetiltakstype;
+  nasjonaltUnntak: "oppfylt" | "brudd" | "uavklart";
+  punktPaaEiendom: boolean | null;
+  alleKilderOk: boolean;
+  kommuneplanOppfylt: boolean;
+  hensynssoner: Hensynsflate[];
+  grunnlag: GarasjeGrunnlag;
+}): GarasjeSjekk | null {
+  const { tiltakstype, nasjonaltUnntak, punktPaaEiendom, alleKilderOk, kommuneplanOppfylt, hensynssoner, grunnlag } = input;
+  // Feltlesningene først, og oppslagene etter: de fem over avviser nesten hvert
+  // kall, og da er det ingen grunn til å gå gjennom sonene eller registeret.
+  if (tiltakstype !== "frittliggende" || nasjonaltUnntak !== "oppfylt" || punktPaaEiendom !== true
+    || !alleKilderOk || !kommuneplanOppfylt || grunnlag.reguleringsplaner.length > 0) {
+    return null;
+  }
+  const kommune = findGarasjeKommunekilder(grunnlag.adresse.kommunenummer);
+  if (hensynssoner.some(sone => soneHindrerFritak(sone.hensynstype)) || !kommune?.meldeskjemaUrl) return null;
+  return {
+    id: "meldeplikt", navn: "Meld inn når tiltaket er ferdig", status: "oppfylt", kilde: kommune.meldeskjemaUrl,
+    bestemmelse: [kommune.navn, kommune.kpa.versjon, kommune.kpa.lnfBestemmelse].filter(Boolean).join(" "),
+    forklaring: "Alle de kontrollerte nasjonale vilkårene er oppfylt, kartkildene svarte, punktet ligger på eiendommen, "
+      + "og vilkåret denne flyten bruker fra kommuneplanbestemmelsen er oppfylt. Ingen reguleringsplan og ingen faresone berører eiendommen. "
+      + "Tiltaket skal likevel meldes inn til kommunen når det er ferdig bygget."
+      // Sonene som står igjen kan bare være de som ikke hindrer fritaket; guarden over
+      // har allerede avvist resten.
+      + (hensynssoner.length
+        ? ` Eiendommen berøres av ${hensynssoner.map(hensynssonenavn).join(", ")}. Sonen gjør ikke tiltaket søknadspliktig, men den kan stille krav til utførelsen.`
+        : ""),
+  };
+}
+
 export function evaluateGarasje(tiltak: GarasjeTiltak | ByggetiltakInput, grunnlag: GarasjeGrunnlag): GarasjeVurdering {
   const t = validateByggetiltak(tiltak);
   const tiltakstype = "tiltakstype" in t ? t.tiltakstype : "frittliggende";
@@ -259,9 +336,9 @@ export function evaluateGarasje(tiltak: GarasjeTiltak | ByggetiltakInput, grunnl
         : "Skissepunktet ligger utenfor den kartlagte eiendomsteigen ved valgt adresse. Flytt punktet eller avklar eiendomsgrensen. Dette er ikke en vurdering av søknadsplikt eller byggetillatelse på en annen eiendom.",
   });
   const plankilde = grunnlag.kilder.find(k => k.id === "planflater");
-  const hensynssoner = grunnlag.planflater.filter(f => f.kategori === "hensynssone");
-  const navngi = (f: typeof hensynssoner[number]) =>
-    `${f.navn}${f.sonenavn ? ` ${f.sonenavn}` : ""}${f.kildetekst ? ` (${f.kildetekst})` : ""}`
+  const hensynssoner: Hensynsflate[] = grunnlag.planflater.filter(f => f.kategori === "hensynssone");
+  const navngi = (f: Hensynsflate) =>
+    `${hensynssonenavn(f)}${f.kildetekst ? ` (${f.kildetekst})` : ""}`
     + `, som ${f.berorer === "helt" ? "dekker hele den kartlagte eiendommen" : "berører deler av den kartlagte eiendommen"}`
     + `. Skissepunktet ligger ${containsPunkt(grunnlag.punkt, f) ? "inne i" : "utenfor"} sonen.`;
   const bestemmelseskilde = findGarasjeKommunekilder(grunnlag.adresse.kommunenummer)?.kpa.bestemmelserUrl || GARASJE_SAK10_URL;
@@ -314,36 +391,54 @@ export function evaluateGarasje(tiltak: GarasjeTiltak | ByggetiltakInput, grunnl
         : "Ingen hensynssone i KPA2018-uttrekket berører den kartlagte eiendommen. Uttrekket er fra 2018 og dekker ikke byggegrenser, "
           + "reguleringsplanens egne soner eller forhold utenfor kommuneplanen.",
   });
+  let alleKilderOk = true;
   for (const id of ["adresse", "kpa", "reguleringsplan", "eiendomsgrenser", "bygninger", "planflater"]) {
     const kilde = grunnlag.kilder.find(k => k.id === id);
     if (!kilde || (kilde.status !== "ok" && !(id === "reguleringsplan" && kilde.status === "ingen_treff"))) {
+      alleKilderOk = false;
       sjekker.push({
         id: `kilde-${id}`, navn: `Datagrunnlag: ${kilde?.navn ?? id}`, status: "uavklart",
         forklaring: kilde?.merknad ?? "Datagrunnlaget mangler eller er ikke avklart.", kilde: kilde?.url ?? GARASJE_KPA_URL,
       });
     }
   }
+  const meldeplikt = vurderMeldeplikt({
+    tiltakstype, nasjonaltUnntak, punktPaaEiendom, alleKilderOk, grunnlag, hensynssoner,
+    kommuneplanOppfylt: lnfSjekk?.status === "oppfylt",
+  });
+  if (meldeplikt) sjekker.push(meldeplikt);
+  // Det første forbeholdet sier at planbestemmelsene må avklares, og det er sant
+  // for hvert utfall unntatt ett: er fritaket gitt, er bestemmelsen som gjelder
+  // eiendommen nettopp lest. Sto den setningen også der, ville innbyggeren lese
+  // «Ja, men du må melde inn» og rett etterpå at ingenting er kontrollert.
   const uavklarteForhold = [...new Set([
     ...grunnlag.uavklarteForhold,
-    "Gjeldende planbestemmelser, byggegrenser og tillatt utnyttelse må avklares for hele tiltaket. Hensynssonene er navngitt fra et frosset KPA2018-uttrekk, ikke lest ut av bestemmelsene.",
+    meldeplikt
+      ? "Vilkåret denne flyten bruker fra kommuneplanbestemmelsen er oppfylt, men bestemmelsesteksten er ikke lest maskinelt. Byggegrenser og tillatt utnyttelse for hele tiltaket er ikke kontrollert, og hensynssonene er navngitt fra et frosset KPA2018-uttrekk."
+      : "Gjeldende planbestemmelser, byggegrenser og tillatt utnyttelse må avklares for hele tiltaket. Hensynssonene er navngitt fra et frosset KPA2018-uttrekk, ikke lest ut av bestemmelsene.",
     "Ledningskart, flom, skred, grunnforhold, kulturminner, naturverdier og avstand til vei, sjø og vassdrag er ikke kontrollert.",
     "Kartet viser et punkt, ikke tiltakets utstrekning. Grensekvalitet, mål og lovlig etablert bebyggelse er ikke bekreftet.",
     ...sjekker.filter(s => s.status === "uavklart").map(s => s.forklaring),
   ])];
-  // National thresholds alone cannot establish compliance with local plans.
+  // National thresholds alone cannot establish compliance with local plans. The one
+  // exception is the whitelist in `vurderMeldeplikt`, where a plan provision was read.
   return {
     tiltakstype,
-    utfall: nasjonaltUnntak === "brudd" ? "soknadspliktig" : "maa_avklares",
+    utfall: nasjonaltUnntak === "brudd" ? "soknadspliktig" : meldeplikt ? "meldeplikt" : "maa_avklares",
     nasjonaltUnntak, sjekker, uavklarteForhold,
     forklaring: nasjonaltUnntak === "brudd"
       ? "Opplysningene oppfyller ikke det kontrollerte nasjonale unntaket for denne tiltakstypen. Tiltaket må som utgangspunkt omsøkes eller endres. Eventuelle andre unntak må avklares med kommunen. Dette betyr ikke at tiltaket er forbudt eller at en søknad blir avslått. Dette er ikke et vedtak."
       : punktPaaEiendom === false
         ? "Skissepunktet ligger utenfor valgt eiendom. Plasseringen må endres eller avklares før kontrollen kan brukes videre. Punktet sier ikke noe om hele tiltakets utstrekning."
+        : meldeplikt
+          ? "De kontrollerte nasjonale vilkårene er oppfylt, og det ene vilkåret denne flyten bruker fra kommuneplanbestemmelsen er også oppfylt. Tiltaket er da unntatt fra søknadsplikt, men skal meldes inn til kommunen når det er ferdig. Bestemmelsesteksten er ikke lest maskinelt, og andre krav enn søknadsplikten kan fortsatt gjelde."
         : nasjonaltUnntak === "oppfylt"
           ? "Opplysningene oppfyller de kontrollerte nasjonale vilkårene, men planforhold og andre krav er ikke avklart. Piloten kan ikke konkludere med at du kan bygge uten søknad."
           : "Det mangler opplysninger om nasjonale vilkår, og planforhold og andre krav må avklares før søknadsplikten kan avgjøres. Uavklart er ikke det samme som forbudt.",
     nesteSteg: [
-      "Send kommunen tiltakets beskrivelse, adresse, gårds- og bruksnummer, skisse, mål og de navngitte planbestemmelsene. Be om avklaring av søknadsplikt og eventuelt behov for dispensasjon.",
+      ...(meldeplikt
+        ? [`Meld tiltaket inn til kommunen når det er ferdig bygget, i skjemaet på ${meldeplikt.kilde}. Ta vare på målene og plasseringen du har oppgitt her.`]
+        : ["Send kommunen tiltakets beskrivelse, adresse, gårds- og bruksnummer, skisse, mål og de navngitte planbestemmelsene. Be om avklaring av søknadsplikt og eventuelt behov for dispensasjon."]),
       ...(tiltakstype === "fasade" ? ["Legg ved bilder av dagens fasade eller tak og beskrivelse av nye materialer, farge og konstruksjon. Be kommunens byggesaksveiledning og en kvalifisert fagperson avklare karakterendring, vern, bæring og brannsikring."] : []),
       ...(gjerdeplan && tiltakstype === "gjerde" ? ["Be kommunen avklare godkjenning av gjerdets utførelse, høyde og farge etter plan 6170063 § 7 bokstav d. Legg ved samlet høyde inkludert sokkel og dokumentasjon på frisikt."] : []),
     ],

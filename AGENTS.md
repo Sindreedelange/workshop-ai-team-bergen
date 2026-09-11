@@ -362,6 +362,40 @@ one. `pnpm test:revisjon` pins all of it.
   området, mens om tiltaket er tillatt står i planbestemmelsene, som piloten ikke
   leser - og uttrekket er dessuten frosset i 2018. Det samme gjelder
   `arealformaal-flate`. `pnpm test:garasje` pinner at et treff ikke endrer utfallet.
+  Med én tilføyelse, som går den andre veien: en **faresone** holder tilbake
+  `meldeplikt`-fritaket under, fordi et fritak er en påstand om at alt som gjelder er
+  kontrollert. Hvilke sonetyper det gjelder står i `soneHindrerFritak` i
+  `apps/shared/hensynssoner.ts`, hos kodeverket som eier hva en sone betyr, slik at
+  en ny sonetype tvinger et svar i stedet for å arve et nei fra en
+  strengsammenligning i regelen. Sonen kan altså ikke gjøre et tiltak søknadspliktig, men den kan hindre
+  at det blir fritatt. Støysoner og angitte hensyn stopper ikke fritaket; de navngis i
+  sjekkens tekst i stedet. `pnpm test:flytkart` pinner begge retninger.
+- **`meldeplikt` er det ene fritaket piloten gir, og det ligger bak en hviteliste.**
+  Fagpersonens flytkart har en grønn boks for frittstående bygning: «Du trenger ikke å
+  søke, men må melde inn etter du er ferdig å bygge.» `vurderMeldeplikt` i
+  `apps/sandbox-backend/src/garasje.ts` er den boksen, og vilkårene er en hviteliste og
+  ikke «ingen sjekk er uavklart» - sjekkene for kommuneplan, reguleringsplan og
+  hensynssoner er uavklarte ved design, så et krav om at ingenting er uavklart ville
+  aldri slått til. Hvert ledd har en grunn ved seg, og hvert ledd som kan felle et
+  kall alene har et avvisende tilfelle i `pnpm test:flytkart` - `frittliggende` kan
+  ikke, fordi kommuneplanvilkåret bare gjelder den grenen, og leddet står for at
+  hvitelisten skal si hva den krever. To følger er verdt å kjenne: fritaket kan i dag bare oppstå i
+  LNF, fordi KPA2018 § 31.3 er den eneste planbestemmelsen piloten faktisk
+  kontrollerer, og utfallet varierer mellom to ellers like kall når kommunens
+  bygningskart ikke svarer - manglende kunnskap er aldri et fritak.
+  `ikke_soknadspliktig` finnes fortsatt i kodeverket og er fortsatt uoppnåelig: et
+  fritak uten en plikt til å melde inn har piloten ingen hjemmel til å gi.
+- **Klemmen i `garasje-raad.ts` leser modellens egne setninger, ikke regelens sitat.**
+  Den hindrer modellen fra å gjøre utfallet mildere enn reglene, og den leser hele
+  prosaen og ikke bare utfallsfeltet. Da den leste *alt*, traff den reglenes egne
+  forbehold: `hensynssoner` sier ordrett at sonen «sier at et hensyn gjelder for
+  området, ikke om tiltaket er tillatt», og prompten ber modellen gjenta reglenes
+  uavklarte forhold. Målt mot en lokal modell ble rådet derfor byttet ut i fem av sju
+  grener, og «før du kan bygge» slo ut på samme måte. `modellensEgenProsa` luker ut det
+  som er sitert fra vurderingen, og `harTillatendeProsa` avviser et treff der ordene
+  rett foran nekter eller gjør setningen betinget. Grensen mot et mildere utfall er
+  uendret. `pnpm test:garasje-raad` pinner begge retninger, inkludert at «du trenger
+  ikke søke, og tiltaket er tillatt» fortsatt stoppes.
 - **Flatene fra `plan-mock` er klippet til kartutsnittet, og det står på tråden.**
   `klippetTilUtsnitt: true` er påkrevd, og `sandbox-backend` avviser et svar uten
   det. Ringene har derfor kanter langs utsnittet som ikke er sonegrenser: de kan
@@ -712,7 +746,7 @@ pnpm test:bergen-matrikkel
 ```
 - Optional orchestrated startup script (model selection/reset): `./start.sh --help`.
 - CI (`.github/workflows/ci.yml`) runs `lint`, `test:chat-intent`, `test`, `test:sperrer`,
-  `test:oppsummering`, `test:skjerming`, `test:vilkaar`, `test:reasoning`, `test:garasje-raad`, `test:garasje`, `test:foedselsnummer`, `test:handleevne`,
+  `test:oppsummering`, `test:skjerming`, `test:vilkaar`, `test:reasoning`, `test:garasje-raad`, `test:garasje`, `test:flytkart`, `test:foedselsnummer`, `test:handleevne`,
   `test:samtykke`, `test:forsendelse`, `test:upstream`, `test:concurrency`,
   `test:replay`, `test:chat`, `test:parametere`, `test:imports`, `test:startup`, `test:kodeverk`,
   `test:revisjon`, `test:openapi`, `test:docs`, `test:agent:dialog`, `test:tools-matrikkel`,
@@ -806,6 +840,9 @@ pnpm test:bergen-matrikkel
 
 ## Useful places before editing
 - Architecture/context: `docs/architecture.md`, `docs/prosessmodell.md`, `docs/sikkerhet-og-personvern.md`.
+- The tiltakssjekk case: `docs/garasjesjekk.md` for the service, and
+  `docs/flytkart-tiltakssjekk.md` for the caseworker's flowchart written out node by
+  node, with a column saying where the code agrees and where it deliberately does not.
 - Frontend and styling: `docs/designsystem.md`, and `apps/demo-gui/src/ds-eksempel.html` for working markup.
 - Contracts: `openapi/README.md`, `openapi/sandbox-backend.yaml`, `openapi/process-agent.yaml`, `openapi/tools-api.yaml`, `openapi/matrikkel-mock.yaml`, `openapi/pasientjournal-mock.yaml`,
   `openapi/politiattest-mock.yaml`, `openapi/ai-gateway.yaml`.

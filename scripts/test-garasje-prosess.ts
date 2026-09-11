@@ -259,7 +259,15 @@ try {
     assert.equal(result.oekt.status, "FULLFORT");
     assert.equal(result.oekt.sluttmelding, "Veiledningen er ferdig. Ingen søknad er sendt.");
     assert.equal(result.resultat.vurdering.nasjonaltUnntak, "oppfylt", JSON.stringify(result.resultat.grunnlag.bebyggelse));
+    // Ikke fritak, og to forhold hindrer det hver for seg: svaret oppgir akkurat
+    // 1 meter til nabogrensen, mens KPA2018 § 31.3-vilkåret krever mer enn 1 meter,
+    // og fixturen har med hensikt ingen kommuneplandekning, så planflatene er
+    // ikke sjekket. Begge er pinnet her, for ellers ville et fritak i denne økten
+    // se ut som et valgt utfall i stedet for et utilgjengelig et.
+    // `pnpm test:flytkart` dekker hvitelisten for fritaket vilkår for vilkår.
     assert.equal(result.resultat.vurdering.utfall, "maa_avklares");
+    assert.equal(result.resultat.vurdering.sjekker.find(s => s.id === "meldeplikt"), undefined);
+    assert(result.resultat.vurdering.sjekker.some(s => s.id === "kilde-planflater"));
     assert.equal(result.resultat.grunnlag.adresse.bruksnummer, addresses[index].bruksnummer);
     assert.equal(result.resultat.grunnlag.nabotomter?.tomter[0].teig?.bnr, addresses[index].bruksnummer + 1);
     assert.equal(result.resultat.grunnlag.nabotomter?.kilde.status, "ok");

@@ -72,6 +72,24 @@ export function findHensynssone(kode: number): Hensynssonekode | undefined {
   return HENSYNSSONER.find(sone => sone.kode === kode);
 }
 
+/**
+ * Om sonetypen er av det slaget som holder tilbake et fritak fra søknadsplikt.
+ *
+ * En hensynssone avgjør ikke om et tiltak er tillatt - det står i
+ * planbestemmelsene, som sandkassen ikke leser. Men et fritak er en påstand om at
+ * alt som gjelder eiendommen er kontrollert, og for en faresone er det ikke sant:
+ * sikkerhetskravene i byggteknisk forskrift kapittel 7 gjelder, og kommunen kan
+ * kreve dokumentasjon. En støysone eller et angitt hensyn stopper ikke fritaket -
+ * de navngis i svaret i stedet, slik en garasje i gul støysone skal.
+ *
+ * Regelen som bruker dette bor i `sandbox-backend`; klassifiseringen bor her, hos
+ * kodeverket, slik at en ny sonetype tvinger den som legger den inn til å svare på
+ * spørsmålet i stedet for å arve et nei fra en strengsammenligning et lag unna.
+ */
+export function soneHindrerFritak(type: Hensynssonetype): boolean {
+  return type === "fare";
+}
+
 export const KPA2018_PLANID = "65270000";
 export const KPA2018_KOMMUNENUMMER = "4601";
 

@@ -27,6 +27,7 @@
     "test:chat-intent": "node scripts/test-chat-fallback-intent.ts",
     "test:sperrer": "node scripts/test-sporsmaalsperrer.ts",
     "test:reasoning": "node scripts/test-reasoning.ts",
+    "test:flytkart": "node scripts/test-flytkart.ts",
     "test:garasje-raad": "node --test scripts/test-garasje-raad.ts scripts/test-garasje-raad-klient.ts",
     "test:oppsummering": "node scripts/test-fartsdempende-oppsummering.ts",
     "test:skjerming": "node scripts/test-skjerming.ts",
