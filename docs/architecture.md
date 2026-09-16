@@ -71,7 +71,7 @@ Disse finnes for å senke terskelen og spare tid, ikke for å definere én rikti
 3. `sandbox-backend` henter samtykkestatus fra `fiks-simulator`
 4. `sandbox-backend` blokkerer inntektsdata uten gyldig samtykke
 5. `sandbox-backend` kaller `ai-gateway` for oppsummering og forklaring
-6. `sandbox-backend` henter matrikkeldata fra `matrikkel-mock` over HTTP (`MATRIKKEL_BASE_URL`, se `apps/sandbox-backend/src/matrikkel.ts`) og eksponerer dem via `GET /api/matrikkel/gater` og `SJEKK`-steg. Mocken er eneste leser av seeden, og eneste vei til SOAP-flaten
+6. `sandbox-backend` henter matrikkeldata fra `matrikkel-mock` over HTTP (`MATRIKKEL_BASE_URL`, se `apps/sandbox-backend/src/matrikkel.ts`) og eksponerer dem via `GET /api/matrikkel/gater` og `SJEKK`-steg. Mocken er eneste leser av seeden, og eneste vei til SOAP-flaten. Teiggeometrien går utenom og hentes fra Kartverkets åpne eiendoms-API
 7. `sandbox-backend` henter legeerklæringen fra `pasientjournal-mock` over HTTP (`PASIENTJOURNAL_BASE_URL`), bak samtykkeporten. Mocken er eneste leser av `data/legeerklaeringer.json`, og integrasjonen finnes ikke i virkeligheten - se `apps/pasientjournal-mock/README.md`
 8. `sandbox-backend` leser politiattesten fra `politiattest-mock` over HTTP (`POLITIATTEST_BASE_URL`), bak samtykkeporten, og minimerer svaret før noe annet ser det: type, dato og antall anmerkninger, aldri hva de gjelder. Mocken er eneste leser av `data/politiattester.json`, og integrasjonen finnes ikke i virkeligheten - se `apps/politiattest-mock/README.md`
 9. `pdf-extractor` trekker ut kildeforankrede blokker fra generelle, juridiske og planfaglige PDF-er og bruker `ai-gateway` valgfritt for normalisering og bildeanalyse
@@ -106,7 +106,6 @@ flowchart LR
   subgraph mocker["Mockede integrasjoner"]
     FS["fiks-simulator"]
     MM["matrikkel-mock"]
-    PM["plan-mock"]
     PJ["pasientjournal-mock"]
     PA["politiattest-mock"]
     DM["digdir-mock"]
@@ -122,7 +121,6 @@ flowchart LR
   PE --> AG
   SB --> AG
   SB --> MM
-  SB --> PM
   SB -->|"samtykke og beregning"| FS
   SB -->|"bak samtykkeporten"| PJ
   SB -->|"bak samtykkeporten"| PA
@@ -164,7 +162,7 @@ Det betyr at:
 
 ## Status og kjente avvik
 
-Alle tretten tjenestene er implementert og kjører. Samtykkesperre, revisjonslogg,
+Alle tolv tjenestene er implementert og kjører. Samtykkesperre, revisjonslogg,
 deterministisk vilkårsvurdering og sju demo-case er på plass. Det som følger er
 avvik mellom hvordan sandkassen presenterer seg og hva den faktisk gjør - verdt å
 kjenne til før du bygger på den.

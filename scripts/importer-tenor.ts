@@ -46,6 +46,8 @@ import { fileURLToPath } from "node:url";
 import { alderVed } from "../apps/shared/alder.ts";
 import { buildTestpersondok } from "./testpersondok.ts";
 import { feilkode, feilmelding } from "../apps/shared/errors.ts";
+import { byggMatrikkelId } from "../apps/shared/adresse.ts";
+import { hentGate, normaliserGatenavn } from "./geonorge.ts";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dataDir = path.join(repoRoot, "data");
@@ -268,10 +270,100 @@ const FREG_ROLLE = { MOR: "mor", FAR: "far", MEDMOR: "medmor", BARN: "barn" };
 // in the real world belongs to the matrikkelenhet, so data/eierforhold.json keying
 // on the address is a simplification, not the model.
 //
-// data/matrikkel.json is read here and nowhere else in the import. matrikkel-mock
-// stays the only service that reads it.
-async function readAdresseindeks() {
-  const matrikkel = await read(path.join(dataDir, "matrikkel.json"));
+// Adressegrunnlaget hentes fra Geonorge, ikke fra en innsjekket fil.
+//
+// Det pleide å være data/matrikkel.json, 12,6 MB uttrekk i repoet. Nå spør
+// importen kilden direkte for hver gate befolkningen faktisk bor i. Tre ting
+// følger av det, og alle tre er med vilje:
+//
+//   - Importen trenger nett. Den er et vedlikeholdssteg som kjøres for hånd,
+//     aldri av ./start.sh og aldri i CI, så kostnaden er flyttet og ikke lagt til -
+//     scripts/hent-matrikkel.ts trengte nett fra før.
+//   - Id-ene blir de samme. byggMatrikkelId er den samme funksjonen live-oppslaget
+//     i matrikkel-mock og tools-api bruker, og pnpm test:matrikkel-id pinner at de
+//     ikke går fra hverandre.
+//   - De fire håndskrevne bergensgatene finnes ikke hos Geonorge og hentes fra
+//     data/matrikkel.seed.json, slik de alltid har vært forfattet.
+//
+// Én ting flytter seg ved neste kjøring, og den er verdt å vite om på forhånd:
+// de 29 «ekstraeiendommene» i data/eierforhold.json - dem ingen bor i - plukkes
+// som den første ledige i kommunen etter sortering, og Geonorge kjenner flere
+// adresser i dag enn uttrekket fra 2025 gjorde. Ni av dem bytter derfor eiendom.
+// De 169 radene som er noens hjem står stille, og det er de som betyr noe:
+// personer.json, husstander.json, inntekter.json, krr.json, folkeregister.seed.json
+// og docs/testpersoner.md kom ut byte-identiske da dette ble prøvd.
+
+
+async function byggAdressegrunnlag() {
+  const fikstur = await read(path.join(dataDir, "matrikkel.seed.json"));
+  const gater: any[] = [...fikstur.gater];
+  const kjente = new Set(
+    fikstur.gater.map((gate: any) => `${gate.kommunenummer}|${normaliserGatenavn(gate.adressenavn)}`)
+  );
+
+  const par = await adresserIBruk();
+  const utenfor = par.filter(
+    (adresse) => !kjente.has(`${adresse.kommunenummer}|${normaliserGatenavn(adresse.adressenavn)}`)
+  );
+  console.log(`Henter ${utenfor.length} gater fra Geonorge ...`);
+  for (const [nr, adresse] of utenfor.entries()) {
+    const treff = await hentGate(adresse.kommunenummer, adresse.adressenavn);
+    if (treff.length === 0) {
+      // Ikke dødelig, og det er ikke slapphet. Befolkningen bærer minst ett
+      // kommunenummer fra før sammenslåingene i 2024, og Geonorge svarer bare for
+      // dagens kommuner. Personen får ingen matrikkel-id, akkurat som i dag, og
+      // valider-data.ts feller det hvis han likevel er BOSATT - der hører den
+      // sjekken hjemme, hos den som vet hva en person er.
+      console.warn(`  Geonorge kjenner ingen ${adresse.adressenavn} i ${adresse.kommunenummer}. Hopper over.`);
+      continue;
+    }
+    const foerste = treff[0];
+    gater.push({
+      gateId: `gate-${slug(adresse.adressenavn)}-${slug(foerste.kommunenavn)}`,
+      adressenavn: adresse.adressenavn,
+      kommunenummer: adresse.kommunenummer,
+      kommune: String(foerste.kommunenavn || ""),
+      postnummer: String(foerste.postnummer || ""),
+      poststed: String(foerste.poststed || ""),
+      eiendommer: treff.map((geo: any) => ({
+        matrikkelId: byggMatrikkelId(geo),
+        husnummer: geo.nummer ?? null,
+        husbokstav: geo.bokstav || null
+      }))
+    });
+    if ((nr + 1) % 25 === 0) console.log(`  ${nr + 1} av ${utenfor.length}`);
+  }
+  return { gater };
+}
+
+/**
+ * Hvor befolkningen bor. Begge filene, fordi adressene til de kuraterte
+ * fiksturene er forfattet i kuratert.json og først står i personer.json etter en
+ * import.
+ */
+async function adresserIBruk(): Promise<{ kommunenummer: string; adressenavn: string }[]> {
+  const personer = await read(path.join(dataDir, "personer.json"));
+  const kuratert = await read(path.join(dataDir, "kuratert.json"));
+  const par = new Map<string, { kommunenummer: string; adressenavn: string }>();
+  const legg = (adresse: any) => {
+    if (!adresse?.kommunenummer || !adresse?.adressenavn) return;
+    const noekkel = `${adresse.kommunenummer}|${normaliserGatenavn(adresse.adressenavn)}`;
+    if (!par.has(noekkel)) {
+      par.set(noekkel, { kommunenummer: adresse.kommunenummer, adressenavn: adresse.adressenavn });
+    }
+  };
+  for (const person of personer) legg(person.bostedsadresse);
+  for (const person of kuratert.personer) legg(person.bostedsadresse);
+  return [...par.values()].sort(
+    (a, b) => a.kommunenummer.localeCompare(b.kommunenummer) || a.adressenavn.localeCompare(b.adressenavn)
+  );
+}
+
+function slug(verdi: unknown): string {
+  return normaliserGatenavn(verdi) || "ukjent";
+}
+
+function readAdresseindeks(matrikkel: any) {
   const indeks = new Map();
   for (const gate of matrikkel.gater) {
     for (const eiendom of gate.eiendommer) {
@@ -824,7 +916,11 @@ async function run() {
   const kuratert = await read(path.join(dataDir, "kuratert.json"));
   const { files, personer, husstandsnaboer } = await readUttrekk();
   const kommunenavn = await readKommunenavn();
-  const adresseindeks = await readAdresseindeks();
+  // Adressegrunnlaget hentes én gang og sendes videre. Det lå bak en modulnivå-memo,
+  // men begge leserne står i denne funksjonen og den første kjører alltid først, så
+  // memoen utsatte aldri noe - den bare flyttet en verdi ut av kallkjeden.
+  const adressegrunnlag = await byggAdressegrunnlag();
+  const adresseindeks = readAdresseindeks(adressegrunnlag);
   const ledger = await readIdLedger();
 
   // --- curated: ids, households and one-directional relations are authored ---
@@ -1117,7 +1213,7 @@ async function run() {
     return;
   }
 
-  const eierforhold = buildEierforhold(husstanderUt, personerUt, await read(path.join(dataDir, "matrikkel.json")));
+  const eierforhold = buildEierforhold(husstanderUt, personerUt, adressegrunnlag);
 
   const plasser = {
     barnehage: await read(path.join(dataDir, "barnehageplasser.json")),

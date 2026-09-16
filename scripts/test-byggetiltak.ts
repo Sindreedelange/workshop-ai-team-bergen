@@ -182,7 +182,6 @@ await mkdir(stateDir, { recursive: true });
 process.env.STATE_DIR = stateDir;
 process.env.AUTH_ENFORCE = "true";
 process.env.MATRIKKEL_BASE_URL = "http://byggetiltak-matrikkel.test";
-process.env.PLAN_BASE_URL = "http://byggetiltak-plan.test";
 const realFetch = globalThis.fetch;
 let ownershipReads = 0;
 let sourceReads = 0;

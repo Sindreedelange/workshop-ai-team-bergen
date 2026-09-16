@@ -1,5 +1,6 @@
 import { readFile, readdir } from "node:fs/promises";
 import { alderVed, maanederEtter } from "../apps/shared/alder.ts";
+import { lesMatrikkelId } from "../apps/shared/adresse.ts";
 import { SEED_DATASETS } from "../apps/sandbox-backend/src/state.ts";
 import type { Ordning, Satser, State } from "../apps/sandbox-backend/src/types.ts";
 import type { Husstand, Person, Plass } from "../apps/shared/innbyggerdata.ts";
@@ -62,7 +63,6 @@ const files = [
   "data/folkeregister.seed.json",
   "data/kuratert.json",
   "data/matrikkel.seed.json",
-  "data/matrikkel.json",
   "data/eierforhold.json",
   "data/deltakercaser.json",
   "data/fritidsaktiviteter.json",
@@ -79,8 +79,8 @@ const files = [
 // håndlaget type her ville blitt en syvende kopi av formen.
 //
 // Husker det den har lest: filene under leses både av løkken rett nedenfor og ved
-// navn lenger nede, og matrikkel.json er 12 MB av de 14. Uten dette parses den
-// filen tre ganger for å svare på tre spørsmål om den.
+// navn lenger nede, så uten dette ville de samme filene blitt parset flere ganger
+// for å svare på hvert sitt spørsmål om dem.
 const tekster = new Map<string, string>();
 const parset = new Map<string, unknown>();
 
@@ -624,8 +624,9 @@ for (const kilde of kuratert.personer) {
     );
   }
   for (const felt of FORFATTEDE_FELT) {
-    // adresseIdentifikatorFraMatrikkelen is derived from data/matrikkel.json, not
-    // authored, so it lives in the built address and not in the source one.
+    // adresseIdentifikatorFraMatrikkelen is built by byggMatrikkelId from a live
+    // Geonorge lookup, not authored, so it lives in the built address and not in
+    // the source one.
     const forfattet = felt === "bostedsadresse" ? utenJoinnoekkel(kilde[felt]) : kilde[felt];
     const utledet = felt === "bostedsadresse" ? utenJoinnoekkel(bygget[felt]) : bygget[felt];
     if (JSON.stringify(forfattet) !== JSON.stringify(utledet)) {
@@ -862,8 +863,15 @@ if (oppdiktede.length > 0) {
 // zero matrikkelId: Tenor's value points into the real Kartverket register, and
 // this repo holds a synthetic one. The field looked like a working join key, which
 // is worse than an empty one. It resolves now, and this is what keeps it resolving.
-const matrikkel = await read("data/matrikkel.json");
-const matrikkelIder = new Set(
+//
+// Hva som endret seg da adresseuttrekket ble hentet live: medlemskap i en fil kan
+// ikke lenger sjekkes, fordi filen ikke finnes. Formen kan, og den er strengere
+// enn den ser ut - kommunenummeret står inne i id-en, så en id som peker på feil
+// kommune faller her, og det er nettopp den feilen et bommet oppslag gir.
+// At id-en live-veien bygger er den samme som importen skrev, er pinnet i
+// pnpm test:matrikkel-id; at eierskapet kobler over HTTP, i pnpm test:matrikkel-mock.
+const matrikkel = await read("data/matrikkel.seed.json");
+const fiksturIder = new Set<string>(
   matrikkel.gater.flatMap((gate: any) => gate.eiendommer.map((e: any) => e.matrikkelId))
 );
 for (const gate of matrikkel.gater) {
@@ -883,18 +891,28 @@ for (const gate of matrikkel.gater) {
 
 for (const person of personer) {
   const id = person.bostedsadresse?.adresseIdentifikatorFraMatrikkelen ?? null;
-  if (id !== null && !matrikkelIder.has(id)) {
-    throw new Error(
-      `${person.personId} peker på matrikkelenheten ${id}, som ikke finnes i ` +
-      `data/matrikkel.json.`
-    );
+  if (id !== null && !fiksturIder.has(id)) {
+    const lest = lesMatrikkelId(id);
+    if (lest === null) {
+      throw new Error(
+        `${person.personId} har matrikkel-id ${id}, som verken er en av fikstur-id-ene i ` +
+        `data/matrikkel.seed.json eller har en form et Geonorge-oppslag kan produsere. ` +
+        `Se byggMatrikkelId i apps/shared/adresse.ts.`
+      );
+    }
+    if (lest.kommunenummer !== person.bostedsadresse?.kommunenummer) {
+      throw new Error(
+        `${person.personId} bor i ${person.bostedsadresse?.kommunenummer}, men matrikkel-id-en ` +
+        `${id} peker på kommune ${lest.kommunenummer}. Adressen og eiendommen er ikke samme sted.`
+      );
+    }
   }
   if (person.personstatus === "BOSATT" && id === null) {
     throw new Error(
       `${person.personId} er BOSATT på ${person.bostedsadresse?.adressenavn} ` +
       `${person.bostedsadresse?.husnummer} i ${person.bostedsadresse?.kommunenummer}, men ` +
-      `adressen finnes ikke i matrikkelen. Kjør node scripts/hent-matrikkel.ts, eller ` +
-      `flytt husstanden til en reell adresse i samme kommune i data/kuratert.json.`
+      `har ingen matrikkel-id. Kjør importen på nytt, eller flytt husstanden til en ` +
+      `reell adresse i samme kommune i data/kuratert.json.`
     );
   }
   // Someone who is not bosatt may well have no address at all - the D-number
@@ -913,9 +931,11 @@ const EIERFORMER = new Set(["SELVEIER", "UTLEIE", "UOPPGJORT_DODSBO"]);
 const eidAv = new Map();
 const seetteMatrikkelIder = new Set();
 for (const rad of eierforhold.eierforhold) {
-  if (!matrikkelIder.has(rad.matrikkelId)) {
+  if (!fiksturIder.has(rad.matrikkelId) && lesMatrikkelId(rad.matrikkelId) === null) {
     throw new Error(
-      `eierforhold.json har ${rad.matrikkelId}, som ikke finnes i data/matrikkel.json.`
+      `eierforhold.json har ${rad.matrikkelId}, som verken er en fikstur-id eller har en ` +
+      `form et Geonorge-oppslag kan produsere. Eierskapet ville aldri koblet - og et ` +
+      `oppslag uten treff ser ut som en eiendom uten eier, ikke som en feil.`
     );
   }
   if (seetteMatrikkelIder.has(rad.matrikkelId)) {

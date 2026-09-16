@@ -28,7 +28,7 @@ har fulgt slavisk. Der de to er uenige, står uenigheten under
    vurderingssteget, så en adresse som ikke er registrert på søkeren stoppes der også.
 4. **Innhenter lokale planer.** Kart- og plangrunnlaget hentes etter at eiendommen og
    plasseringen er bekreftet: arealformål og reguleringsplaner fra Bergens kart,
-   teiggeometri fra matrikkelmocken, hensynssoner fra planmockens KPA2018-uttrekk.
+   teiggeometri fra Kartverkets eiendoms-API, hensynssoner fra Bergens egne kartlag.
    Bare Bergen har et kommunalt oppsett; andre kommuner får uavklart plangrunnlag og
    får aldri Bergen-data som reserve.
 5. **Velg hvilke tiltak som skal bygges (garasje, tilbygg osv).** Innbyggeren beskriver

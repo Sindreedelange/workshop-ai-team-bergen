@@ -154,7 +154,7 @@ const zoneGround: TiltakshjelpenGrunnlag = {
   punkt: { lat: 1, lon: 1 }, planflater, arealformaal: [], reguleringsplaner: [], eiendomsgrenser: [], bygninger: [],
   bebyggelse: { status: "uavklart", bebygd: null, bygninger: [], forklaring: "Ukjent", kilde: "test" },
   arealberegning: { tomtearealM2: null, kartlagtBebygdArealM2: null, kartlagtAndelProsent: null, kilde: "test", metode: "test", forbehold: [] },
-  kilder: [{ id: "planflater", navn: "KPA2018", status: "ok", url: "https://example.test/?vest=0", hentet: "2026-09-10", uttrekksaar: 2018 }],
+  kilder: [{ id: "planflater", navn: "KPA2018", status: "ok", url: "https://example.test/?vest=0", hentet: "2026-09-10" }],
   uavklarteForhold: []
 };
 const projectedZones = projectTiltakshjelpenDialogGrunnlag(zoneGround);
@@ -167,7 +167,6 @@ assert.equal(zoneKnowledge.planflater[2].navn, "LNF");
 assert.equal(zoneKnowledge.planflater[0].berorer, "delvis");
 assert.equal(zoneKnowledge.planflater[0].planId, "65270000");
 assert.equal(zoneKnowledge.planflatekilde.status, "ok");
-assert.equal(zoneKnowledge.planflatekilde.uttrekksaar, 2018);
 assert.deepEqual(zoneKnowledge.planflater, projectTiltakshjelpenPlanflater(zoneGround).planflater, "Punktkontrollen bevares gjennom begge projeksjonene");
 assert.doesNotMatch(JSON.stringify(projectedZones), /ringer|coordinates|IKKE_ADRESSE|"lat"|"lon"|vest=/);
 assert.equal(projectTiltakshjelpenPlanflater({ ...zoneGround, punkt: { lat: 0, lon: 1 } }).planflater[0].punktIFlate, true,

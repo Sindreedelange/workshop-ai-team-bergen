@@ -257,7 +257,7 @@ Vilkårene og begrunnelsen for hvert ledd står i
 | [`byggetiltak.ts`](../apps/shared/byggetiltak.ts) | Tiltakstyper, forslag fra beskrivelsen og spørsmål for valgt type. Selve regelvurderingen gjøres i backend. |
 | [`tiltakshjelpen-kommuner.ts`](../apps/shared/tiltakshjelpen-kommuner.ts) | Kobler kommunenummer til kommunens kartlag, planportal, plan-ID, versjon og bestemmelser. Bergen-PDF-en hører bare til `4601`. |
 | [`arealsoner.ts`](../apps/shared/arealsoner.ts) | Kontrollerte sonetyper, nøklet på kommune, plan, versjon, arealformål og arealstatus. Ukjente kombinasjoner forblir ukjente. |
-| [`hensynssoner.ts`](../apps/shared/hensynssoner.ts) | Sonekodene i KPA2018 med klarspråksnavn, datasett-id-ene og formen på tråden. Hvilken fil og kolonne hvert datasett har er `plan-mock` sin egen sak. |
+| [`hensynssoner.ts`](../apps/shared/hensynssoner.ts) | Sonekodene i KPA2018 med klarspråksnavn, datasett-id-ene og formen på tråden. Hvilket ArcGIS-lag hvert datasett er, står hos kommuneregisteret i `tiltakshjelpen-kommuner.ts`. |
 | [`frittliggende-regelgrunnlag.ts`](../apps/shared/frittliggende-regelgrunnlag.ts) | Nasjonale tallkrav for frittliggende bygg, enheter og kilder. Disse grensene brukes ikke på andre tiltakstyper. |
 | [`tiltakshjelpen-begreper.ts`](../apps/shared/tiltakshjelpen-begreper.ts) | Kildebaserte forklaringer av fagord. |
 | [`tiltakshjelpen-dialog.ts`](../apps/shared/tiltakshjelpen-dialog.ts) | Felles utfyllingsfelter, enheter og validering for samtale og stegvis utfylling. |
@@ -303,13 +303,25 @@ planbestemmelsene.
 
 ### Hensynssoner og arealformål over hele eiendommen
 
-Kommuneplanoppslaget mot Bergens kart spør om **ett punkt** og får ingen geometri
-tilbake. Det kan ikke svare på om en sonegrense går tvers gjennom tomten, som er
-spørsmålet innbyggeren stiller når tiltaket plasseres i kartet.
+Kommuneplanoppslaget gjøres to ganger mot **det samme kartlaget**: én gang for
+punktet tiltaket står på, og én gang for et kartutsnitt rundt eiendommen. Punktet
+alene kan ikke svare på om en sonegrense går tvers gjennom tomten, som er spørsmålet
+innbyggeren stiller når tiltaket plasseres i kartet.
 
-Derfor leses KPA2018 også som flater, fra et frosset uttrekk hos
-[`plan-mock`](../apps/plan-mock/README.md): de seks hensynssonene - gule støysoner,
-faresoner og de fire angitte hensynene - og arealformålene. Flatene sammenlignes med
+Flatene ble en stund lest fra et frosset uttrekk i stedet, fordi punktoppslaget ble
+antatt å være det eneste kommunen svarte på. Det stemte ikke: en utsnittsspørring med
+`returnGeometry=true` gir hele flater fra de samme lagene. Uttrekket er derfor borte,
+og både hensynssonene - støysoner, faresoner og de angitte hensynene - og
+arealformålene hentes fra kommunens egne kartlag ved oppslag. Punktet og flaten kan
+dermed ikke lenger bli uenige om det samme forholdet.
+
+Sonegrensene forenkles til om lag to meter når de hentes. Uten det svarte et stort
+kartutsnitt med flere megabyte, og flatene skal kunne tegnes. De er ekte
+sonegrenser, men ikke oppmålte. Ringene som sendes til nettleseren er dessuten
+klippet til kartutsnittet - men først etter at «helt» eller «delvis» er avgjort på
+hele flaten, så svaret hviler på hele polygonet og bare tegningen er trimmet. Kantene
+langs utsnittet er derfor ikke sonegrenser, og ingen avstand skal måles mot dem.
+Flatene sammenlignes med
 den kartlagte teigen, ikke med adressepunktet, og resultatet sier om sonen dekker
 eiendommen **helt** eller berører den **delvis**, og om skissepunktet ligger inne i
 den. Flatene tegnes i kartet under eiendomsgrensen, og markøren melder sonen med én
@@ -327,25 +339,15 @@ hensynssonene, [`arealsoner.ts`](../apps/shared/arealsoner.ts) for formålene - 
 ikke fra kildens fritekst; ellers svarte det samme grunnlaget på det samme
 spørsmålet to ganger. Kildens egen `BESKRIVELSE` går likevel ordrett videre ved
 siden av - «Sjøflyhavn - gul sone», «Akutt forurensning» - fordi den sier hva
-hensynet konkret gjelder. Flatene er klippet til
-kartutsnittet, så ringene har kanter som ikke er sonegrenser: ingen avstand måles mot
-dem.
+hensynet konkret gjelder.
 
 ### Offentlige kilder
 
-- [`matrikkel_bk_25.json`](../data/matrikkel_bk_25.json): lokalt Bergen-uttrekk,
-  merket 2025, med teigpolygoner og oppgitt areal. Matrikkelmocken er eneste
-  tjeneste som leser filen. Tiltakshjelpen slår opp på kommunenummer, gnr./bnr.
-  og festenummer gjennom API-et.
 - [Kartverkets adresse-API](https://ws.geonorge.no/adresser/v1/): adresse,
   eiendomsidentifikator og adressepunkt. Et adressepunkt er ikke tomten.
 - [Geonorge: Matrikkelen - Eiendomskart Teig](https://kartkatalog.geonorge.no/metadata/uuid/74340c24-1c8a-4454-b813-bfe498e80f16):
   eiendomsgeometri via Kartverkets dokumenterte eiendoms-API. GeoJSON-geometrien
   hentes for den konkrete matrikkelidentiteten, ikke fra et generisk eksempel.
-- KPA2018-uttrekket under [`data/`](../data): sju GeoJSON-filer med hensynssoner og
-  arealformål, omtrent 62 MB. `plan-mock` er eneste tjeneste som leser dem;
-  tiltakssjekken slår opp på kartutsnitt gjennom API-et. Frosset i 2018, og ikke
-  gjeldende plan.
 - [Bergens karttjenester](https://kart.bergen.kommune.no/arcgis/rest/services):
   tilgjengelige arealformål, reguleringsplanområder og bygninger.
   Tilgjengelig geometri er ikke en garanti for nøyaktige grenser.
@@ -363,22 +365,19 @@ dem.
   og [SAK10 § 4-1](https://www.dibk.no/regelverk/sak/2/4/4-1): nasjonale
   forutsetninger for unntak fra søknad.
 
-**Tomtegrunnlaget bruker lokal fil først.** Når eiendommen mangler, eller kommunen
-ikke er dekket av et lokalt uttrekk, brukes Kartverkets eiendoms-API. Grensesnittet
-viser «Data hentet fra lokal fil» eller «Data hentet fra API». Filnavn,
-uttrekksår, kilde og tidspunkt for oppslaget følger den lagrede vurderingen og
-nedlastingen. En ødelagt eller utilgjengelig lokal fil gir en synlig kildefeil,
-ikke et stille bytte til andre data.
+**Tomtegrunnlaget har én kilde: Kartverkets eiendoms-API.** Det hadde to - et lokalt
+uttrekk over Bergen først, Kartverket når uttrekket bommet - og det ga et svar som
+varierte med hvilken kommune eiendommen lå i. Uttrekket er borte. Kilde, URL og
+tidspunkt for oppslaget følger den lagrede vurderingen, og en kilde som ikke svarer
+gir en synlig kildefeil framfor et stille bytte til andre data.
 
-Uttrekket har ikke opplysninger om bygninger eller planbestemmelser. Disse
-oppslagene beholder sine kommunale API-er. Filen oppgir heller ikke grensekvalitet,
-tvist eller oppdateringsdato. Det blir stående som ukjent. `OBJECTID` identifiserer
-en rad i filen og behandles ikke som en Matrikkel-teig-ID.
+Tre felter kom med på kjøpet, og de sto tidligere alltid som ukjent fordi uttrekket
+ikke hadde dem: grensekvalitet, tvist og når eiendommen sist ble oppdatert. Teig-ID-en
+er nå en ekte matrikkelidentitet og ikke et radnummer i en fil.
 
-Lokal GeoJSON uten CRS følger standarden WGS84 (EPSG:4326); det nasjonale
-eiendomsoppslaget ber om EPSG:4258. Koordinatene beholdes som geografisk
-kartgrunnlag med kildeangivelse. Arealer er fortsatt kartanslag, ikke
-oppmålingsbevis eller juridisk utnyttelsesgrad.
+Eiendomsoppslaget ber om EPSG:4258. Koordinatene beholdes som geografisk kartgrunnlag
+med kildeangivelse. Arealer er fortsatt kartanslag, ikke oppmålingsbevis eller
+juridisk utnyttelsesgrad.
 
 Kartet er en plasseringsskisse, ikke en situasjonsplan. Ett punkt kan ikke kontrollere
 hele tiltakets omriss. Avstander, terrenginngrep, ferdig planert terreng og høyder

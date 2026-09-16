@@ -12,6 +12,7 @@
 // its own copy of the same twenty lines.
 
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { formaterHendelse } from "./hendelsesstroem.ts";
 
 /**
  * Authorization must be in Allow-Headers: demo-gui calls these services
@@ -54,6 +55,18 @@ export type Svarpolicy = {
   tekstCors?: Record<string, string>;
 };
 
+/**
+ * En åpen strøm av hendelser til nettleseren.
+ *
+ * `send` skriver én hendelse, `avslutt` lukker forbindelsen. Kalleren må alltid
+ * kalle `avslutt`, også når noe feiler - en strøm som aldri lukkes lar siden stå
+ * og vente uten at noe skjer.
+ */
+export type Hendelsesstroem = {
+  send(hendelse: string, data: unknown): void;
+  avslutt(): void;
+};
+
 export type Svarhjelpere = {
   jsonResponse(
     response: ServerResponse,
@@ -67,6 +80,18 @@ export type Svarhjelpere = {
     data: string,
     contentType?: string
   ): void;
+  /**
+   * Åpner en `text/event-stream` og lar svaret stå åpent.
+   *
+   * De to andre hjelperne avslutter svaret med `response.end` med en gang. Denne
+   * gjør ikke det, og det er hele poenget: innbyggeren skal se hvilken kilde som
+   * hentes mens den hentes, ikke få hele listen etterpå.
+   *
+   * `X-Accel-Buffering: no` står der fordi en mellomliggende proxy ellers kan
+   * samle opp hendelsene og levere dem i én bolk - da er strømmen teknisk riktig
+   * og praktisk verdiløs.
+   */
+  hendelsesstroem(response: ServerResponse): Hendelsesstroem;
 };
 
 export function svarhjelpere(policy: Svarpolicy = {}): Svarhjelpere {
@@ -87,6 +112,25 @@ export function svarhjelpere(policy: Svarpolicy = {}): Svarhjelpere {
     textResponse(response, statusCode, data, contentType = "text/html; charset=utf-8") {
       response.writeHead(statusCode, { "Content-Type": contentType, ...tekstHeadere });
       response.end(data);
+    },
+
+    hendelsesstroem(response) {
+      response.writeHead(200, {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
+        ...tekstHeadere
+      });
+      return {
+        send(hendelse, data) {
+          if (response.writableEnded) return;
+          response.write(formaterHendelse(hendelse, data));
+        },
+        avslutt() {
+          if (!response.writableEnded) response.end();
+        }
+      };
     }
   };
 }

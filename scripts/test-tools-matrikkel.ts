@@ -1,8 +1,9 @@
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { readFileSync } from "node:fs";
 import { feilmelding } from "../apps/shared/errors.ts";
-import { adressekjerne, adresseSoek, matchesAdresse, matchesAdresseFields, parseAdresse } from "../apps/shared/adresse.ts";
+import { adressekjerne, adresseSoek, byggMatrikkelId, matchesAdresse, matchesAdresseFields, parseAdresse } from "../apps/shared/adresse.ts";
+import { fiksturSok } from "./geonorge.ts";
+import { lesGeonorgeFikstur } from "./geonorge-fikstur.ts";
 import type { GeonorgeAdresse } from "../apps/shared/registerdata.ts";
 
 const portBase = Number(process.env.TOOLS_MATRIKKEL_TEST_PORT_BASE || 18080);
@@ -17,17 +18,26 @@ const geonorgeBaseUrl = `http://127.0.0.1:${geonorgePort}`;
 let geonorgeScenario = "normal";
 let geonorgeRequests = 0;
 const geonorgeQueries: string[] = [];
-const seedGater = JSON.parse(readFileSync("data/matrikkel.json", "utf8")).gater as {
-  adressenavn: string; postnummer: string; poststed: string;
-  eiendommer: {
-    matrikkelId: string; adresse: string; husnummer: number; husbokstav: string | null;
-    adressetilleggsnavn?: string; postnummer?: string; poststed?: string;
-  }[];
-}[];
-const seedEiendommer = seedGater.flatMap((gate) => gate.eiendommer.map((eiendom) => ({
-  ...eiendom, adressenavn: gate.adressenavn,
-  postnummer: eiendom.postnummer || gate.postnummer, poststed: eiendom.poststed || gate.poststed
-})));
+/**
+ * Adressene testen prøver adresseparsingen mot, fra data/geonorge.fixtur.json.
+ *
+ * Fiksturen er fanget fra Geonorge og er inndata til den falske tjenesten under,
+ * ikke et register noen tjeneste leser. Den sto tidligere i data/matrikkel.json;
+ * den filen er borte, og det er riktigere slik: nå møter parsingen den formen
+ * kilden faktisk leverer, ikke en form vi hadde bygget om først.
+ */
+const fiksturadresser = lesGeonorgeFikstur();
+const seedEiendommer = fiksturadresser.map((adresse) => ({
+  matrikkelId: byggMatrikkelId(adresse),
+  adresse: String(adresse.adressetekst || ""),
+  adressenavn: String(adresse.adressenavn || ""),
+  husnummer: Number(adresse.nummer || 0),
+  husbokstav: adresse.bokstav || null,
+  adressetilleggsnavn: adresse.adressetilleggsnavn,
+  postnummer: String(adresse.postnummer || ""),
+  poststed: String(adresse.poststed || ""),
+  kommunenummer: String(adresse.kommunenummer || "")
+}));
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -152,7 +162,11 @@ function createFakeGeonorgeServer() {
         });
         return;
       }
-      json(response, 200, { metadata: { totaltAntallTreff: 0 }, adresser: [] });
+      // Alt annet svares fra fiksturen. Det er den som bærer adressekode,
+      // gårdsnummer og representasjonspunkt, altså feltene matrikkel-id-en
+      // hviler på - og det er den formen den ekte tjenesten svarer med.
+      json(response, 200, fiksturSok(
+        fiksturadresser, url.searchParams.get("sok") || "", url.searchParams.get("kommunenummer")));
       return;
     }
 
@@ -249,7 +263,7 @@ async function kjor() {
   const matrikkelSeed = spawn("node", ["apps/matrikkel-mock/src/server.ts"], {
     env: {
       ...process.env, PORT: String(matrikkelSeedPort),
-      MATRIKKEL_DATA_FILE: "data/matrikkel.json",
+      MATRIKKEL_DATA_FILE: "data/matrikkel.seed.json",
       GEONORGE_ADRESSE_API_BASE_URL: geonorgeBaseUrl
     },
     stdio: "inherit"

@@ -4,15 +4,15 @@ import { access, readFile } from "node:fs/promises";
 import type { TiltakshjelpenAdresse, TiltakshjelpenGrunnlag, TiltakshjelpenPolygon, FrittliggendeTiltak } from "../apps/shared/tiltakshjelpen.ts";
 import { AREALSONER, classifyArealsone, KPA2018_SONEKILDE, listTiltakshjelpenSonetyper } from "../apps/shared/arealsoner.ts";
 import { findTiltakshjelpenKommune, findTiltakshjelpenKommunekilder, TILTAKSHJELPEN_KOMMUNER, getTiltakshjelpenKartlagUrl } from "../apps/shared/tiltakshjelpen-kommuner.ts";
-import { calculateTiltakshjelpenAreal, getTiltakshjelpenGrunnlag, searchTiltakshjelpenAdresser } from "../apps/sandbox-backend/src/tiltakshjelpen-data.ts";
+import { konvolutt, konvoluttring } from "./tiltakshjelpen-kartfikstur.ts";
+import { calculateTiltakshjelpenAreal, getTiltakshjelpenGrunnlag, nullstillLagmetadata, searchTiltakshjelpenAdresser } from "../apps/sandbox-backend/src/tiltakshjelpen-data.ts";
 import { evaluateTiltakshjelpen, TILTAKSHJELPEN_KPA_URL, validateTiltakshjelpenPunkt, validateFrittliggendeTiltak } from "../apps/sandbox-backend/src/tiltakshjelpen.ts";
 import { HttpError } from "../apps/sandbox-backend/src/errors.ts";
-import { createTeigStore, parseNaboteigQuery, parseTeigQuery } from "../apps/matrikkel-mock/src/teiger.ts";
-import { parsePlanQuery } from "../apps/plan-mock/src/planlag.ts";
-import { findHensynssone } from "../apps/shared/hensynssoner.ts";
+import { getGeometriBounds } from "../apps/shared/geometri.ts";
+import { DATASETTIDER, findHensynssone } from "../apps/shared/hensynssoner.ts";
 import { findArealsone } from "../apps/shared/arealsoner.ts";
 import { fitKartutsnitt } from "../apps/demo-gui/src/client/tiltakshjelpen-kart.ts";
-import { readTiltakshjelpenGrunnlag } from "../apps/sandbox-backend/src/tiltakshjelpen-oppslag.ts";
+import { hentTiltakshjelpenGrunnlag } from "../apps/sandbox-backend/src/tiltakshjelpen-oppslag.ts";
 import { validateTiltakshjelpenRaad } from "../apps/ai-gateway/src/tiltakshjelpen-raad.ts";
 
 const milde: TiltakshjelpenAdresse = {
@@ -33,8 +33,25 @@ const tiltak: FrittliggendeTiltak = {
   avstandNabogrense: 1, avstandBygning: 1, overVannAvlop: false,
 };
 let count = 0;
+/**
+ * Kjører én kontroll, og rydder oppstrømmen etterpå uansett utfall.
+ *
+ * Oppryddingen står her og ikke som siste linje i hver test: sto den der, ville
+ * den første assertionen som ryker latt sin egen falske kilde bli stående, og én
+ * rød test hadde blitt til et ras av dem. Det er også førti linjer mindre.
+ */
 async function test(navn: string, check: () => unknown | Promise<unknown>): Promise<void> {
-  try { await check(); count++; } catch (error) { console.error(`FEIL: ${navn}`); throw error; }
+  try {
+    await check();
+    count++;
+  } catch (error) {
+    console.error(`FEIL: ${navn}`);
+    throw error;
+  } finally {
+    settTransform((_source, _query, body) => body);
+    soneLag = null;
+    apiNabotomter = null;
+  }
 }
 const errorStatus = (status: number) => (error: unknown) => error instanceof HttpError && error.status === status;
 
@@ -133,6 +150,7 @@ function osloEiendomResponse() {
 }
 const layerFields = {
   kpa: ["KPAREALFORMAL", "AREALST", "BESKRIVELSE", "PLANID"], plan: ["PLANID", "PLANNAVN"],
+  sone: ["KPANGITTHENSYN", "KPFARE", "KPSTOY", "HENSYNSONENAVN", "BESKRIVELSE", "PLANID"],
   eiendom: ["OBJECTID", "GNR", "BNR", "FNR"],
   bygning: ["OBJECTID", "OBJTYPE", "BYGGNR", "BYGGTYP_NBR", "BYGGSTAT", "BYGGTYPE", "STATUS", "BRUKSAREAL"],
 };
@@ -148,70 +166,55 @@ const zoneLegend = [
 type Source = keyof typeof layerFields | "adresse";
 type Transform = (source: Source, query: boolean, body: any) => any;
 let transform: Transform = (_source, _query, body) => body;
+
+/**
+ * Bytter ut svarene fra den falske kilden, og glemmer det huskede lagoppsettet.
+ *
+ * Lagmetadata memoiseres i produksjon, og flere tester her endrer nettopp det
+ * oppsettet. Uten nullstillingen ville den første varianten i en løkke blitt
+ * stående for alle de neste, og testen ville bestått uten å ha prøvd dem.
+ * Tilstandsendringen og invalideringen står derfor på samme linje, der testen
+ * faktisk bestemmer seg for å bytte oppstrøm.
+ */
+function settTransform(fn: Transform): void {
+  transform = fn;
+  nullstillLagmetadata();
+  fetchedMetadata.clear();
+}
 const urls: URL[] = [];
 const fetchedMetadata = new Set<Source>();
 // The envelope the building layer was last asked for, so a test can compare it
 // with the extent the map actually draws.
 let bygningsKonvolutt = "";
-let lokaleTeiger: ((url: URL) => unknown) | null = null;
-let lokalePlanflater: ((url: URL) => unknown) | null = null;
-let lokaleNabotomter: ((url: URL) => unknown) | null = null;
+let soneLag: ((url: URL, lagId: number) => Promise<unknown[]> | unknown[]) | null = null;
 let apiNabotomter: ((url: URL) => unknown) | null = null;
-function localNeighbourResponse(url: URL) {
-  const second = Number(url.searchParams.get("sor")) > 60.3;
-  const a = second ? krakenes : milde;
-  return {
-    kommunenummer: url.searchParams.get("kommunenummer"), kildestatus: "tilgjengelig",
-    kilde: { navn: "Lokalt teiguttrekk", fil: "matrikkel_bk_25.json", uttrekksaar: 2025, koordinatsystem: "EPSG:4326", syntetisk: false },
-    type: "FeatureCollection", avkortet: false, features: [{
-      type: "Feature", id: 987,
-      geometry: eiendomResponse(second).features[0].geometry,
-      properties: { OBJECTID: 987, OBJTYPE: "Teig", GNR: a.gardsnummer, BNR: a.bruksnummer + 1, FNR: 0, SNR: 0,
-        AREAL: 900, AREALMERKNAD: null, TINGLYST: "Ja", ANTALL_GID: 1, Shape_Area: 900, Shape_Length: 120 },
-    }],
-  };
-}
-
 /**
- * Planmockens svar, klippet til utsnittet, med flatene rundt de to eiendommene.
+ * Kommunens sonelag, svart på det utsnittet forespørselen ba om.
  *
- * Flatene bygges av utsnittet forespørselen ba om, ikke av faste koordinater.
- * Det er det plan-mock faktisk gjør, og `planflateRinger` avviser nå et svar med
- * geometri utenfor utsnittet - en fixtur med faste bokser ville testet en kilde
- * ingen har.
+ * Flatene bygges av utsnittet og ikke av faste koordinater, slik at testen møter
+ * en flate som faktisk berører eiendommen uansett hvilken av de to den gjelder.
  *
- * Litle Milde får en støysone som dekker hele utsnittet, og dermed hele teigen;
- * Kråkenes en faresone over den vestlige halvparten, som gir «delvis». Begge er
- * de faktiske treffene i KPA2018-uttrekket, valgt slik at «helt» og «delvis»
- * hver har en eiendom å oppstå på uten at fixturen finner på et forhold.
+ * Litle Milde får en gul støysone (lag 23) som dekker hele utsnittet, og dermed
+ * hele teigen; Kråkenes en faresone (lag 18) over den vestlige halvparten, som gir
+ * «delvis». Begge er de faktiske treffene i KPA2018, valgt slik at «helt» og
+ * «delvis» hver har en eiendom å oppstå på uten at fiksturen finner på et forhold.
+ *
+ * Merk at flatene her går **helt ut til** utsnittet, ikke utenfor. Testen som
+ * beviser at en flate utenfor godtas bygger sin egen, større boks.
  */
-function planResponse(url: URL, kategori: "hensynssone" | "arealformaal") {
-  const second = Number(url.searchParams.get("sor")) > 60.3;
-  const tall = (navn: string) => Number(url.searchParams.get(navn));
-  const vest = tall("vest"), sor = tall("sor"), ost = tall("ost"), nord = tall("nord");
-  const boks = (ostkant: number): number[][][] =>
-    [[[vest, sor], [ostkant, sor], [ostkant, nord], [vest, nord], [vest, sor]]];
-  const felles = { planId: "65270000", kommunenummer: "4601" };
-  const flater = kategori === "hensynssone"
-    ? second
-      // Kråkenestoppen: faresonen dekker bare den vestlige halvparten av utsnittet.
-      ? [{ id: 41, ringer: boks(vest + (ost - vest) / 2), p: { datasett: "fare", sonekode: 390, sonenavn: "H390_2", arealstatus: null, beskrivelse: "Akutt forurensning" } }]
-      // Litle Milde: støysonen dekker hele utsnittet, og dermed hele teigen.
-      : [{ id: 42, ringer: boks(ost), p: { datasett: "stoy", sonekode: 220, sonenavn: "H220_1", arealstatus: null, beskrivelse: "Sjøflyhavn - gul sone" } }]
-    : [{ id: 43, ringer: boks(ost), p: { datasett: "arealformaal", sonekode: second ? 1001 : 5100, sonenavn: null, arealstatus: 1, beskrivelse: second ? "Øvrig byggesone" : "LNF" } }];
-  return {
-    kommunenummer: url.searchParams.get("kommunenummer"), kildestatus: "tilgjengelig",
-    kilde: {
-      navn: "Bergen kommuneplanens arealdel 2018 (KPA2018)", planId: "65270000", versjon: "KPA2018",
-      filer: ["KpStøySone_gul_2018.geojson"], uttrekksaar: 2018, koordinatsystem: "EPSG:4326", syntetisk: false,
-    },
-    type: "FeatureCollection", klippetTilUtsnitt: true,
-    features: flater.map(flate => ({
-      type: "Feature", id: flate.id,
-      geometry: { type: "Polygon", coordinates: flate.ringer },
-      properties: { ...felles, ...flate.p },
-    })),
-  };
+function soneSvar(url: URL, lagId: number) {
+  const [vest, sor, ost, nord] = konvolutt(url);
+  const second = sor > 60.3;
+  const boks = (ost: number): number[][][] => [konvoluttring(url, { ost })];
+  if (second && lagId === 18) {
+    return [{ attributes: { KPFARE: 390, HENSYNSONENAVN: "H390_2", BESKRIVELSE: "Akutt forurensning", PLANID: "65270000" },
+      geometry: { rings: boks(vest + (ost - vest) / 2) } }];
+  }
+  if (!second && lagId === 23) {
+    return [{ attributes: { KPSTOY: 220, HENSYNSONENAVN: "H220_1", BESKRIVELSE: "Sjøflyhavn - gul sone", PLANID: "65270000" },
+      geometry: { rings: boks(ost) } }];
+  }
+  return [];
 }
 
 const fakeFetch: typeof fetch = async (input, options) => {
@@ -221,36 +224,6 @@ const fakeFetch: typeof fetch = async (input, options) => {
   assert.equal(options?.redirect, "error");
   assert.equal(options?.body, undefined);
   assert.equal(new Headers(options?.headers).get("Authorization"), null);
-  if (url.pathname === "/mock/matrikkel/naboteiger") {
-    parseNaboteigQuery(url.searchParams);
-    const result = lokaleNabotomter ? await lokaleNabotomter(url) : url.searchParams.get("kommunenummer") === "4601"
-      ? localNeighbourResponse(url) : { ...localNeighbourResponse(url), kildestatus: "ikke_dekket", features: [] };
-    return result instanceof Response ? result : Response.json(result);
-  }
-  if (url.pathname.startsWith("/mock/plan/")) {
-    parsePlanQuery(url.searchParams);
-    const kategori = url.pathname === "/mock/plan/hensynssoner" ? "hensynssone" as const : "arealformaal" as const;
-    if (lokalePlanflater) {
-      const overstyrt = await lokalePlanflater(url);
-      return overstyrt instanceof Response ? overstyrt : Response.json(overstyrt);
-    }
-    const svar = planResponse(url, kategori);
-    return Response.json(url.searchParams.get("kommunenummer") === "4601" ? svar
-      : { ...svar, kildestatus: "ikke_dekket", kilde: { ...svar.kilde, planId: null, versjon: null, uttrekksaar: null }, features: [] });
-  }
-  if (url.pathname === "/mock/matrikkel/teiger") {
-    assert.equal(url.searchParams.get("fnr"), "0");
-    assert(!url.searchParams.has("personId"));
-    if (lokaleTeiger) {
-      const result = await lokaleTeiger(url);
-      return result instanceof Response ? result : Response.json(result);
-    }
-    return Response.json({
-      kommunenummer: url.searchParams.get("kommunenummer"), kildestatus: "ikke_dekket",
-      kilde: { navn: "Lokalt teiguttrekk", fil: null, uttrekksaar: null, koordinatsystem: "EPSG:4326", syntetisk: false },
-      type: "FeatureCollection", features: []
-    });
-  }
   assert(!url.search.includes("personId") && !url.search.includes("fnr="));
   assert(["ws.geonorge.no", "api.kartverket.no", "kart.bergen.kommune.no"].includes(url.hostname));
   if (url.pathname === "/eiendom/v1/punkt/omrader") {
@@ -262,6 +235,7 @@ const fakeFetch: typeof fetch = async (input, options) => {
     return result instanceof Response ? result : Response.json(result);
   }
   const source: Source = url.hostname === "api.kartverket.no" ? "eiendom" : url.hostname === "ws.geonorge.no" ? "adresse"
+    : url.pathname.includes("Hensynssoner_imagelayer") ? "sone"
     : decodeURIComponent(url.pathname).includes("Arealformål") ? "kpa"
       : decodeURIComponent(url.pathname).includes("Reguleringsplaner") ? "plan"
         : url.pathname.includes("Eiendommer") ? "eiendom" : "bygning";
@@ -295,20 +269,33 @@ const fakeFetch: typeof fetch = async (input, options) => {
     assert.equal(url.searchParams.get("outSR"), "4258");
     assert.notEqual(url.searchParams.get("outFields"), "*");
     const second = Number(url.searchParams.get("geometry")!.split(",")[1]) > 60.3;
-    body = {
-      geometryType: "esriGeometryPolygon", spatialReference: { wkid: 4258, latestWkid: 4258 },
-      features: source === "kpa" ? [{
-        attributes: { KPAREALFORMAL: second ? 1001 : 5100, AREALST: 1, BESKRIVELSE: second ? "Øvrig byggesone" : "LNF", PLANID: "65270000" },
-      }] : source === "plan" ? second ? [{
-        attributes: {
-          PLANID: "6170063", PLANNAVN: "FYLLINGSDALEN. BØNES ØST, FELT 19A, PLAN FOR BEBYGGELSE",
-          URL: "https://example.invalid/do-not-follow",
-        },
-      }] : [] : second ? structuredClone([krakenesHouse, krakenesNeighbour]) : [{
-        attributes: { OBJECTID: 14583, OBJTYPE: "AnnenBygning", BYGGNR: null, BYGGTYP_NBR: null, BYGGSTAT: null, BRUKSAREAL: null, OFFENTLIG_EIER: "Skal ikke følge svaret" },
-        geometry: { rings: buildingRings },
-      }, structuredClone(mildeHouse)],
-    };
+    if (source === "sone") {
+      const lagId = Number(url.pathname.split("/").filter(Boolean).at(-2));
+      body = {
+        geometryType: "esriGeometryPolygon", spatialReference: { wkid: 4258, latestWkid: 4258 },
+        features: soneLag ? await soneLag(url, lagId) : soneSvar(url, lagId),
+      };
+    } else {
+      // Arealformålet spørres to ganger: uten geometri for punktet, med geometri for
+      // flaten. Det er samme lag, og det er poenget - punktet og flaten kan ikke bli
+      // uenige slik de kunne da flaten kom fra en frossen fil.
+      const medGeometri = url.searchParams.get("returnGeometry") === "true";
+      body = {
+        geometryType: "esriGeometryPolygon", spatialReference: { wkid: 4258, latestWkid: 4258 },
+        features: source === "kpa" ? [{
+          attributes: { KPAREALFORMAL: second ? 1001 : 5100, AREALST: 1, BESKRIVELSE: second ? "Øvrig byggesone" : "LNF", PLANID: "65270000" },
+          ...(medGeometri ? { geometry: { rings: [konvoluttring(url)] } } : {}),
+        }] : source === "plan" ? second ? [{
+          attributes: {
+            PLANID: "6170063", PLANNAVN: "FYLLINGSDALEN. BØNES ØST, FELT 19A, PLAN FOR BEBYGGELSE",
+            URL: "https://example.invalid/do-not-follow",
+          },
+        }] : [] : second ? structuredClone([krakenesHouse, krakenesNeighbour]) : [{
+          attributes: { OBJECTID: 14583, OBJTYPE: "AnnenBygning", BYGGNR: null, BYGGTYP_NBR: null, BYGGSTAT: null, BRUKSAREAL: null, OFFENTLIG_EIER: "Skal ikke følge svaret" },
+          geometry: { rings: buildingRings },
+        }, structuredClone(mildeHouse)],
+      };
+    }
   }
   const result = transform(source, query, body);
   return result instanceof Response ? result : Response.json(result);
@@ -347,13 +334,12 @@ try {
     await assert.rejects(searchTiltakshjelpenAdresser("Rådhusplassen 1", "4601"), errorStatus(502));
   });
   await test("Et nasjonalt søk kan returnere adresser fra flere kommuner", async () => {
-    transform = (source, _query, body) => source === "adresse" ? {
+    settTransform((source, _query, body) => source === "adresse" ? {
       metadata: { totaltAntallTreff: 2 },
       adresser: [...addressResponse(milde).adresser, ...addressResponse(oslo).adresser],
-    } : body;
+    } : body);
     assert.deepEqual(await searchTiltakshjelpenAdresser("Rådhusplassen 1"), [milde, oslo]);
     await assert.rejects(searchTiltakshjelpenAdresser("Rådhusplassen 1", "0301"), errorStatus(502));
-    transform = (_source, _query, body) => body;
   });
   await test("Ugyldige kommunenummer avvises før nettverk", async () => {
     const before = urls.length;
@@ -395,11 +381,10 @@ try {
     const hensyn = evaluateTiltakshjelpen(tiltak, g).sjekker.find(s => s.id === "hensynssoner")!;
     assert.equal(hensyn.status, "uavklart");
     assert(!hensyn.forklaring.includes("Ingen hensynssone"));
-    assert.equal(urls.length, 4, "Lokal dekning sjekkes før nasjonale oppslag for eiendom og nabotomter");
-    assert.equal(urls[0]!.pathname, "/mock/matrikkel/teiger");
-    assert.equal(urls[0]!.searchParams.get("kommunenummer"), "0301");
+    assert.equal(urls.length, 2, "Eiendom og nabotomter hentes nasjonalt, uten et lokalt forsøk først");
+    assert.equal(urls[0]!.hostname, "api.kartverket.no");
+    assert.equal(urls[0]!.searchParams.get("matrikkelnummer"), "0301-209/339");
     assert.equal(urls[1]!.hostname, "api.kartverket.no");
-    assert.equal(urls[1]!.searchParams.get("matrikkelnummer"), "0301-209/339");
     // Ingen planoppslag i det hele tatt: bare Bergen har et uttrekk, og kommunen er
     // kjent før noe nettverk røres. Et kall ingen kunne brukt svaret på er ikke verdt
     // turen, uansett hvor kort den er.
@@ -523,13 +508,13 @@ try {
   });
   for (const { value, label, sonetype } of zoneLegend) {
     await test(`Soner leses fra begge KPA-feltene og tegnforklaringen: ${label}`, async () => {
-      transform = (source, query, body) => {
+      settTransform((source, query, body) => {
         if (source === "kpa" && query) {
           const [code, status] = value.split(",").map(Number);
           Object.assign(body.features[0].attributes, { KPAREALFORMAL: code, AREALST: status, BESKRIVELSE: "Generell beskrivelse" });
         }
         return body;
-      };
+      });
       const g = await getTiltakshjelpenGrunnlag(milde);
       assert.equal(g.arealformaal[0]?.arealstatus, Number(value.split(",")[1]));
       assert.equal(g.arealformaal[0]?.sonenavn, label);
@@ -537,23 +522,21 @@ try {
       assert.equal(g.arealformaal[0]?.beskrivelse, "Generell beskrivelse");
     });
   }
-  transform = (_source, _query, body) => body;
   await test("Sonenavnet kommer fra gjeldende kildemetadata, ikke en lokal kopi av kodene", async () => {
-    transform = (source, query, body) => {
+    settTransform((source, query, body) => {
       if (source === "kpa" && !query) body.drawingInfo.renderer.uniqueValueInfos.find((item: any) => item.value === "5100,1").label = "Kildens oppdaterte sonenavn";
       return body;
-    };
+    });
     const g = await getTiltakshjelpenGrunnlag(milde);
     assert.equal(g.arealformaal[0]?.sonenavn, "Kildens oppdaterte sonenavn");
     assert.equal(g.arealformaal[0]?.sonetype, "ukjent", "En endret tegnforklaring må kontrolleres før registeret kan brukes");
-    transform = (_source, _query, body) => body;
   });
   await test("Ukjent kombinasjon og manglende AREALST utløser aldri gjettet sonenavn", async () => {
     for (const status of [3, null, undefined]) {
-      transform = (source, query, body) => {
+      settTransform((source, query, body) => {
         if (source === "kpa" && query) Object.assign(body.features[0].attributes, { KPAREALFORMAL: 1130, AREALST: status });
         return body;
-      };
+      });
       const g = await getTiltakshjelpenGrunnlag(milde);
       assert.equal(g.arealformaal[0]?.sonenavn, undefined);
       assert.equal(g.arealformaal[0]?.sonetype, "ukjent");
@@ -561,39 +544,36 @@ try {
       assert.equal(g.arealformaal[0]?.arealstatus, status ?? undefined);
       assert(g.uavklarteForhold.some(f => f.includes("Arealformålskoden alene")));
     }
-    transform = (_source, _query, body) => body;
   });
   await test("Ustøttet arealformål beholder råkode og kildens navn med eksplisitt ukjent sonetype", async () => {
-    transform = (source, query, body) => {
+    settTransform((source, query, body) => {
       if (source === "kpa" && !query) body.drawingInfo.renderer.uniqueValueInfos.push({ value: "1160,1", label: "Tjenesteyting" });
       if (source === "kpa" && query) Object.assign(body.features[0].attributes, { KPAREALFORMAL: 1160, AREALST: 1, BESKRIVELSE: "Tjenesteyting" });
       return body;
-    };
+    });
     const g = await getTiltakshjelpenGrunnlag(milde);
     assert.deepEqual(g.arealformaal[0], {
       kode: 1160, arealstatus: 1, beskrivelse: "Tjenesteyting", sonenavn: "Tjenesteyting", sonetype: "ukjent", planId: "65270000",
     });
     assert(g.uavklarteForhold.some(f => f.includes("Sonetypen er ikke støttet")));
-    transform = (_source, _query, body) => body;
   });
   await test("Kjent kodepar fra en annen plan arver ikke sonetypen fra KPA2018", async () => {
-    transform = (source, query, body) => {
+    settTransform((source, query, body) => {
       if (source === "kpa" && query) body.features[0].attributes.PLANID = "99999999";
       return body;
-    };
+    });
     const g = await getTiltakshjelpenGrunnlag(milde);
     assert.equal(g.arealformaal[0]?.sonetype, "ukjent");
     assert.equal(g.arealformaal[0]?.planId, "99999999");
     assert.equal(g.arealformaal[0]?.sonenavn, "LNF");
     assert.equal(g.arealformaal[0]?.kode, 5100);
-    transform = (_source, _query, body) => body;
   });
   await test("Manglende tegnforklaring bevarer gyldige arealformål med ukjent sonetype", async () => {
     for (const drawingInfo of [undefined, null, {}, { renderer: null }]) {
-      transform = (source, query, body) => {
+      settTransform((source, query, body) => {
         if (source === "kpa" && !query) body.drawingInfo = drawingInfo;
         return body;
-      };
+      });
       const g = await getTiltakshjelpenGrunnlag(milde);
       assert.equal(g.kilder.find(k => k.id === "kpa")?.status, "ok");
       assert.deepEqual(g.arealformaal, [{
@@ -601,24 +581,22 @@ try {
       }]);
       assert(g.uavklarteForhold.some(f => f.includes("Sonetypen er ikke støttet")));
     }
-    transform = (_source, _query, body) => body;
   });
   await test("Feil tegnforklaring bevarer råverdiene uten å velge feil sone", async () => {
-    transform = (source, query, body) => {
+    settTransform((source, query, body) => {
       if (source === "kpa" && !query) body.drawingInfo.renderer.field2 = "NOE_ANNET";
       return body;
-    };
+    });
     const g = await getTiltakshjelpenGrunnlag(milde);
     assert.equal(g.kilder.find(k => k.id === "kpa")?.status, "ok");
     assert.deepEqual(g.arealformaal, [{
       kode: 5100, arealstatus: 1, beskrivelse: "LNF", planId: "65270000", sonetype: "ukjent",
     }]);
     assert(g.uavklarteForhold.some(f => f.includes("Tegnforklaringen")));
-    transform = (_source, _query, body) => body;
   });
   await test("Gruppert tegnforklaring støtter alle soner uten kommaseparert liste", async () => {
     for (const { value, label, sonetype } of zoneLegend) {
-      transform = (source, query, body) => {
+      settTransform((source, query, body) => {
         if (source === "kpa" && !query) {
           body.drawingInfo.renderer = {
             type: "uniqueValue", field1: "KPAREALFORMAL", field2: "AREALST",
@@ -632,24 +610,23 @@ try {
           Object.assign(body.features[0].attributes, { KPAREALFORMAL: code, AREALST: status });
         }
         return body;
-      };
+      });
       const g = await getTiltakshjelpenGrunnlag(milde);
       assert.equal(g.arealformaal[0]?.sonetype, sonetype);
       assert.equal(g.arealformaal[0]?.sonenavn, label);
       assert.equal(g.kilder.find(k => k.id === "kpa")?.status, "ok");
     }
-    transform = (_source, _query, body) => body;
   });
   await test("To tegnforklaringer må være enige før sonen kan bekreftes", async () => {
     for (const label of ["LNF", "Annet sonenavn"]) {
-      transform = (source, query, body) => {
+      settTransform((source, query, body) => {
         if (source === "kpa" && !query) {
           body.drawingInfo.renderer.uniqueValueGroups = [{
             classes: [{ label, values: [["5100", "1"]] }],
           }];
         }
         return body;
-      };
+      });
       const g = await getTiltakshjelpenGrunnlag(milde);
       assert.equal(g.arealformaal[0]?.kode, 5100);
       assert.equal(g.arealformaal[0]?.arealstatus, 1);
@@ -657,7 +634,6 @@ try {
       assert.equal(g.arealformaal[0]?.sonenavn, label === "LNF" ? "LNF" : undefined);
       assert.equal(g.kilder.find(k => k.id === "kpa")?.status, "ok");
     }
-    transform = (_source, _query, body) => body;
   });
   await test("Uleselig tegnforklaring fjerner aldri gyldige arealformål", async () => {
     for (const renderer of [
@@ -666,10 +642,10 @@ try {
       { type: "uniqueValue", field1: "KPAREALFORMAL", field2: "AREALST", uniqueValueGroups: [{ classes: [{ values: null }] }] },
       { type: "uniqueValue", field1: "KPAREALFORMAL", field2: "AREALST", fieldDelimiter: ";", uniqueValueInfos: [{ value: "5100,1", label: "LNF" }] },
     ]) {
-      transform = (source, query, body) => {
+      settTransform((source, query, body) => {
         if (source === "kpa" && !query) body.drawingInfo.renderer = renderer;
         return body;
-      };
+      });
       const g = await getTiltakshjelpenGrunnlag(milde);
       assert.deepEqual(g.arealformaal, [{
         kode: 5100, arealstatus: 1, beskrivelse: "LNF", planId: "65270000", sonetype: "ukjent",
@@ -677,7 +653,6 @@ try {
       assert.equal(g.kilder.find(k => k.id === "kpa")?.status, "ok");
       assert(g.uavklarteForhold.some(f => f.includes("Tegnforklaringen")));
     }
-    transform = (_source, _query, body) => body;
   });
   await test("Milde har offentlig LNF-treff og et vellykket reguleringsplansøk uten treff", () => {
     assert.equal(grunnlag.arealformaal[0]?.kode, 5100);
@@ -690,7 +665,7 @@ try {
     assert(!("scenario" in grunnlag) && !("datamodus" in grunnlag));
   });
   await test("Rådet beholder alle Litle Milde-vilkårene, også LNF og et plansøk uten treff", async () => {
-    const g = await readTiltakshjelpenGrunnlag(new URLSearchParams({
+    const g = await hentTiltakshjelpenGrunnlag(new URLSearchParams({
       adresse: milde.adressetekst, kommunenummer: milde.kommunenummer,
       gnr: String(milde.gardsnummer), bnr: String(milde.bruksnummer),
       lat: String(milde.punkt.lat), lon: String(milde.punkt.lon)
@@ -728,8 +703,11 @@ try {
     // Navnet kommer fra det kontrollerte soneregisteret, ikke fra kildens fritekst.
     assert.equal(formaal[0]?.navn, findArealsone(5100, 1, "65270000", "4601")?.navn);
     assert.equal(formaal[0]?.kildetekst, "LNF");
-    assert.equal(grunnlag.kilder.find(k => k.id === "planflater")?.status, "ok");
-    assert.equal(grunnlag.kilder.find(k => k.id === "planflater")?.uttrekksaar, 2018);
+    const plankilde = grunnlag.kilder.find(k => k.id === "planflater")!;
+    assert.equal(plankilde.status, "ok");
+    assert.equal(plankilde.koordinatsystem, "EPSG:4258");
+    assert(plankilde.url.includes("Hensynssoner_imagelayer"));
+    assert(plankilde.merknad?.includes("2 meter"), "Forenklingen må stå i kildeteksten innbyggeren ser");
   });
   await test("Sonen navngis og avgjør ingenting", () => {
     const v = evaluateTiltakshjelpen(tiltak, grunnlag);
@@ -753,123 +731,293 @@ try {
     assert(!v.sjekker.some(s => s.id === "arealformaal-flate"));
   });
   await test("En eiendom uten sonetreff får det sagt, ikke fortiet", async () => {
-    lokalePlanflater = url => ({
-      kommunenummer: "4601", kildestatus: "tilgjengelig",
-      kilde: { navn: "KPA2018", planId: "65270000", versjon: "KPA2018", filer: [], uttrekksaar: 2018, koordinatsystem: "EPSG:4326", syntetisk: false },
-      type: "FeatureCollection", klippetTilUtsnitt: true, features: [], sok: url.search,
-    });
+    soneLag = () => [];
+    settTransform((source, query, body) => source === "kpa" && query ? { ...(body as object), features: [] } : body);
     const g = await getTiltakshjelpenGrunnlag(milde);
-    lokalePlanflater = null;
     assert.deepEqual(g.planflater, []);
     assert.equal(g.kilder.find(k => k.id === "planflater")?.status, "ingen_treff");
     const sjekk = evaluateTiltakshjelpen(tiltak, g).sjekker.find(s => s.id === "hensynssoner")!;
     assert.equal(sjekk.status, "uavklart");
     assert(sjekk.forklaring.includes("Ingen hensynssone"));
-    assert(sjekk.forklaring.includes("2018"));
   });
-  await test("Manglende dekning i én av planrutene er ukjent, ikke et gyldig tomt treff", async () => {
-    for (const udekket of ["hensynssoner", "arealformaal", "begge"]) {
-      lokalePlanflater = url => {
-        const route = url.pathname.endsWith("hensynssoner") ? "hensynssoner" : "arealformaal";
-        const svar = planResponse(url, route === "hensynssoner" ? "hensynssone" : "arealformaal");
-        return udekket === "begge" || route === udekket
-          ? { ...svar, kildestatus: "ikke_dekket", features: [] } : svar;
-      };
-      const g = await getTiltakshjelpenGrunnlag(milde);
-      const kilde = g.kilder.find(k => k.id === "planflater")!;
-      assert.equal(kilde.status, "ikke_sjekket", udekket);
-      assert.deepEqual(g.planflater, []);
-      assert(kilde.merknad?.includes("ikke dekker"));
-      assert(g.uavklarteForhold.some(f => f.includes("ikke dekker")));
-      const sjekk = evaluateTiltakshjelpen(tiltak, g).sjekker.find(s => s.id === "hensynssoner")!;
-      assert.equal(sjekk.status, "uavklart");
-      assert(!sjekk.forklaring.includes("Ingen hensynssone"));
+  await test("Gruppelagene spørres aldri, og lagoppsettet hentes bare første gang", async () => {
+    await getTiltakshjelpenGrunnlag(milde);
+    urls.length = 0;
+    await getTiltakshjelpenGrunnlag(milde);
+    const sonekall = urls.filter(url => url.pathname.includes("Hensynssoner_imagelayer"));
+    assert(sonekall.length > 0, "Sonelagene skal spørres");
+    // ArcGIS svarer ikke på en spørring mot et gruppelag. Står 14 eller 21 i
+    // listen, feiler det i kjøring i stedet for i gjennomlesning.
+    for (const lag of ["/14", "/21"]) {
+      assert(!sonekall.some(url => url.pathname.split("/").includes(lag.slice(1))),
+        `Gruppelaget ${lag} ble spurt`);
     }
-    lokalePlanflater = null;
+    // Lagoppsettet ligger fast, og uten memoen ville hvert av de tretten lagene
+    // hentet sitt eget først. Det tar ett grunnlagskall fra rundt 13 til rundt 35
+    // forespørsler mot én kommunal tjeneste.
+    const metadatakall = sonekall.filter(url => !url.pathname.endsWith("/query"));
+    assert.equal(metadatakall.length, 0, "Lagmetadata skal være hentet én gang og husket");
+    for (const url of sonekall.filter(u => u.pathname.endsWith("/query"))) {
+      assert.equal(url.searchParams.get("maxAllowableOffset"), "0.00002",
+        "Sonespørringen må forenkles, ellers er svaret på et stort utsnitt flere megabyte");
+    }
+    assert(!urls.some(url => url.pathname.startsWith("/mock/plan/")), "Ingen tjeneste spørres om planflater lenger");
   });
-  await test("Ukjent dekningsstatus, feil kommune og ugyldig flate gir kildefeil", async () => {
-    const invalid = [
-      (svar: ReturnType<typeof planResponse>) => ({ ...svar, kildestatus: "ukjent", features: [] }),
-      (svar: ReturnType<typeof planResponse>) => ({ ...svar, kildestatus: undefined, features: [] }),
-      (svar: ReturnType<typeof planResponse>) => ({ ...svar, kommunenummer: "0301", features: [] }),
-      (svar: ReturnType<typeof planResponse>) => ({ ...svar, kildestatus: "ikke_dekket" }),
-      (svar: ReturnType<typeof planResponse>) => ({
-        ...svar, features: svar.features.map(f => ({ ...f, properties: { ...f.properties, kommunenummer: "0301" } })),
-      }),
-      (svar: ReturnType<typeof planResponse>) => ({
-        ...svar, features: svar.features.map(f => ({ ...f, geometry: { type: "Polygon", coordinates: [] } })),
-      }),
-      (svar: ReturnType<typeof planResponse>) => ({
-        ...svar, features: svar.features.map(f => ({ ...f, geometry: { ...f.geometry, type: "MultiPolygon" } })),
-      }),
-    ];
-    for (const change of invalid) {
-      lokalePlanflater = url => change(planResponse(url, url.pathname.endsWith("hensynssoner") ? "hensynssone" : "arealformaal"));
-      const g = await getTiltakshjelpenGrunnlag(milde);
-      assert.equal(g.kilder.find(k => k.id === "planflater")?.status, "feil");
-      assert.deepEqual(g.planflater, []);
-    }
-    lokalePlanflater = null;
+  await test("En LNF-flate med titusener av punkter godtas, og arealformålet forenkles", async () => {
+    // Målt mot kilden: et vanlig teigutsnitt i LNF gir én ring på 16 225 punkter
+    // etter forenkling, og 41 811 uten. Med teigens tak på 10 000 ble hele
+    // plansteget en kildefeil nøyaktig der meldeplikt-fritaket kan oppstå.
+    urls.length = 0;
+    settTransform((source, query, body) => {
+      if (source !== "kpa" || !query) return body;
+      const svar = body as { features: { geometry?: { rings: number[][][] } }[] };
+      const feature = svar.features[0]!;
+      // Faste koordinater rundt adressepunktet, ikke utsnittet forespørselen ba
+      // om: `Transform` får ikke URL-en, så det er ingen vei til det her. Ringen
+      // er stor nok til å dekke utsnittet uansett.
+      const { lon, lat } = milde.punkt;
+      const [vest, sor, ost, nord] = [lon - 0.01, lat - 0.01, lon + 0.01, lat + 0.01];
+      // En lang, takket ytre ring rundt utsnittet, slik en fjellside ser ut.
+      const ring: number[][] = [];
+      for (let i = 0; i < 16_000; i += 1) {
+        const t = i / 16_000;
+        ring.push([vest + (ost - vest) * t, sor + (i % 2 ? 0.00001 : 0)]);
+      }
+      ring.push([ost, nord], [vest, nord], [vest, sor]);
+      feature.geometry = { rings: [ring] };
+      return svar;
+    });
+    const g = await getTiltakshjelpenGrunnlag(milde);
+    assert.equal(g.kilder.find(k => k.id === "planflater")?.status, "ok",
+      g.kilder.find(k => k.id === "planflater")?.merknad);
+    assert(g.planflater.some(f => f.kategori === "arealformaal"));
+    const formaalsporring = urls.find(url => decodeURIComponent(url.pathname).includes("Arealformål")
+      && url.pathname.endsWith("/query") && url.searchParams.get("returnGeometry") === "true")!;
+    assert.equal(formaalsporring.searchParams.get("maxAllowableOffset"), "0.00002",
+      "Uten forenklingen svarte arealformålet med 3,6 MB for ett teigutsnitt");
+  });
+  await test("Bygningssporringen forenkles ikke", async () => {
+    urls.length = 0;
+    await getTiltakshjelpenGrunnlag(milde);
+    const bygning = urls.find(url => url.pathname.includes("Bygning_Flate") && url.pathname.endsWith("/query"))!;
+    assert(bygning, "Bygningslaget skal spørres");
+    assert.equal(bygning.searchParams.get("maxAllowableOffset"), null,
+      "Bygningsflatene måles mot tomtearealet, og en forenkling ville flyttet tallet");
+  });
+  await test("En flate som strekker seg utenfor utsnittet godtas, og gir fortsatt helt", async () => {
+    // Den gamle kilden var klippet til utsnittet, og en koordinat utenfor var et
+    // brudd. Kommunens egen tjeneste svarer med hele flaten, så kravet er snudd:
+    // ringen får gå utenfor, men den må berøre utsnittet.
+    soneLag = (url, lagId) => {
+      if (lagId !== 23) return [];
+      const [vest, sor, ost, nord] = (url.searchParams.get("geometry") || "").split(",").map(Number) as [number, number, number, number];
+      // Hundre ganger utsnittet i hver retning, slik en LNF-flate faktisk er:
+      // målt mot kilden dekker ett arealformål 27 x 40 km for et teigutsnitt på
+      // 138 x 200 meter.
+      const bredde = (ost - vest) * 100, hoyde = (nord - sor) * 100;
+      const stor = [[[vest - bredde, sor - hoyde], [vest - bredde, nord + hoyde],
+        [ost + bredde, nord + hoyde], [ost + bredde, sor - hoyde], [vest - bredde, sor - hoyde]]];
+      return [{ attributes: { KPSTOY: 220, HENSYNSONENAVN: "H220_1", BESKRIVELSE: "Sjøflyhavn - gul sone", PLANID: "65270000" },
+        geometry: { rings: stor } }];
+    };
+    const g = await getTiltakshjelpenGrunnlag(milde);
+    assert.equal(g.kilder.find(k => k.id === "planflater")?.status, "ok");
+    const sone = g.planflater.find(f => f.kategori === "hensynssone")!;
+    assert.equal(sone.berorer, "helt", "avgjørelsen tas på hele flaten");
+    // Og det som tegnes er klippet. Ett arealformål i LNF er ett polygon over
+    // 27 x 40 kilometer - uklippet gikk 396 kB over tråden for et teigutsnitt på
+    // 138 x 200 meter. Kantene langs utsnittet er derfor ikke sonegrenser.
+    const teig = getGeometriBounds({ type: "MultiPolygon", coordinates: g.eiendomsgrenser.map(t => t.ringer) });
+    const tegnet = getGeometriBounds({ type: "MultiPolygon", coordinates: [sone.ringer] });
+    // Kartutsnittet er teigen med margin, strukket til 4:3 - godt under ti ganger
+    // teigen. Uklippet ville flaten her vært to hundre ganger så bred.
+    assert(tegnet.ost - tegnet.vest < (teig.ost - teig.vest) * 10
+      && tegnet.nord - tegnet.sor < (teig.nord - teig.sor) * 10,
+      `Den tegnede flaten skal være klippet til kartutsnittet, fikk ${JSON.stringify(tegnet)}`);
+  });
+  await test("En flate som ikke berører utsnittet er en kildefeil", async () => {
+    soneLag = (url, lagId) => {
+      if (lagId !== 23) return [];
+      const [vest, sor] = (url.searchParams.get("geometry") || "").split(",").map(Number) as [number, number];
+      const langtUnna = [[[vest + 1, sor + 1], [vest + 1, sor + 1.001], [vest + 1.001, sor + 1.001], [vest + 1.001, sor + 1], [vest + 1, sor + 1]]];
+      return [{ attributes: { KPSTOY: 220, HENSYNSONENAVN: "H220_1", BESKRIVELSE: "Gul sone", PLANID: "65270000" },
+        geometry: { rings: langtUnna } }];
+    };
+    const g = await getTiltakshjelpenGrunnlag(milde);
+    assert.equal(g.kilder.find(k => k.id === "planflater")?.status, "feil");
+    assert.deepEqual(g.planflater, []);
+  });
+  await test("To ytre ringer i én feature blir to flater, ikke én med hull", async () => {
+    // Esri legger flere ytre ringer i samme feature. Leses den andre som et hull,
+    // melder svaret en sone over grunn den ikke dekker - og «helt» der sannheten
+    // er «delvis». Delingen går på fortegnet til arealet.
+    soneLag = (url, lagId) => {
+      if (lagId !== 23) return [];
+      const [vest, , ost] = konvolutt(url);
+      const midt = vest + (ost - vest) / 2;
+      return [{ attributes: { KPSTOY: 220, HENSYNSONENAVN: "H220_1", BESKRIVELSE: "Gul sone", PLANID: "65270000" },
+        geometry: { rings: [konvoluttring(url, { ost: midt }), konvoluttring(url, { vest: midt })] } }];
+    };
+    const g = await getTiltakshjelpenGrunnlag(milde);
+    const soner = g.planflater.filter(f => f.kategori === "hensynssone");
+    assert.equal(soner.length, 2, "Begge de ytre ringene skal bli hver sin flate");
+    assert(soner.every(f => f.ringer.length === 1), "Ingen av dem har hull");
+  });
+  await test("En fjern del av en multiflate feller ikke plankilden", async () => {
+    // ArcGIS svarer med hele geometrien til det som treffer utsnittet, og en
+    // multiflate har deler langt unna - «to atskilte landskapsflater» er kildens
+    // egen form. Sto utsnittssjekken på delen i stedet for på featuren, ville den
+    // fjerne delen gjort hele plankilden til en feil. `alleKilderOk` er en
+    // hviteliste, så det ville tatt med seg hvert fritak `vurderMeldeplikt` kan gi.
+    soneLag = (url, lagId) => {
+      if (lagId !== 23) return [];
+      const [vest, sor, ost, nord] = (url.searchParams.get("geometry") || "").split(",").map(Number) as [number, number, number, number];
+      const medKlokken = (v: number, s2: number, o: number, n: number) => [[v, s2], [v, n], [o, n], [o, s2], [v, s2]];
+      return [{ attributes: { KPSTOY: 220, HENSYNSONENAVN: "H220_1", BESKRIVELSE: "Gul sone", PLANID: "65270000" },
+        geometry: { rings: [
+          medKlokken(vest, sor, ost, nord),
+          medKlokken(vest + 1, sor + 1, vest + 1.001, sor + 1.001),
+        ] } }];
+    };
+    const g = await getTiltakshjelpenGrunnlag(milde);
+    assert.equal(g.kilder.find(k => k.id === "planflater")?.status, "ok");
+    const soner = g.planflater.filter(f => f.kategori === "hensynssone");
+    assert.equal(soner.length, 1, "Bare delen som berører eiendommen skal bli med");
+    assert.equal(soner[0]!.berorer, "helt");
+  });
+  await test("Et feilsvar fra ett sonelag gir kildefeil uten å ta ned de andre kildene", async () => {
+    soneLag = (_url, lagId) => {
+      if (lagId !== 23) return [];
+      throw Object.assign(new Error("svarte ikke"), { lagId });
+    };
+    const g = await getTiltakshjelpenGrunnlag(milde);
+    assert.equal(g.kilder.find(k => k.id === "planflater")?.status, "feil");
+    assert.equal(g.kilder.find(k => k.id === "kpa")?.status, "ok", "Arealformålet skal svare som før");
+    assert.equal(g.kilder.find(k => k.id === "bygninger")?.status, "ok", "Bygningskartet skal svare som før");
+    assert.equal(evaluateTiltakshjelpen(tiltak, g).sjekker.find(s => s.id === "hensynssoner")?.status, "uavklart");
+  });
+  await test("Laglisten dekker datasettene, begge veier", async () => {
+    const kommune = findTiltakshjelpenKommunekilder("4601")!;
+    const iListen = new Set(kommune.hensynssoner.lag.map(lag => lag.datasett));
+    // Arealformålet er ikke et sonelag: det er det samme laget som punktoppslaget.
+    const forventet = new Set(DATASETTIDER.filter(id => id !== "arealformaal"));
+    assert.deepEqual([...iListen].sort(), [...forventet].sort(),
+      "Et datasett uten lag ville aldri blitt hentet, og et lag uten datasett ville aldri blitt navngitt");
+    assert(kommune.hensynssoner.lag.every(lag => ["KPANGITTHENSYN", "KPFARE", "KPSTOY"].includes(lag.kodefelt)));
   });
   await test("Et sonehull helt inne på tomten gir delvis dekning og skissepunkt utenfor sonen", async () => {
     const { lon, lat } = milde.punkt;
+    // Mot klokken er et hull i Esris form. Den samme ringen med klokken er en ny
+    // ytre ring, og da er det ikke et hull - det prøves i testen over.
     const hull: [number, number][] = [[lon - 0.00001, lat - 0.00001], [lon + 0.00001, lat - 0.00001],
       [lon + 0.00001, lat + 0.00001], [lon - 0.00001, lat + 0.00001], [lon - 0.00001, lat - 0.00001]];
-    for (const ring of [hull, hull.toReversed()]) {
-      lokalePlanflater = url => {
-        const svar = planResponse(url, url.pathname.endsWith("hensynssoner") ? "hensynssone" : "arealformaal");
-        svar.features[0]!.geometry.coordinates.push(ring);
-        return svar;
-      };
-      const g = await getTiltakshjelpenGrunnlag(milde, milde.punkt);
-      assert.equal(g.kilder.find(k => k.id === "planflater")?.status, "ok");
-      assert.equal(g.planflater.length, 2);
-      assert(g.planflater.every(f => f.berorer === "delvis"));
-      const sjekk = evaluateTiltakshjelpen(tiltak, g).sjekker.find(s => s.id === "hensynssoner")!;
-      assert(sjekk.forklaring.includes("berører deler av den kartlagte eiendommen"));
-      assert(sjekk.forklaring.includes("Skissepunktet ligger utenfor sonen"));
-      assert(!sjekk.forklaring.includes("dekker hele"));
-    }
-    transform = (source, _query, body) => {
+    soneLag = (url, lagId) => {
+      const flater = soneSvar(url, lagId) as { attributes: unknown; geometry: { rings: number[][][] } }[];
+      for (const flate of flater) flate.geometry.rings.push(hull);
+      return flater;
+    };
+    const g = await getTiltakshjelpenGrunnlag(milde, milde.punkt);
+    assert.equal(g.kilder.find(k => k.id === "planflater")?.status, "ok");
+    const sone = g.planflater.find(f => f.kategori === "hensynssone")!;
+    assert.equal(sone.ringer.length, 2, "Hullet skal bli en indre ring, ikke en egen flate");
+    assert.equal(sone.berorer, "delvis");
+    const sjekk = evaluateTiltakshjelpen(tiltak, g).sjekker.find(s => s.id === "hensynssoner")!;
+    assert(sjekk.forklaring.includes("berører deler av den kartlagte eiendommen"));
+    assert(sjekk.forklaring.includes("Skissepunktet ligger utenfor sonen"));
+    assert(!sjekk.forklaring.includes("dekker hele"));
+
+    settTransform((source, _query, body) => {
       if (source === "eiendom") {
         const response = structuredClone(body) as ReturnType<typeof eiendomResponse>;
         response.features[0]!.geometry.coordinates.push(hull);
         return response;
       }
       return body;
-    };
+    });
     const medTeighull = await getTiltakshjelpenGrunnlag(milde);
-    assert(medTeighull.planflater.every(f => f.berorer === "helt"), "Et sonehull som er samme hull som i teigen, fjerner ikke noe av tomten");
-    transform = (_source, _query, body) => body;
-    lokalePlanflater = null;
+    assert(medTeighull.planflater.filter(f => f.kategori === "hensynssone").every(f => f.berorer === "helt"),
+      "Et sonehull som er samme hull som i teigen, fjerner ikke noe av tomten");
   });
-  await test("Et usignert plansvar avvises, og feilen skjules ikke som tomt treff", async () => {
-    for (const kropp of [
-      { type: "FeatureCollection", features: [], klippetTilUtsnitt: false, kildestatus: "tilgjengelig", kilde: { koordinatsystem: "EPSG:4326" } },
-      { type: "FeatureCollection", features: [], klippetTilUtsnitt: true, kildestatus: "tilgjengelig", kilde: { koordinatsystem: "EPSG:25833" } },
-      { type: "FeatureCollection", klippetTilUtsnitt: true, kildestatus: "tilgjengelig", kilde: { koordinatsystem: "EPSG:4326" } },
-    ]) {
-      lokalePlanflater = () => kropp;
+  await test("Et ugyldig sonesvar avvises, og feilen skjules ikke som tomt treff", async () => {
+    const ugyldige: [string, unknown][] = [
+      ["feilmelding fra tjenesten", { error: { code: 400, message: "Invalid layer" } }],
+      ["avkortet utvalg", { geometryType: "esriGeometryPolygon", exceededTransferLimit: true, features: [] }],
+      ["feil koordinatsystem", {
+        geometryType: "esriGeometryPolygon", spatialReference: { wkid: 25833 },
+        features: [{ attributes: { KPSTOY: 220, HENSYNSONENAVN: "H220_1", BESKRIVELSE: "Gul", PLANID: "65270000" },
+          geometry: { rings: [[[5, 60], [5, 60.1], [5.1, 60.1], [5.1, 60], [5, 60]]] } }],
+      }],
+      ["ring uten nok punkter", {
+        geometryType: "esriGeometryPolygon", spatialReference: { wkid: 4258 },
+        features: [{ attributes: { KPSTOY: 220, HENSYNSONENAVN: "H220_1", BESKRIVELSE: "Gul", PLANID: "65270000" },
+          geometry: { rings: [[[5, 60], [5, 60.1]]] } }],
+      }],
+    ];
+    for (const [navn, kropp] of ugyldige) {
+      settTransform((source, query, body) => source === "sone" && query ? kropp : body);
       const g = await getTiltakshjelpenGrunnlag(milde);
-      assert.equal(g.kilder.find(k => k.id === "planflater")?.status, "feil", JSON.stringify(kropp));
+      assert.equal(g.kilder.find(k => k.id === "planflater")?.status, "feil", navn);
       assert.deepEqual(g.planflater, []);
       const sjekk = evaluateTiltakshjelpen(tiltak, g).sjekker.find(s => s.id === "hensynssoner")!;
       assert.equal(sjekk.status, "uavklart");
       assert(sjekk.forklaring.includes("kunne ikke hentes"));
     }
-    lokalePlanflater = null;
   });
-  await test("En sonekode kodeverket ikke kjenner navngis ikke, men telles", async () => {
-    lokalePlanflater = url => {
-      const svar = planResponse(url, url.pathname.endsWith("hensynssoner") ? "hensynssone" : "arealformaal");
-      if (url.pathname.endsWith("hensynssoner")) svar.features[0]!.properties.sonekode = 999;
-      return svar;
+  await test("Et tomt tekstfelt fra kilden er ingen verdi, ikke en kildefeil", async () => {
+    // ArcGIS sier «ingen verdi» både med null og med en tom streng. Guardene rundt
+    // feltene hadde allerede bestemt at ingen verdi ikke er en feil, men leste bare
+    // null - og `text()` avviser den tomme strengen med 502. Én flate med et tomt
+    // navn ville dermed felt hele plankilden, og med den hvert fritak.
+    soneLag = (url, lagId) => {
+      const flater = soneSvar(url, lagId) as { attributes: Record<string, unknown> }[];
+      for (const flate of flater) flate.attributes.HENSYNSONENAVN = "   ";
+      return flater;
     };
     const g = await getTiltakshjelpenGrunnlag(milde);
-    lokalePlanflater = null;
-    assert.deepEqual(g.planflater.filter(f => f.kategori === "hensynssone"), []);
-    assert(g.uavklarteForhold.some(f => f.includes("sonekode sandkassens kodeverk ikke kjenner")));
+    soneLag = null;
+    assert.equal(g.kilder.find(k => k.id === "planflater")?.status, "ok",
+      g.kilder.find(k => k.id === "planflater")?.merknad);
+    assert.deepEqual(g.planflater.filter(f => f.kategori === "hensynssone"), [],
+      "En sone uten navn kan ikke navngis, så den utelates - men den feller ikke kilden");
+    assert(g.uavklarteForhold.some(f => f.includes("mangler sonekode eller navn")));
   });
+  await test("En faresonekode kodeverket ikke kjenner feller plankilden i stedet for å telles", async () => {
+    // Skillet mot testen under: en støysone eller et angitt hensyn kan telles, fordi
+    // et treff der ikke kan endre utfallet. En faresone kan - `soneHindrerFritak`
+    // holder tilbake meldeplikt-fritaket - og en faresone som bare ble talt ville
+    // gitt «du trenger ikke søke» på en eiendom med fare. Den live kilden gjør
+    // tilfellet virkelig: den navngir koder uttrekket aldri hadde, og `landbruk` kom
+    // inn i kodeverket nettopp slik.
+    soneLag = (_url, lagId) => lagId !== 15 ? [] : [{
+      attributes: { KPFARE: 399, HENSYNSONENAVN: "H399_1", BESKRIVELSE: "En fare kodeverket ikke kjenner", PLANID: "65270000" },
+      geometry: { rings: [[[5.2, 60.24], [5.2, 60.27], [5.3, 60.27], [5.3, 60.24], [5.2, 60.24]]] },
+    }];
+    const g = await getTiltakshjelpenGrunnlag(milde);
+    soneLag = null;
+    const kilde = g.kilder.find(k => k.id === "planflater")!;
+    assert.equal(kilde.status, "feil", "En faresone som ikke kan navngis skal felle kilden");
+    assert(kilde.merknad?.includes("fare"), kilde.merknad);
+    const vurdering = evaluateTiltakshjelpen(tiltak, g);
+    assert.equal(vurdering.sjekker.find(s => s.id === "meldeplikt"), undefined,
+      "Manglende kunnskap om en faresone er aldri et fritak");
+  });
+  // Begge veier en flate kan bli utelatt, og begge skal telles. En faresone uten
+  // navn som forsvant i stillhet ville aldri nådd `soneHindrerFritak`.
+  for (const [navn, endre] of [
+    ["en sonekode kodeverket ikke kjenner", (a: Record<string, unknown>) => { a.KPSTOY = 999; }],
+    ["en sone uten navn", (a: Record<string, unknown>) => { a.HENSYNSONENAVN = null; }],
+  ] as const) {
+    await test(`En flate med ${navn} navngis ikke, men telles`, async () => {
+      soneLag = (url, lagId) => {
+        const flater = soneSvar(url, lagId) as { attributes: Record<string, unknown> }[];
+        for (const flate of flater) endre(flate.attributes);
+        return flater;
+      };
+      const g = await getTiltakshjelpenGrunnlag(milde);
+      assert.deepEqual(g.planflater.filter(f => f.kategori === "hensynssone"), []);
+      assert(g.uavklarteForhold.some(f => f.includes("mangler sonekode eller navn")), navn);
+    });
+  }
   await test("Kråkenestoppen bruker faktisk planidentitet, men ingen oppdiktede bestemmelser", async () => {
     const g = await getTiltakshjelpenGrunnlag(krakenes);
     assert.equal(g.arealformaal[0]?.kode, 1001);
@@ -917,30 +1065,28 @@ try {
     // minsteboksen på 0.002 grader og for flat til å fylle 4:3 av seg selv.
     const bredTeig = [[5.2512, 60.25344], [5.2592, 60.25344], [5.2592, 60.25388], [5.2512, 60.25388], [5.2512, 60.25344]];
     for (const teig of [null, bredTeig]) {
-      transform = (source, _query, body) => {
+      settTransform((source, _query, body) => {
         if (source === "eiendom" && teig) body.features[0].geometry.coordinates = [teig];
         return body;
-      };
+      });
       const g = await getTiltakshjelpenGrunnlag(milde);
       const [west, south, east, north] = bygningsKonvolutt.split(",").map(Number) as [number, number, number, number];
       const utsnitt = fitKartutsnitt(g.eiendomsgrenser, g.adresse.punkt);
       assert(west <= utsnitt.west && east >= utsnitt.east && south <= utsnitt.south && north >= utsnitt.north,
         `Konvolutten ${bygningsKonvolutt} må dekke kartutsnittet ${JSON.stringify(utsnitt)}`);
     }
-    transform = (_source, _query, body) => body;
   });
   await test("Bare nabobygninger kan aldri bli bebyggelse på valgt eiendom", async () => {
-    transform = (source, query, body) => source === "bygning" && query
-      ? { ...body, features: [structuredClone(krakenesNeighbour)] } : body;
+    settTransform((source, query, body) => source === "bygning" && query
+      ? { ...body, features: [structuredClone(krakenesNeighbour)] } : body);
     const g = await getTiltakshjelpenGrunnlag(krakenes);
     assert.equal(g.kilder.find(k => k.id === "bygninger")?.status, "ok");
     assert.deepEqual(g.bebyggelse.bygninger, []);
     assert.equal(g.bebyggelse.status, "uavklart");
     assert.equal(g.bebyggelse.bebygd, null);
-    transform = (_source, _query, body) => body;
   });
   await test("Null bygningsflater betyr ikke at tomten er ubebygd", async () => {
-    transform = (source, query, body) => source === "bygning" && query ? { ...body, features: [] } : body;
+    settTransform((source, query, body) => source === "bygning" && query ? { ...body, features: [] } : body);
     const g = await getTiltakshjelpenGrunnlag(milde);
     assert.equal(g.kilder.find(k => k.id === "bygninger")?.status, "ingen_treff");
     assert.equal(g.bebyggelse.status, "uavklart");
@@ -949,39 +1095,36 @@ try {
     assert.equal(g.arealberegning.kartlagtAndelProsent, 0);
     assert(g.arealberegning.forbehold.some(f => f.includes("Null kartlagt flatedekning bekrefter ikke")));
     assert(g.bebyggelse.forklaring.includes("ikke et fullstendig bevis"));
-    transform = (_source, _query, body) => body;
   });
   await test("Manglende registerattributter gir geometri, ikke falsk bekreftelse eller oppdiktet areal", async () => {
-    transform = (source, query, body) => source === "bygning" && !query
-      ? { ...body, fields: [{ name: "OBJECTID" }] } : body;
+    settTransform((source, query, body) => source === "bygning" && !query
+      ? { ...body, fields: [{ name: "OBJECTID" }] } : body);
     const g = await getTiltakshjelpenGrunnlag(milde);
     assert.equal(g.bebyggelse.status, "uavklart");
     assert.equal(g.bebyggelse.bebygd, null);
     assert(g.bebyggelse.bygninger.length > 0);
     assert(g.bebyggelse.bygninger.every(b => b.bygningsnummer === undefined && b.bruksareal === undefined));
-    transform = (_source, _query, body) => body;
   });
   for (const status of ["RA", "IG", "BR", "BA", "BF", "BU", "ukjent", null]) {
     await test(`Byggstatus ${status} gir ikke automatisk eksisterende bebyggelse`, async () => {
-      transform = (source, query, body) => {
+      settTransform((source, query, body) => {
         if (source === "bygning" && query) for (const feature of body.features) feature.attributes.BYGGSTAT = status;
         return body;
-      };
+      });
       const g = await getTiltakshjelpenGrunnlag(milde);
       assert.equal(g.bebyggelse.bebygd, null);
       assert.equal(g.bebyggelse.status, "uavklart");
     });
   }
-  transform = (_source, _query, body) => body;
   for (const source of ["eiendom", "bygning"] as const) {
     for (const failure of ["forbidden", "truncated", "invalid-json"] as const) {
       await test(`Kildefeil ${source}/${failure} gir ukjent bebyggelse, ikke ubebygd`, async () => {
-        transform = (current, query, body) => {
+        settTransform((current, query, body) => {
           if (current !== source || !query) return body;
           return failure === "forbidden" ? new Response("Ingen tilgang", { status: 403 })
             : failure === "invalid-json" ? new Response("<html>Feil</html>")
               : { ...body, exceededTransferLimit: true };
-        };
+        });
         const g = await getTiltakshjelpenGrunnlag(milde);
         assert.equal(g.kilder.find(k => k.id === (source === "eiendom" ? "eiendomsgrenser" : "bygninger"))?.status, "feil");
         assert.equal(g.bebyggelse.bebygd, null);
@@ -994,13 +1137,12 @@ try {
       });
     }
   }
-  transform = (_source, _query, body) => body;
   for (const flag of ["teigmedflerematrikkelenheter", "uregistrertjordsameie"]) {
     await test(`Felles teig med ${flag} bekrefter ikke bebyggelse på valgt matrikkelenhet`, async () => {
-      transform = (source, _query, body) => {
+      settTransform((source, _query, body) => {
         if (source === "eiendom") body.features[0].properties[flag] = true;
         return body;
-      };
+      });
       const g = await getTiltakshjelpenGrunnlag(milde);
       assert(g.bebyggelse.bygninger.length > 0);
       assert.equal(g.bebyggelse.bebygd, null);
@@ -1010,9 +1152,8 @@ try {
       assert.equal(g.arealberegning.kartlagtAndelProsent, null);
     });
   }
-  transform = (_source, _query, body) => body;
   await test("Bygningssøk dekker alle teiger, også utenfor kartpunktets nærområde", async () => {
-    transform = (source, query, body) => {
+    settTransform((source, query, body) => {
       if (source === "eiendom") {
         const extra = structuredClone(body.features[0]);
         extra.properties.lokalid++;
@@ -1024,26 +1165,24 @@ try {
         body.features[0].geometry.rings = body.features[0].geometry.rings.map((r: number[][]) => r.map(([x, y]) => [x! + 0.003, y]));
       }
       return body;
-    };
+    });
     urls.length = 0;
     const g = await getTiltakshjelpenGrunnlag(milde);
     assert.equal(g.bebyggelse.bebygd, true);
     const query = urls.find(u => u.pathname.includes("Bygning_Flate") && u.pathname.endsWith("/query"))!;
     assert(Number(query.searchParams.get("geometry")!.split(",")[2]) >= 5.2585238);
-    transform = (_source, _query, body) => body;
   });
   await test("Bygg helt i et hull i teigen regnes ikke som bebyggelse på tomten", async () => {
-    transform = (source, _query, body) => {
+    settTransform((source, _query, body) => {
       if (source === "eiendom") body.features[0].geometry.coordinates = [
         [[5.25, 60.25], [5.25, 60.26], [5.26, 60.26], [5.26, 60.25], [5.25, 60.25]],
         [[5.254, 60.253], [5.256, 60.253], [5.256, 60.254], [5.254, 60.254], [5.254, 60.253]],
       ];
       return body;
-    };
+    });
     const g = await getTiltakshjelpenGrunnlag(milde);
     assert.deepEqual(g.bebyggelse.bygninger, []);
     assert.equal(g.bebyggelse.bebygd, null);
-    transform = (_source, _query, body) => body;
   });
   const rectangle = (left: number, bottom: number, right: number, top: number) =>
     [[left, bottom], [right, bottom], [right, top], [left, top], [left, bottom]];
@@ -1053,55 +1192,51 @@ try {
     ["teigen ligger inne i bygningsflaten", rectangle(5.254, 60.252, 5.257, 60.255), true],
   ] as const) {
     await test(`Geometrisk kobling: ${label}`, async () => {
-      transform = (source, query, body) => {
+      settTransform((source, query, body) => {
         if (source === "eiendom") body.features[0].geometry.coordinates = [rectangle(5.255, 60.253, 5.256, 60.254)];
         if (source === "bygning" && query) {
           body.features = [structuredClone(mildeHouse)];
           body.features[0].geometry.rings = [ring];
         }
         return body;
-      };
+      });
       assert.equal((await getTiltakshjelpenGrunnlag(milde)).bebyggelse.bebygd, expected);
     });
   }
-  transform = (_source, _query, body) => body;
   for (const patch of [{ BYGGNR: "139536843" }, { BRUKSAREAL: -1 }, { BRUKSAREAL: "63" }, { BYGGTYP_NBR: -1 }]) {
     await test("Ugyldige registerattributter gir eksplisitt kildefeil", async () => {
-      transform = (source, query, body) => {
+      settTransform((source, query, body) => {
         if (source === "bygning" && query) Object.assign(body.features[1].attributes, patch);
         return body;
-      };
+      });
       const g = await getTiltakshjelpenGrunnlag(milde);
       assert.equal(g.kilder.find(k => k.id === "bygninger")?.status, "feil");
       assert.equal(g.bebyggelse.bebygd, null);
     });
   }
-  transform = (_source, _query, body) => body;
   await test("Dupliserte flater godtas ikke som et komplett utvalg", async () => {
-    transform = (source, query, body) => {
+    settTransform((source, query, body) => {
       if (source === "bygning" && query) body.features.push(structuredClone(body.features[0]));
       return body;
-    };
+    });
     const g = await getTiltakshjelpenGrunnlag(milde);
     assert.equal(g.kilder.find(k => k.id === "bygninger")?.status, "feil");
     assert.equal(g.bebyggelse.bebygd, null);
-    transform = (_source, _query, body) => body;
   });
   await test("Treffgrensen uten avkortingsflagg gir heller ikke bekreftet bebyggelse", async () => {
-    transform = (source, query, body) => {
+    settTransform((source, query, body) => {
       if (source === "bygning" && query) body.features = Array.from({ length: 500 }, (_, i) => ({
         ...structuredClone(mildeHouse), attributes: { ...mildeHouse.attributes, OBJECTID: i + 1 },
       }));
       return body;
-    };
+    });
     const g = await getTiltakshjelpenGrunnlag(milde);
     assert.equal(g.kilder.find(k => k.id === "bygninger")?.status, "feil");
     assert(g.kilder.find(k => k.id === "bygninger")?.merknad?.includes("treffgrensen"));
     assert.equal(g.bebyggelse.bebygd, null);
-    transform = (_source, _query, body) => body;
   });
   await test("For fjerntliggende teiger gir ukjent bebyggelse uten et stort kartoppslag", async () => {
-    transform = (source, _query, body) => {
+    settTransform((source, _query, body) => {
       if (source === "eiendom") {
         const extra = structuredClone(body.features[0]);
         extra.properties.lokalid++;
@@ -1109,16 +1244,15 @@ try {
         body.features.push(extra);
       }
       return body;
-    };
+    });
     urls.length = 0;
     const g = await getTiltakshjelpenGrunnlag(milde);
     assert.equal(g.bebyggelse.bebygd, null);
     assert.equal(g.kilder.find(k => k.id === "bygninger")?.status, "feil");
     assert(!urls.some(u => u.pathname.includes("Bygning_Flate") && u.pathname.endsWith("/query")));
-    transform = (_source, _query, body) => body;
   });
   await test("Et hull i bygningsflaten fylles ikke av eiendomskoblingen", async () => {
-    transform = (source, query, body) => {
+    settTransform((source, query, body) => {
       if (source === "bygning" && query) {
         body.features = [structuredClone(mildeHouse)];
         body.features[0].geometry.rings = [
@@ -1127,40 +1261,37 @@ try {
         ];
       }
       return body;
-    };
+    });
     const g = await getTiltakshjelpenGrunnlag(milde);
     assert.deepEqual(g.bebyggelse.bygninger, []);
     assert.equal(g.bebyggelse.bebygd, null);
-    transform = (_source, _query, body) => body;
   });
   await test("Bygningsflate lik hele tomten gir sammenfallende grenser og 100 prosent", async () => {
-    transform = (source, query, body) => {
+    settTransform((source, query, body) => {
       if (source === "bygning" && query) {
         body.features = [structuredClone(mildeHouse)];
         body.features[0].geometry.rings = structuredClone(parcelRings);
       }
       return body;
-    };
+    });
     const g = await getTiltakshjelpenGrunnlag(milde);
     assert.equal(g.bebyggelse.bebygd, true);
     assert.equal(g.arealberegning.kartlagtAndelProsent, 100);
     assert.equal(g.arealberegning.kartlagtBebygdArealM2, g.arealberegning.tomtearealM2);
-    transform = (_source, _query, body) => body;
   });
   await test("Kompleksitetsgrense bevarer tomteareal og setter ukjent bygningsareal", async () => {
-    transform = (source, query, body) => {
+    settTransform((source, query, body) => {
       if (source === "bygning" && query) body.features = Array.from({ length: 250 }, (_, i) => ({
         ...structuredClone(mildeHouse), attributes: { ...mildeHouse.attributes, OBJECTID: i + 1 },
       }));
       return body;
-    };
+    });
     const g = await getTiltakshjelpenGrunnlag(milde);
     assert.equal(g.kilder.find(k => k.id === "bygninger")?.status, "ok");
     assert(g.arealberegning.tomtearealM2! > 0);
     assert.equal(g.arealberegning.kartlagtBebygdArealM2, null);
     assert.equal(g.arealberegning.kartlagtAndelProsent, null);
     assert(g.arealberegning.forbehold.some(f => f.includes("for detaljert")));
-    transform = (_source, _query, body) => body;
   });
   await test("Kartverkets native GeoJSON bevarer identitet, kvalitet og oppdateringsdato", async () => {
     for (const [adresse, teigId] of [[milde, 259953783], [krakenes, 258839374]] as const) {
@@ -1177,21 +1308,20 @@ try {
     assert(!urls.some(u => u.pathname.includes("Eiendommer")));
   });
   await test("Manglende kvalitet er ukjent og ikke en oppdiktet klasse", async () => {
-    transform = (source, _query, body) => {
+    settTransform((source, _query, body) => {
       if (source === "eiendom") {
         delete body.features[0].properties["nøyaktighetsklasseteig"];
         delete body.features[0].properties.oppdateringsdato;
       }
       return body;
-    };
+    });
     const g = await getTiltakshjelpenGrunnlag(milde);
     assert.equal(g.eiendomsgrenser[0]?.kvalitetsklasse, undefined);
     assert.equal(g.eiendomsgrenser[0]?.oppdatert, undefined);
     assert(g.uavklarteForhold.some(f => f.includes("ikke oppgitt")));
-    transform = (_source, _query, body) => body;
   });
   await test("MultiPolygon og flere teiger bevares uten å velge bare hovedteigen", async () => {
-    transform = (source, _query, body) => {
+    settTransform((source, _query, body) => {
       if (source === "eiendom") {
         const f = body.features[0];
         const moved = f.geometry.coordinates.map((r: number[][]) => r.map(([x, y]) => [x! + 0.002, y!]));
@@ -1203,7 +1333,7 @@ try {
         body.features.push(another);
       }
       return body;
-    };
+    });
     const g = await getTiltakshjelpenGrunnlag(milde);
     assert.equal(g.eiendomsgeojson?.features.length, 2);
     assert.equal(g.eiendomsgeojson?.features[0]?.geometry.type, "MultiPolygon");
@@ -1214,19 +1344,17 @@ try {
     assert(Math.abs(g.arealberegning.tomtearealM2! - grunnlag.arealberegning.tomtearealM2! * 2) <= 0.02,
       "Den tredje, overlappende flaten skal ikke tredoble tomtearealet");
     assert.equal(g.arealberegning.kartlagtBebygdArealM2, grunnlag.arealberegning.kartlagtBebygdArealM2);
-    transform = (_source, _query, body) => body;
   });
   await test("Gyldige hull bevares i native GeoJSON og blir utenfor valgt teig", async () => {
     const outer = [[5.25, 60.25], [5.25, 60.26], [5.26, 60.26], [5.26, 60.25], [5.25, 60.25]];
     const hole = [[5.255, 60.253], [5.2555, 60.253], [5.2555, 60.254], [5.255, 60.254], [5.255, 60.253]];
-    transform = (source, _query, body) => {
+    settTransform((source, _query, body) => {
       if (source === "eiendom") body.features[0].geometry.coordinates = [outer, hole];
       return body;
-    };
+    });
     const g = await getTiltakshjelpenGrunnlag(milde);
     assert.equal(g.eiendomsgrenser[0]?.ringer.length, 2);
     assert.equal(evaluateTiltakshjelpen(tiltak, g).sjekker.find(s => s.id === "plassering")?.status, "brudd");
-    transform = (_source, _query, body) => body;
   });
   const badGeoJson: [string, (body: any) => void][] = [
     ["feil kommune", b => { b.features[0].properties.kommunenummer = "0301"; }],
@@ -1259,7 +1387,7 @@ try {
   ];
   for (const [navn, corrupt] of badGeoJson) {
     await test(`Ugyldig eiendoms-GeoJSON avvises: ${navn}`, async () => {
-      transform = (source, _query, body) => { if (source === "eiendom") corrupt(body); return body; };
+      settTransform((source, _query, body) => { if (source === "eiendom") corrupt(body); return body; });
       const g = await getTiltakshjelpenGrunnlag(milde);
       assert.equal(g.kilder.find(k => k.id === "eiendomsgrenser")?.status, "feil");
       assert.deepEqual(g.eiendomsgrenser, []);
@@ -1267,7 +1395,6 @@ try {
       assert.equal(evaluateTiltakshjelpen(tiltak, g).utfall, "maa_avklares");
     });
   }
-  transform = (_source, _query, body) => body;
   await test("Nasjonale terskler er inklusive; LNF gir ikke automatisk søknadsplikt eller fritak", () => {
     const result = evaluateTiltakshjelpen(tiltak, grunnlag);
     assert.equal(result.nasjonaltUnntak, "oppfylt");
@@ -1346,23 +1473,23 @@ try {
     assert.equal(evaluateTiltakshjelpen(tiltak, g).sjekker.find(s => s.id === "plassering")?.status, "brudd");
   });
   await test("Gyldig null treff i adresse-API er ikke en feil", async () => {
-    transform = () => ({ metadata: { totaltAntallTreff: 0 }, adresser: [] });
+    settTransform(() => ({ metadata: { totaltAntallTreff: 0 }, adresser: [] }));
     assert.deepEqual(await searchTiltakshjelpenAdresser("Finnes ikke 12"), []);
   });
   for (const body of [null, {}, { adresser: [] }, { metadata: { totaltAntallTreff: 2 }, adresser: [] },
     { metadata: { totaltAntallTreff: 0 }, adresser: addressResponse(milde).adresser }, { error: { code: 500 } }]) {
     await test("Ugyldig adresseformat kan ikke bli et tomt søk", async () => {
-      transform = () => body;
+      settTransform(() => body);
       await assert.rejects(searchTiltakshjelpenAdresser("Litle Milde 65", "4601"), errorStatus(502));
     });
   }
   await test("Feil kommune, koordinatsystem og matrikkelreferanse avvises", async () => {
     for (const patch of [{ kommunenummer: "0301" }, { gardsnummer: "105" }, { representasjonspunkt: { ...milde.punkt, epsg: "EPSG:4326" } }]) {
-      transform = () => {
+      settTransform(() => {
         const body = addressResponse(milde);
         Object.assign(body.adresser[0]!, patch);
         return body;
-      };
+      });
       await assert.rejects(searchTiltakshjelpenAdresser("Litle Milde 65", "4601"), errorStatus(502));
     }
   });
@@ -1375,7 +1502,7 @@ try {
     ["HTTP-feil", new Response("Tjenesten er nede", { status: 503 })],
   ] as const) {
     await test(`${navn} gir kildefeil, aldri ingen treff eller grønt`, async () => {
-      transform = (source, query, body) => source === "kpa" && query ? broken : body;
+      settTransform((source, query, body) => source === "kpa" && query ? broken : body);
       const g = await getTiltakshjelpenGrunnlag(milde);
       assert.equal(g.kilder.find(k => k.id === "kpa")?.status, "feil");
       assert.equal(evaluateTiltakshjelpen(tiltak, g).utfall, "maa_avklares");
@@ -1383,7 +1510,7 @@ try {
   }
   await test("Manglende metadata stopper query", async () => {
     urls.length = 0;
-    transform = (source, query, body) => source === "kpa" && !query ? { ...body, fields: [] } : body;
+    settTransform((source, query, body) => source === "kpa" && !query ? { ...body, fields: [] } : body);
     const g = await getTiltakshjelpenGrunnlag(milde);
     assert.equal(g.kilder.find(k => k.id === "kpa")?.status, "feil");
     assert(!urls.some(u => decodeURIComponent(u.pathname).includes("Arealformål") && u.pathname.endsWith("/query")));
@@ -1395,59 +1522,19 @@ try {
     { features: [{ attributes: { OBJECTID: 1 }, geometry: { rings: [[[5, 60], [5.1, 60], [5.2, 60], [5, 60]]] } }] },
   ]) {
     await test("Ugyldig bygningsgeometri gir kildefeil", async () => {
-      transform = (source, query, body) => source === "bygning" && query ? { ...body, ...patch } : body;
+      settTransform((source, query, body) => source === "bygning" && query ? { ...body, ...patch } : body);
       assert.equal((await getTiltakshjelpenGrunnlag(milde)).kilder.find(k => k.id === "bygninger")?.status, "feil");
     });
   }
   await test("Ingen eiendomstreff gir eksplisitt ukjent plassering", async () => {
-    transform = (source, query, body) => source === "eiendom" && query ? { ...body, features: [] } : body;
+    settTransform((source, query, body) => source === "eiendom" && query ? { ...body, features: [] } : body);
     const g = await getTiltakshjelpenGrunnlag(milde, milde.punkt);
     assert.equal(g.kilder.find(k => k.id === "eiendomsgrenser")?.status, "ingen_treff");
     assert.equal(g.bebyggelse.bebygd, null);
     assert.equal(g.bebyggelse.status, "uavklart");
     assert.equal(evaluateTiltakshjelpen(tiltak, g).sjekker.find(s => s.id === "plassering")?.status, "uavklart");
   });
-  function localResponse(second = false) {
-    const a = second ? krakenes : milde;
-    const id = second ? 32713 : 8464;
-    return {
-      kommunenummer: "4601", kildestatus: "tilgjengelig",
-      kilde: { navn: "Bergen kommunes teiguttrekk", fil: "matrikkel_bk_25.json", uttrekksaar: 2025, koordinatsystem: "EPSG:4326", syntetisk: false },
-      type: "FeatureCollection", features: [{
-        type: "Feature", id,
-        geometry: { type: "Polygon", coordinates: structuredClone(second ? krakenesParcelRings : parcelRings) },
-        properties: {
-          OBJECTID: id, OBJTYPE: "Teig", GNR: a.gardsnummer, BNR: a.bruksnummer, FNR: 0, SNR: 0,
-          AREAL: second ? 976.3 : 960, AREALMERKNAD: null, TINGLYST: "Ja", ANTALL_GID: 1,
-          Shape_Length: 124, Shape_Area: second ? 976.3420999933496 : 959.9832765063059
-        }
-      }]
-    };
-  }
-  for (const second of [false, true]) {
-    await test("Lokal fil brukes først, med kilde-ID og ukjent grensekvalitet", async () => {
-      transform = (_source, _query, body) => body;
-      lokaleTeiger = () => localResponse(second);
-      urls.length = 0;
-      const g = await getTiltakshjelpenGrunnlag(second ? krakenes : milde);
-      assert.equal(g.kilder.find(k => k.id === "eiendomsgrenser")?.fil, "matrikkel_bk_25.json");
-      assert.equal(g.kilder.find(k => k.id === "eiendomsgrenser")?.uttrekksaar, 2025);
-      assert.equal(g.eiendomsgeojson?.koordinatsystem, "EPSG:4326");
-      assert.equal(g.eiendomsgrenser[0].kildeObjektId, second ? 32713 : 8464);
-      assert.equal(g.eiendomsgrenser[0].registrertArealM2, second ? 976.3 : 960);
-      assert.equal(g.eiendomsgrenser[0].teigId, undefined, "OBJECTID er ikke Matrikkel-teig-ID");
-      assert.equal(g.eiendomsgrenser[0].kvalitetsklasse, undefined);
-      assert.equal(g.eiendomsgrenser[0].oppdatert, undefined, "Uttrekksåret er ikke oppdateringstidspunktet");
-      assert(g.arealberegning.tomtearealM2! > 900);
-      assert(g.arealberegning.kilde.includes("matrikkel_bk_25.json"));
-      assert(!g.arealberegning.kilde.includes("api.kartverket.no"));
-      assert(g.arealberegning.metode.includes("teiger i EPSG:4326"));
-      assert(!urls.some(url => url.hostname === "api.kartverket.no"), "Ingen offentlig teigforespørsel når lokal fil har treff");
-      assert.equal(evaluateTiltakshjelpen(tiltak, g).utfall, "maa_avklares");
-    });
-  }
   await test("LNF-vilkåret følger flyten når avstanden er større enn én meter", async () => {
-    lokaleTeiger = () => localResponse();
     const g = await getTiltakshjelpenGrunnlag(milde);
     const vurdering = evaluateTiltakshjelpen({ ...tiltak, avstandNabogrense: 2 }, g);
     const lnf = vurdering.sjekker.find(sjekk => sjekk.id === "kommuneplan");
@@ -1456,174 +1543,57 @@ try {
     const paaGrensen = evaluateTiltakshjelpen({ ...tiltak, avstandNabogrense: 1 }, g);
     assert.equal(paaGrensen.sjekker.find(sjekk => sjekk.id === "kommuneplan")?.status, "uavklart");
   });
-  await test("Manglende lokal teig gir synlig API-kilde uten å blande kilder", async () => {
-    lokaleTeiger = () => ({ ...localResponse(), features: [] });
+  // Teiggeometrien har én kilde, og ingen reserve å falle tilbake på.
+  //
+  // Den hadde to: et 92 MB uttrekk over Bergen først, Kartverket etterpå. Det ga
+  // et utfall som varierte med hvilken kommune eiendommen lå i, og en kilde som
+  // ikke kunne svare på grensekvalitet eller oppdateringsdato. Denne testen holder
+  // på at det bare er én vei inn, og at den bærer feltene uttrekket manglet.
+  await test("Kartverket er eneste teigkilde, med teig-ID og grensekvalitet", async () => {
     urls.length = 0;
     const g = await getTiltakshjelpenGrunnlag(milde);
     const kilde = g.kilder.find(k => k.id === "eiendomsgrenser")!;
-    assert.equal(kilde.fil, undefined);
+    assert.equal(kilde.status, "ok");
     assert.equal(kilde.koordinatsystem, "EPSG:4258");
-    assert(kilde.merknad?.includes("finnes ikke"));
-    assert.equal(g.eiendomsgrenser[0].teigId, 259953783);
-    assert.equal(g.eiendomsgrenser[0].kildeObjektId, undefined);
+    assert(kilde.url.startsWith("https://api.kartverket.no/eiendom/v1/geokoding?"));
+    assert.equal(g.eiendomsgrenser[0].teigId, 259953783, "Kartverket gir en ekte teig-ID");
+    assert.equal(g.eiendomsgrenser[0].kvalitetsklasse, "Grønt", "Grensekvalitet uttrekket aldri hadde");
+    assert.equal(g.eiendomsgrenser[0].oppdatert, "2025-06-18T16:10:10");
     assert(g.arealberegning.kilde.includes("api.kartverket.no"));
     assert(g.arealberegning.metode.includes("teiger i EPSG:4258"));
-    assert(urls.some(url => url.hostname === "api.kartverket.no"));
+    assert(!urls.some(url => url.pathname.startsWith("/mock/matrikkel/")),
+      "Ingen tjeneste spørres om teiger lenger");
   });
-  await test("Flere lokale teiger og hull bevares", async () => {
-    lokaleTeiger = () => {
-      const body = localResponse();
-      const other = structuredClone(body.features[0]);
-      other.id += 1;
-      other.properties.OBJECTID = other.id;
+  await test("Flere teiger og hull bevares", async () => {
+    settTransform((source, _query, body) => {
+      if (source !== "eiendom") return body;
+      const svar = body as ReturnType<typeof eiendomResponse>;
+      const other = structuredClone(svar.features[0]!);
+      other.properties = { ...other.properties, lokalid: other.properties.lokalid + 1 };
       const { lon, lat } = milde.punkt;
-      body.features[0].geometry.coordinates = [
+      svar.features[0]!.geometry.coordinates = [
         [[lon - .001, lat - .001], [lon + .001, lat - .001], [lon + .001, lat + .001], [lon - .001, lat + .001], [lon - .001, lat - .001]],
         [[lon - .0001, lat - .0001], [lon - .0001, lat + .0001], [lon + .0001, lat + .0001], [lon + .0001, lat - .0001], [lon - .0001, lat - .0001]]
       ];
-      body.features.push(other);
-      return body;
-    };
+      svar.features.push(other);
+      return svar;
+    });
     const g = await getTiltakshjelpenGrunnlag(milde);
     assert.equal(g.eiendomsgrenser.length, 2);
     assert.equal(g.eiendomsgrenser[0].ringer.length, 2);
   });
   await test("Teig delt av flere matrikkelenheter gir ikke eget tomteareal", async () => {
-    lokaleTeiger = () => {
-      const body = localResponse();
-      body.features[0].properties.ANTALL_GID = 2;
-      return body;
-    };
+    settTransform((source, _query, body) => {
+      if (source !== "eiendom") return body;
+      const svar = body as ReturnType<typeof eiendomResponse>;
+      svar.features[0]!.properties.teigmedflerematrikkelenheter = true;
+      return svar;
+    });
     const g = await getTiltakshjelpenGrunnlag(milde);
     assert.equal(g.arealberegning.tomtearealM2, null);
     assert.equal(g.bebyggelse.status, "uavklart");
   });
-  await test("Manglende oppgitt areal fjerner ikke gyldig lokal geometri", async () => {
-    lokaleTeiger = () => {
-      const body = localResponse();
-      return { ...body, features: body.features.map(f => ({ ...f, properties: { ...f.properties, AREAL: null } })) };
-    };
-    const g = await getTiltakshjelpenGrunnlag(milde);
-    assert.equal(g.kilder.find(k => k.id === "eiendomsgrenser")?.status, "ok");
-    assert.equal(g.eiendomsgrenser[0].registrertArealM2, undefined);
-    assert(g.arealberegning.tomtearealM2! > 900);
-  });
-  await test("Null registrerte identiteter er ukjent, ikke en enkelt matrikkelenhet", async () => {
-    lokaleTeiger = () => {
-      const body = localResponse();
-      body.features[0].properties.ANTALL_GID = 0;
-      return body;
-    };
-    const g = await getTiltakshjelpenGrunnlag(milde);
-    assert.equal(g.kilder.find(k => k.id === "eiendomsgrenser")?.status, "ok");
-    assert.equal(g.eiendomsgeojson?.features[0].properties.antallMatrikkelenheter, 0);
-    assert.equal(g.arealberegning.tomtearealM2, null);
-    assert.equal(g.bebyggelse.bebygd, null);
-  });
-  const corruptLocal: [string, () => unknown][] = [
-    ["HTTP-feil", () => Response.json({ feil: "Filen kan ikke leses" }, { status: 502 })],
-    ["tom kropp", () => null],
-    ["feil kommune", () => ({ ...localResponse(), kommunenummer: "0301" })],
-    ["feil kildeformat", () => ({ ...localResponse(), kilde: { koordinatsystem: "EPSG:25832" } })],
-    ["feil matrikkelenhet", () => localResponse(true)],
-    ["duplikat", () => { const b = localResponse(); b.features.push(b.features[0]); return b; }],
-    ["åpen ring", () => { const b = localResponse(); b.features[0].geometry.coordinates[0].pop(); return b; }],
-    ["ugyldig areal", () => { const b = localResponse(); b.features[0].properties.AREAL = -1; return b; }]
-  ];
-  for (const [name, corrupt] of corruptLocal) {
-    await test(`Lokal ${name} gir feil, ikke stille bytte til API`, async () => {
-      lokaleTeiger = corrupt;
-      urls.length = 0;
-      const g = await getTiltakshjelpenGrunnlag(milde);
-      assert.equal(g.kilder.find(k => k.id === "eiendomsgrenser")?.status, "feil");
-      assert.equal(g.arealberegning.tomtearealM2, null);
-      assert(!urls.some(url => url.hostname === "api.kartverket.no"));
-    });
-  }
-  lokaleTeiger = null;
-  await test("Begge ekte eiendommer får lokale naboteiger uten å endre eget areal", async () => {
-    const store = createTeigStore();
-    lokaleTeiger = url => store.getTeiger(parseTeigQuery(url.searchParams));
-    lokaleNabotomter = url => store.getNaboteiger(parseNaboteigQuery(url.searchParams));
-    for (const [adresse, expected] of [[milde, 3], [krakenes, 15]] as const) {
-      urls.length = 0;
-      const g = await getTiltakshjelpenGrunnlag(adresse);
-      assert.equal(g.nabotomter?.kilde.status, "ok", g.nabotomter?.kilde.merknad);
-      assert.equal(g.nabotomter?.tomter.length, expected);
-      assert.equal(g.nabotomter?.kilde.fil, "matrikkel_bk_25.json");
-      assert.equal(g.nabotomter?.kilde.koordinatsystem, "EPSG:4326");
-      assert(g.nabotomter?.tomter.every(t => t.teig?.gnr !== adresse.gardsnummer || t.teig?.bnr !== adresse.bruksnummer));
-      assert(g.nabotomter?.tomter.every(t => t.kvalitetsklasse === undefined && t.teig?.tvist === undefined));
-      assert.equal(g.eiendomsgrenser.length, 1);
-      assert(!g.kilder.some(k => k.id === "nabotomter"));
-      assert(!urls.some(url => url.hostname === "api.kartverket.no"));
-      const withNeighbours = g.nabotomter;
-      g.nabotomter = { tomter: [], kilde: { ...withNeighbours!.kilde, status: "feil" } };
-      const without = evaluateTiltakshjelpen(tiltak, g);
-      g.nabotomter = withNeighbours;
-      assert.deepEqual(evaluateTiltakshjelpen(tiltak, g), without);
-      const baseline = g.arealberegning;
-      const localRead: (url: URL) => unknown = url => store.getNaboteiger(parseNaboteigQuery(url.searchParams));
-      lokaleNabotomter = () => Response.json({ feil: "Filen forsvant" }, { status: 502 });
-      const failed = await getTiltakshjelpenGrunnlag(adresse);
-      assert.equal(failed.nabotomter?.kilde.status, "feil");
-      assert.deepEqual(failed.arealberegning, baseline);
-      assert.deepEqual(failed.eiendomsgrenser, g.eiendomsgrenser);
-      lokaleNabotomter = localRead;
-    }
-    lokaleTeiger = null;
-    lokaleNabotomter = null;
-  });
-  await test("Valgt matrikkelenhet utelates med alle seksjoner, andre festenummer beholdes", async () => {
-    lokaleTeiger = () => localResponse();
-    lokaleNabotomter = url => {
-      const body = localNeighbourResponse(url), neighbour = body.features[0];
-      const selected = localResponse().features[0];
-      const section = { ...selected, id: 900, properties: { ...selected.properties, OBJECTID: 900, SNR: 8 } };
-      const feste = { ...selected, id: 901, properties: { ...selected.properties, OBJECTID: 901, FNR: 1 } };
-      const otherGnr = { ...selected, id: 903, properties: { ...selected.properties, OBJECTID: 903, GNR: 106 } };
-      const distant = { ...neighbour, id: 902, properties: { ...neighbour.properties, OBJECTID: 902 },
-        geometry: { ...neighbour.geometry, coordinates: neighbour.geometry.coordinates.map(r => r.map(([x, y]) => [x + 1, y])) } };
-      return { ...body, eiere: ["må ikke ut"], features: [
-        selected, section, feste, otherGnr, distant,
-        { ...neighbour, properties: { ...neighbour.properties, eiere: ["må ikke ut"], planGodkjent: true, kvalitetsklasse: "Grønt" } }
-      ] };
-    };
-    const g = await getTiltakshjelpenGrunnlag(milde);
-    assert.equal(g.nabotomter?.kilde.status, "ok");
-    assert.deepEqual(g.nabotomter?.tomter.map(t => t.kildeObjektId), [901, 903, 987]);
-    assert.equal(g.nabotomter?.tomter[0].teig?.fnr, 1);
-    assert.equal(g.nabotomter?.tomter[2].registrertArealM2, 900);
-    assert.equal(g.nabotomter?.tomter[2].kvalitetsklasse, undefined);
-    assert(!JSON.stringify(g.nabotomter).includes("må ikke ut"));
-    assert(!JSON.stringify(g.nabotomter).includes("planGodkjent"));
-    lokaleNabotomter = null;
-  });
-  const brokenNeighbours: [string, (url: URL) => unknown][] = [
-    ["kildefeil", () => Response.json({ feil: "Uleselig fil" }, { status: 502 })],
-    ["avkortet", url => ({ ...localNeighbourResponse(url), avkortet: true })],
-    ["ukjent fullstendighet", url => ({ ...localNeighbourResponse(url), avkortet: undefined })],
-    ["feil kommune", url => ({ ...localNeighbourResponse(url), kommunenummer: "0301" })],
-    ["feil koordinatsystem", url => { const b = localNeighbourResponse(url); b.kilde.koordinatsystem = "EPSG:25832"; return b; }],
-    ["over 200 treff", url => { const b = localNeighbourResponse(url); b.features = Array(201).fill(b.features[0]); return b; }],
-    ["duplikat", url => { const b = localNeighbourResponse(url); b.features.push(b.features[0]); return b; }],
-  ];
-  for (const [name, create] of brokenNeighbours) {
-    await test(`Nabokildens ${name} vises som feil uten å endre vurderingen eller bytte kilde`, async () => {
-      lokaleNabotomter = null;
-      const baseline = await getTiltakshjelpenGrunnlag(milde);
-      lokaleNabotomter = create;
-      urls.length = 0;
-      const g = await getTiltakshjelpenGrunnlag(milde);
-      assert.equal(g.nabotomter?.kilde.status, "feil");
-      assert.deepEqual(g.nabotomter?.tomter, []);
-      assert.deepEqual(g.arealberegning, baseline.arealberegning);
-      assert.deepEqual(evaluateTiltakshjelpen(tiltak, g), evaluateTiltakshjelpen(tiltak, baseline));
-      assert(!urls.some(url => url.hostname === "api.kartverket.no"));
-    });
-  }
-  await test("Tom lokal naboliste bruker dokumentert områdesøk med begrenset radius", async () => {
-    lokaleNabotomter = url => ({ ...localNeighbourResponse(url), features: localResponse().features });
+  await test("Nabotomter hentes med dokumentert områdesøk og begrenset radius", async () => {
     apiNabotomter = () => {
       const selected = eiendomResponse(false).features[0];
       const section = { ...selected, properties: { ...selected.properties, lokalid: 99, seksjonsnummer: 3 } };
@@ -1642,13 +1612,15 @@ try {
     assert.equal(g.nabotomter?.tomter[0].kvalitetsklasse, "Grønt");
     assert.equal(g.nabotomter?.tomter[0].oppdatert, "2025-06-18T16:10:10");
     assert.equal(g.nabotomter?.kilde.status, "ok");
-    assert.equal(g.nabotomter?.kilde.fil, undefined);
     assert.equal(g.nabotomter?.kilde.koordinatsystem, "EPSG:4258");
     assert(g.nabotomter?.kilde.url.startsWith("https://api.kartverket.no/eiendom/v1/punkt/omrader?"));
-    assert(g.nabotomter?.kilde.merknad?.includes("matrikkel_bk_25.json"));
+    assert(g.nabotomter?.kilde.merknad?.includes("meter rundt utsnittets midtpunkt"));
     assert(!JSON.stringify(g.nabotomter).includes("må ikke ut"));
     assert(!JSON.stringify(g.nabotomter).includes("planGodkjent"));
-    assert.equal(urls.filter(url => url.hostname === "api.kartverket.no").length, 1);
+    // To kall til Kartverket, ikke ett: teigen og nabokartet. Det var ett da teigen
+    // kom fra en fil på disk.
+    assert.equal(urls.filter(url => url.pathname === "/eiendom/v1/punkt/omrader").length, 1);
+    assert.equal(urls.filter(url => url.pathname === "/eiendom/v1/geokoding").length, 1);
   });
   for (const [name, response] of [
     ["tom liste", { type: "FeatureCollection", features: [] }],
@@ -1667,11 +1639,6 @@ try {
     });
   }
   await test("API-naboteig uten kvalitet beholder ukjent, også utenfor Bergen", async () => {
-    lokaleTeiger = null;
-    lokaleNabotomter = () => ({
-      kommunenummer: "0301", kildestatus: "ikke_dekket", type: "FeatureCollection", features: [], avkortet: false,
-      kilde: { navn: "Bergen-uttrekk", fil: null, uttrekksaar: null, koordinatsystem: "EPSG:4326", syntetisk: false },
-    });
     apiNabotomter = () => {
       const body = osloEiendomResponse(), p = body.features[0].properties;
       p.bruksnummer = 340;
@@ -1682,9 +1649,6 @@ try {
     assert.equal(g.nabotomter?.kilde.status, "ok", g.nabotomter?.kilde.merknad);
     assert.equal(g.nabotomter?.tomter[0].teig?.bnr, 340);
     assert.equal(g.nabotomter?.tomter[0].kvalitetsklasse, undefined);
-    assert.equal(g.nabotomter?.kilde.fil, undefined);
-    lokaleNabotomter = null;
-    apiNabotomter = null;
   });
   await test("Tidsavbrudd gir feil uten syntetisk reserve", async () => {
     process.env.NODE_ENV = "test";
@@ -1744,6 +1708,26 @@ try {
     globalThis.fetch = (async () => { forsok++; return Response.json({ feil: "Nede" }, { status: 502 }); }) as typeof fetch;
     await assert.rejects(searchTiltakshjelpenAdresser("Litle Milde 65"), errorStatus(502));
     assert.equal(forsok, 1, "bare tidsavbrudd gjentas");
+
+    // Et tidsavbrudd etterfulgt av en feil er en feil, ikke en treg kilde. Uten
+    // nullstillingen per forsøk ble det første avbruddet stående, og innbyggeren
+    // fikk beskjed om å prøve igjen mot noe som er i stykker.
+    forsok = 0;
+    globalThis.fetch = ((_input: any, options: any) => {
+      forsok++;
+      if (forsok > 1) return Promise.resolve(Response.json({ feil: "Nede" }, { status: 500 }));
+      return new Promise((_resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("Tidsgrensen ble ikke håndhevet")), 1000);
+        options!.signal!.addEventListener("abort", () => { clearTimeout(timer); reject(options!.signal!.reason); }, { once: true });
+      });
+    }) as typeof fetch;
+    const oedelagt = await getTiltakshjelpenGrunnlag(milde).catch(() => null);
+    if (oedelagt) {
+      const kilde = oedelagt.kilder.find(k => k.status === "feil");
+      assert(kilde, "en kilde skal ha feilet");
+      assert(!/svarte ikke i tid/.test(kilde!.merknad ?? ""),
+        "et andre forsøk som svarte med en feil skal ikke meldes som tidsavbrudd");
+    }
     globalThis.fetch = fakeFetch;
   });
   await test("Feil under lesing av svarkroppen blir 502", async () => {

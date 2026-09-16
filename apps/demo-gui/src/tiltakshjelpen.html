@@ -68,6 +68,10 @@
         .check-list li { padding-bottom: var(--ds-size-4); border-bottom: var(--ds-border-width-default) solid var(--ds-color-border-subtle); }
         .check-list h4 { margin-bottom: var(--ds-size-2); }
         .source-list { padding-left: var(--ds-size-5); display: grid; gap: var(--ds-size-3); }
+        .fetch-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--ds-size-1); }
+        .fetch-list li { display: flex; gap: var(--ds-size-2); align-items: baseline; }
+        .fetch-list .fetch-status { font-variant-numeric: tabular-nums; min-width: 9rem; }
+        .fetch-list li[data-status="henter"] .fetch-status { opacity: 0.7; }
         footer { margin-block: var(--ds-size-10); }
         @media (max-width: 32rem) { .field-grid { grid-template-columns: 1fr; } .search { flex-direction: column; align-items: stretch; } .page { padding: var(--ds-size-3); } }
         @media print { .page-header, #login-panel, #property-controls, #measure-form, .actions, #map-controls { display: none; } .panel { break-inside: avoid; margin-bottom: var(--ds-size-6); } }
@@ -103,6 +107,13 @@
         </div>
         <div id="error" class="ds-alert" data-color="danger" role="alert" hidden></div>
         <p id="progress" class="ds-paragraph" role="status" aria-live="polite"></p>
+        <!--
+          Kildene mens de hentes. Listen er ikke en live-region: den fylles ut
+          mange ganger i løpet av et oppslag, og en skjermleser som leste hver
+          endring ville avbrutt seg selv. Setningen over er live-regionen, og den
+          oppsummerer hvor mange kilder som har svart.
+        -->
+        <ul id="progress-sources" class="fetch-list" hidden></ul>
         <section id="login-panel" class="panel stack" aria-labelledby="login-heading">
           <h2 id="login-heading" class="ds-heading" data-size="md">Logg inn for å starte</h2>
           <p class="ds-paragraph">Logg inn med sandkassens ID-porten. Vi foreslår bostedsadressen din og viser eiendommer du er registrert som eier av. Dette er testinnlogging, ikke ekte BankID.</p>

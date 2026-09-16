@@ -1,5 +1,5 @@
 /**
- * Hensynssonene i Bergens kommuneplan, og hvilken fil hver av dem ligger i.
+ * Hensynssonene i Bergens kommuneplan.
  *
  * En hensynssone er et område kommuneplanen legger et hensyn på, hjemlet i
  * plan- og bygningsloven § 11-8. Sonen forbyr ikke i seg selv et tiltak; den sier
@@ -12,8 +12,8 @@
  * understreken - H220_1, H390_2 - er kommunens løpenummer for det enkelte
  * området, ikke en del av kodeverket.
  *
- * Uttrekket er KPA2018 og er frosset. Kilden som fortsatt gjelder er
- * planbestemmelsene, ikke denne filen.
+ * Sonene hentes fra Bergens egne karttjenester ved oppslag. Det som fortsatt ikke
+ * leses er planbestemmelsene, og det er de som sier hva hensynet innebærer.
  */
 
 /** Hva slags hensyn sonen bærer. Gruppen sonekoden hører til, ikke sonen selv. */
@@ -31,8 +31,16 @@ export type Hensynssonekode = {
 
 export const HENSYNSSONER: readonly Hensynssonekode[] = [
   {
+    kode: 210, type: "stoy", navn: "Rød støysone",
+    beskrivelse: "Området er beregnet å ha støy godt over grenseverdien i T-1442. Støyfølsom bebyggelse bør ikke settes opp her; en garasje er normalt ikke støyfølsom.",
+  },
+  {
     kode: 220, type: "stoy", navn: "Gul støysone",
     beskrivelse: "Området er beregnet å ha støy over grenseverdien i T-1442. Støyfølsom bebyggelse har egne krav her; en garasje er normalt ikke støyfølsom.",
+  },
+  {
+    kode: 230, type: "stoy", navn: "Stille område",
+    beskrivelse: "Området er avsatt som stille, altså lite påvirket av støy. Hensynet gjelder å bevare den roen, ikke å skjerme mot støy utenfra.",
   },
   {
     kode: 310, type: "fare", navn: "Faresone ras og skred",
@@ -49,6 +57,10 @@ export const HENSYNSSONER: readonly Hensynssonekode[] = [
   {
     kode: 390, type: "fare", navn: "Faresone annen fare",
     beskrivelse: "Området er avmerket for en annen fare enn ras, flom, brann eller eksplosjon. Hva faren er, står i planbestemmelsene.",
+  },
+  {
+    kode: 510, type: "angitthensyn", navn: "Hensyn landbruk",
+    beskrivelse: "Området er avsatt av hensyn til sammenhengende landbruksarealer. Hva det betyr for et tiltak, står i planbestemmelsene.",
   },
   {
     kode: 530, type: "angitthensyn", navn: "Hensyn friluftsliv",
@@ -90,86 +102,41 @@ export function soneHindrerFritak(type: Hensynssonetype): boolean {
   return type === "fare";
 }
 
-export const KPA2018_PLANID = "65270000";
-export const KPA2018_KOMMUNENUMMER = "4601";
+/**
+ * Hvilken hensynstype et datasett bærer, eller `null` for arealformålet.
+ *
+ * Kartlaget sier hva slags hensyn det handler om før sonekoden er slått opp, og
+ * det er det som gjør `soneHindrerFritak` brukbar på en kode kodeverket ikke
+ * kjenner. Uten den måtte «holder dette tilbake et fritak» vært besvart to
+ * steder, én gang per sonekode og én gang per datasett, uten at noe holdt de to
+ * svarene i takt. Her er det én klassifisering og ett predikat.
+ *
+ * Tabellen er total over `Datasettid`, så et nytt datasett tvinger fram et svar.
+ */
+export const DATASETTHENSYN: Record<Datasettid, Hensynssonetype | null> = {
+  stoy: "stoy",
+  fare: "fare",
+  friluftsliv: "angitthensyn",
+  landskap: "angitthensyn",
+  naturmiljoe: "angitthensyn",
+  kulturmiljoe: "angitthensyn",
+  landbruk: "angitthensyn",
+  arealformaal: null,
+};
 
 /**
- * Datasettene uttrekket er delt i.
+ * Datasettene plangrunnlaget er delt i.
  *
- * Id-ene er felles fordi de står på tråden og i spesifikasjonens enum. Hvilken
- * fil og hvilken kolonne hver av dem har, er plan-mockens egen kunnskap om sine
- * seedfiler og står i `apps/plan-mock/src/datasett.ts` - på samme måte som
- * teigfilens form står i matrikkel-mock og ikke her.
+ * Id-ene er felles fordi de står på tråden. Hvilket kartlag hos kommunen hver av
+ * dem er, står i `apps/shared/tiltakshjelpen-kommuner.ts` - hos den som allerede
+ * svarer på hvilket lag som gjelder for hvilken kommune.
+ *
+ * `landbruk` kom med da sonene ble hentet live: kommunen publiserer laget, og
+ * uttrekket hadde det ikke. Den live kilden navngir altså flere soner enn filene
+ * gjorde, og det kan ikke endre et utfall - `soneHindrerFritak` svarer bare `true`
+ * for en faresone.
  */
 export const DATASETTIDER = [
-  "stoy", "fare", "friluftsliv", "landskap", "naturmiljoe", "kulturmiljoe", "arealformaal"
+  "stoy", "fare", "friluftsliv", "landskap", "naturmiljoe", "kulturmiljoe", "landbruk", "arealformaal"
 ] as const;
 export type Datasettid = (typeof DATASETTIDER)[number];
-
-/**
- * Taket på hvor stort et kartutsnitt plan-mock svarer på, i meter langs hver side.
- *
- * Større enn naboteigrutens 500 fordi Tiltakshjelpen strekker teigen med ti meters
- * marg til 4:3, og 492 av Bergens 21 258 teiger blir da over 500 meter brede.
- * Med 500 svarte ruten 400 for dem, og innbyggeren fikk «hensynssonene kunne ikke
- * hentes» der eiendommen var stor - altså i LNF og byfjellene, der sonene er.
- * Taket finnes fortsatt: det er dette og `PLANSONE_MAX_TREFF` som gjør at en åpen
- * rute ikke kan bes om hele kommunen.
- */
-export const PLANSONE_MAX_SIDE_METER = 3000;
-
-/**
- * Formen på tråden fra plan-mock.
- *
- * Geometrien er **klippet til kartutsnittet kallet ba om**, og det er ikke en
- * pyntesak: den største enkeltdelen i støysonefilen har 106 860 punkter og LNF-
- * flaten 86 027. Uklippet ville ett kartoppslag lastet ned flere megabyte og
- * tegnet en flate som dekker halve Bergen inn i et utsnitt på 240 × 180 meter.
- * Klippingen endrer ingen konklusjon om eiendommen, fordi utsnittet alltid er
- * bygget rundt teigen med margin, men den gjør at ringene har kanter langs
- * utsnittet som ikke er sonegrenser. Ingen avstand skal måles mot dem.
- */
-export type PlansoneFeature = {
-  type: "Feature";
-  /** Uttrekkets OBJECTID. Unik i sitt datasett, ikke på tvers av dem. */
-  id: number;
-  geometry: { type: "Polygon"; coordinates: number[][][] };
-  properties: {
-    datasett: Datasettid;
-    sonekode: number;
-    /** HENSYNSONENAVN, for eksempel «H220_1». Arealformål har ingen. */
-    sonenavn: string | null;
-    /** AREALST. Bare arealformål har den. */
-    arealstatus: number | null;
-    beskrivelse: string | null;
-    planId: string;
-    kommunenummer: string;
-  };
-};
-
-export type PlansoneSvar = {
-  kommunenummer: string;
-  kildestatus: "tilgjengelig" | "ikke_dekket";
-  kilde: {
-    navn: string;
-    planId: string | null;
-    versjon: string | null;
-    filer: string[];
-    /** Uttrekksåret i filnavnet, ikke en måledato. */
-    uttrekksaar: number | null;
-    koordinatsystem: "EPSG:4326";
-    syntetisk: false;
-  };
-  type: "FeatureCollection";
-  features: PlansoneFeature[];
-  /** Klippet til utsnittet det ble spurt om. Se kommentaren over PlansoneFeature. */
-  klippetTilUtsnitt: true;
-};
-
-/**
- * Taket på antall deler i ett svar.
- *
- * Høyere enn NABOTEIG_MAX_TREFF fordi en sone kan være oppstykket i mange små
- * deler i det samme utsnittet, mens en teig er én eiendom.
- */
-export const PLANSONE_MAX_TREFF = 400;

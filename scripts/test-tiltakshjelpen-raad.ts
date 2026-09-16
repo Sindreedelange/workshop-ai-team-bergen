@@ -284,7 +284,7 @@ try {
   const agent = await start("process-agent", { TOOLS_BASE_URL: tools });
   const projectedZones = projectTiltakshjelpenPlanflater({
     punkt: { lat: 1, lon: 1 },
-    kilder: [{ id: "planflater", navn: "KPA2018", status: "ok", uttrekksaar: 2018 }],
+    kilder: [{ id: "planflater", navn: "KPA2018", status: "ok" }],
     planflater: [
       { kategori: "hensynssone", datasett: "stoy", sonekode: 220, sonenavn: "H220_1", navn: "Gul støysone",
         hensynstype: "stoy", planId: "65270000", berorer: "delvis",

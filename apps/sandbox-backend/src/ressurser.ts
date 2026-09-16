@@ -7,6 +7,8 @@ import {
 } from "./autentisering.ts";
 import { representantPider } from "../../shared/handleevne.ts";
 import { feilmelding } from "../../shared/errors.ts";
+import type { Hendelsesstroem } from "../../shared/http.ts";
+import { HENDELSE } from "../../shared/hendelsesstroem.ts";
 import { HttpError } from "./errors.ts";
 import {
   hasGyldigSamtykke,
@@ -95,6 +97,16 @@ export type RessursContext = {
   steg: any | null;
   /** Who is calling, from the token. See autentisering.ts. */
   kaller: Caller;
+  /**
+   * Sender en hendelse til kalleren mens oppslaget pågår, når kalleren ber om det.
+   *
+   * Navnet på hendelsen er ressursens eget: katalogen er den delte porten hver
+   * case går gjennom, og den skal ikke kjenne én case sitt vokabular. Bare
+   * strømmeruten sender den inn. De andre kaller uten, og da skjer det ingenting -
+   * det er samme kodevei og samme vifteutslag, og det er hele poenget: én kilde
+   * til sannhet om hva som ble hentet, uansett om noen ser på mens det skjer.
+   */
+  paaHendelse?: Hendelsessender;
 };
 
 // The foresatte whose income the calculation combines - the same set regler.ts
@@ -138,6 +150,14 @@ export type Ressurs = {
   sti: string;
   /** Name the resource gets in the revisjonslogg. */
   ressurs: string;
+  /**
+   * Svarer med en hendelsesstrøm framfor ett JSON-svar.
+   *
+   * Ruten går gjennom `runRessurs` som alle andre - samtykkeporten og
+   * revisjonssporet håndheves der, og en strømmerute er ikke et unntak. Det eneste
+   * som skiller den er at HTTP-laget åpner svaret først og lukker det til slutt.
+   */
+  stroem?: true;
   beskrivelse: string;
   /**
    * Which authorisation this resource requires. Omitted means the closed value,
@@ -199,6 +219,10 @@ async function withStatus<T>(status: number, read: () => T | Promise<T>): Promis
     throw new HttpError(feilmelding(error), status);
   }
 }
+
+const PLANGRUNNLAG_VALIDER: Ressurs["valider"] = ({ sok }) => { readTiltakshjelpenRequest(sok); };
+const PLANGRUNNLAG_HANDTER: Ressurs["handter"] = ({ sok, paaHendelse }) =>
+  readTiltakshjelpenGrunnlag(sok, paaHendelse && (kilde => paaHendelse(HENDELSE.kilde, kilde)));
 
 export const ressurser: Ressurs[] = [
   {
@@ -278,8 +302,23 @@ export const ressurser: Ressurs[] = [
     ressurs: "garasje-plangrunnlag",
     beskrivelse: "Hent eiendomsdata og tilgjengelige kart- og plankilder. Oppgitt tiltakstype gir tidlige planvarsler uten mål eller søknadsvurdering.",
     formaal: "Avklare eiendoms- og planforhold før et byggetiltak",
-    valider: ({ sok }) => { readTiltakshjelpenRequest(sok); },
-    handter: ({ sok }) => readTiltakshjelpenGrunnlag(sok)
+    valider: PLANGRUNNLAG_VALIDER,
+    handter: PLANGRUNNLAG_HANDTER
+  },
+  {
+    metode: "GET",
+    sti: "/api/garasje/grunnlag/hendelser",
+    ressurs: "garasje-plangrunnlag",
+    stroem: true,
+    beskrivelse: "Samme oppslag som /api/garasje/grunnlag, men kildene meldes underveis som en hendelsesstrøm.",
+    formaal: "Avklare eiendoms- og planforhold før et byggetiltak",
+    // Samme validering og samme kropp som tvillingen over. De to rutene finnes
+    // fordi to dokumenterte veier er lettere å finne enn én som skifter form på
+    // et `Accept`-hode, men det er én ressurs - så valideringen og oppslaget skal
+    // ikke kunne skille lag. `paaHendelse` er `undefined` på JSON-ruten, og da
+    // henter den samme kroppen uten å melde fra underveis.
+    valider: PLANGRUNNLAG_VALIDER,
+    handter: PLANGRUNNLAG_HANDTER
   },
   {
     metode: "GET",
@@ -746,11 +785,24 @@ export function ressurskatalog() {
     beskrivelse: ressurs.beskrivelse,
     tilgang: ressurs.tilgang || "egne-data",
     kreverSamtykke: ressurs.kreverSamtykke || null,
+    // Uten dette ser to ruter helt like ut i katalogen, og en klient som velger
+    // etter beskrivelsen kan ende opp med den som svarer text/event-stream.
+    ...(ressurs.stroem ? { svarform: "hendelsesstroem" as const } : {}),
     syntetisk: true
   }));
 }
 
+/**
+ * Se `RessursContext.paaHendelse`.
+ *
+ * Avledet av den som faktisk skriver hendelsen, ikke skrevet av på nytt: bærer
+ * strømmen en dag en id eller et gjenforsøkshint, følger signaturen med.
+ */
+export type Hendelsessender = Hendelsesstroem["send"];
+
 type RunOptions = {
+  /** Se `RessursContext.paaHendelse`. */
+  paaHendelse?: Hendelsessender;
   oekt?: any | null;
   steg?: any | null;
   personId?: string | null;
@@ -786,7 +838,8 @@ export async function runRessurs(
     sporingsId: valg.sporingsId,
     oekt: valg.oekt ?? null,
     steg: valg.steg ?? null,
-    kaller: valg.kaller ?? { type: "anonym" }
+    kaller: valg.kaller ?? { type: "anonym" },
+    paaHendelse: valg.paaHendelse
   };
 
   ressurs.valider?.(kontekst);

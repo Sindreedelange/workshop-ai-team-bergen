@@ -53,6 +53,7 @@ Resten av filene er oppslagsverk. Du trenger ingen av dem før du trenger dem.
 | Finne riktig token for backend, Fiks, journal eller politiattest | [`docs/api-oversikt.md`](api-oversikt.md#hvor-endepunktene-står) og tjenestens spesifikasjon |
 | Se hele flyten som `curl` | [`examples/curl/README.md`](../examples/curl/README.md) |
 | Vite hvem som kan logge inn, og hvem som bare er part i saken | [`docs/testpersoner.md`](testpersoner.md) |
+| Se hvor hvert datasett kommer fra, og hva som er syntetisk | [`docs/datakilder.md`](datakilder.md) |
 | Forstå datagrunnlaget, og hvor grensene går | [`docs/syntetiske-data.md`](syntetiske-data.md) |
 | Lage en ny case inne i prosessmotoren | [`docs/prosessmodell.md`](prosessmodell.md) |
 | Se Tiltakshjelpen og hva andre søknadsprosesser kan gjenbruke | [Tiltakshjelpen: Kan du bygge uten å søke?](tiltakshjelpen.md) - tiltakstyper, kart, dokumentkilder og avklaring uten innsending |

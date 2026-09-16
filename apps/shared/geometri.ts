@@ -1,11 +1,16 @@
 /**
  * Ren geometri på lengde- og breddegrader: kartutsnittet, flategeometrien og
- * vaktene som avgjør om et GeoJSON-objekt er en gyldig flate.
+ * ray casten som avgjør om et punkt ligger inne i en flate.
  *
- * Dette sto i matrikkelteig.ts mens matrikkel-mock var eneste leser. Navnet
- * `getTeigBounds` lovet matrikkel om noe som ikke vet hva en teig er, og
- * plan-mock indekserer hensynssoner med nøyaktig de samme regnestykkene og de
- * samme vaktene.
+ * Modulen finnes fordi `ringerInneholder` besvarer det samme spørsmålet fra to
+ * kanter: serveren avgjør om skissepunktet ligger i en planflate, og nettleseren
+ * viser det samme mens markøren dras. To kopier svarte forskjellig på et punkt
+ * nøyaktig på kanten, og det er ikke en forskjell noen har bestemt.
+ *
+ * Den var en stund større. De to mockene som leste et innsjekket GeoJSON-uttrekk
+ * indekserte med de samme vaktene, og de vaktene bodde her - men uttrekkene er
+ * borte, og kildene svarer nå i Esris eget format. Det som ble igjen er det som
+ * faktisk deles.
  *
  * Ingenting her kjenner et domene. Rekkefølgen på et koordinatpar er
  * [lengdegrad, breddegrad], slik GeoJSON krever, og ikke lat/lon slik
@@ -15,21 +20,20 @@
 export type Kartutsnitt = { vest: number; sor: number; ost: number; nord: number };
 
 /** Polygon- eller MultiPolygon-ringer, uten krav til hvilke egenskaper de bærer. */
-export type Flategeometri =
+type Flategeometri =
   | { type: "Polygon"; coordinates: number[][][] }
   | { type: "MultiPolygon"; coordinates: number[][][][] };
 
 /**
  * Taket på hvor stort et utsnitt kan være, i meter langs hver side.
  *
- * En parameter og ikke en konstant: 500 meter er skrevet for naboteigruten, der
- * det er en sperre mot bulkuttrekk av eiendommer. Plan-mock svarer på åpne
- * plandata og må dekke det utsnittet Tiltakshjelpen faktisk tegner, som for de
- * største teigene i Bergen er over 800 meter. Å arve et tak ingen har utledet
- * for den nye ruten er hvordan 2,3 prosent av eiendommene mistet
- * hensynssonesjekken uten at noe sa fra.
+ * Den ble en parameter fordi to ruter trengte hvert sitt tak, og den står som
+ * parameter selv om bare naboteigoppslaget er igjen: taket er en sperre mot
+ * bulkuttrekk av eiendommer og hører til ruten som trenger den, ikke til
+ * geometrien. Å arve et tak ingen har utledet for en ny rute er hvordan 2,3
+ * prosent av eiendommene mistet hensynssonesjekken uten at noe sa fra.
  */
-export function isBoundedKartutsnitt(bounds: Kartutsnitt, maksSideMeter = 500): boolean {
+export function isBoundedKartutsnitt(bounds: Kartutsnitt, maksSideMeter: number): boolean {
   const { vest, sor, ost, nord } = bounds;
   if (![vest, sor, ost, nord].every(Number.isFinite)
     || vest < -180 || ost > 180 || sor <= -90 || nord >= 90 || vest >= ost || sor >= nord) return false;
@@ -48,11 +52,6 @@ export function getGeometriBounds(geometry: Flategeometri): Kartutsnitt {
     bounds.nord = Math.max(bounds.nord, position[1]!);
   }
   return bounds;
-}
-
-/** Bare ringene i én polygondel. Se kommentaren over `spatial` i plan-mock. */
-export function getRingBounds(rings: number[][][]): Kartutsnitt {
-  return getGeometriBounds({ type: "Polygon", coordinates: rings });
 }
 
 export function intersectsKartutsnitt(a: Kartutsnitt, b: Kartutsnitt): boolean {
@@ -146,33 +145,17 @@ export function nearestPointOnPolygonBoundary(
 }
 
 // --- GeoJSON-vakter -------------------------------------------------------
-//
-// Begge de to tjenestene som leser et lokalt GeoJSON-uttrekk validerer med
-// nøyaktig disse reglene. De sto i to kopier, og koordinatgrensene under er
-// den slags regel som må endres begge steder eller ingen.
-
-export function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-export function isNonnegativeNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0;
-}
-
-export function isNonnegativeInteger(value: unknown): value is number {
-  return isNonnegativeNumber(value) && Number.isSafeInteger(value);
-}
 
 /**
  * En lukket ring med minst tre entydige punkter og gyldige koordinater.
  *
  * Entydigheten telles med to lagrede punkter og ikke med et Set av
- * «x,y»-strenger. Det er ikke mikrooptimering: målt på arealformålsfilen alene
- * kostet Set-varianten 150 ms mot 5 ms, altså tre ganger så mye som å parse de
- * 30 MB JSON den validerer, og bygde 724 000 midlertidige strenger. Over alle
- * filene var det omtrent to tredeler av kaldstarten.
+ * «x,y»-strenger. Det er ikke mikrooptimering: målt på det gamle
+ * arealformålsuttrekket kostet Set-varianten 150 ms mot 5 ms, altså tre ganger så
+ * mye som å parse de 30 MB JSON den validerte, og bygde 724 000 midlertidige
+ * strenger.
  */
-export function isRing(value: unknown): value is number[][] {
+function isRing(value: unknown): value is number[][] {
   if (!Array.isArray(value) || value.length < 4) return false;
   let entydige = 0;
   let foerste: number[] | undefined;
@@ -198,54 +181,3 @@ export function isPolygon(value: unknown): value is number[][][] {
   return Array.isArray(value) && value.length > 0 && value.every(isRing);
 }
 
-/** Polygondelene i geometrien, eller null om den ikke er en gyldig flate. */
-export function polygonDeler(value: unknown): number[][][][] | null {
-  if (!isObject(value)) return null;
-  if (value.type === "Polygon" && isPolygon(value.coordinates)) return [value.coordinates];
-  if (value.type === "MultiPolygon" && Array.isArray(value.coordinates)
-    && value.coordinates.length > 0 && value.coordinates.every(isPolygon)) {
-    return value.coordinates as number[][][][];
-  }
-  return null;
-}
-
-/** Geometrien som Polygon eller MultiPolygon, eller null. */
-export function projectGeometri(value: unknown): Flategeometri | null {
-  const deler = polygonDeler(value);
-  if (!deler) return null;
-  return deler.length === 1 && isObject(value) && value.type === "Polygon"
-    ? { type: "Polygon", coordinates: deler[0]! }
-    : { type: "MultiPolygon", coordinates: deler };
-}
-
-/**
- * Kommunenummer og kartutsnitt fra en spørrestreng.
- *
- * Delt fordi begge de to lokale geokildene tar nøyaktig dette settet, med de
- * samme reglene og de samme feilmeldingene. Tjenesten oppgir sin egen feiltype
- * og sitt eget tak, som er de to tingene som faktisk skiller dem.
- */
-export function parseKartutsnittQuery(
-  params: URLSearchParams, feil: (melding: string) => Error, maksSideMeter = 500
-): Kartutsnitt & { kommunenummer: string } {
-  const fields = ["kommunenummer", "vest", "sor", "ost", "nord"];
-  for (const name of params.keys()) {
-    if (!fields.includes(name) || params.getAll(name).length !== 1) {
-      throw feil("Bruk bare kommunenummer, vest, sor, ost og nord, én gang hver.");
-    }
-  }
-  const kommunenummer = params.get("kommunenummer") || "";
-  if (!/^\d{4}$/.test(kommunenummer) || kommunenummer === "0000") {
-    throw feil("kommunenummer må være fire sifre og kan ikke være 0000.");
-  }
-  const coordinate = (name: string): number => {
-    const raw = params.get(name);
-    if (raw === null || !/^-?\d+(?:\.\d+)?$/.test(raw)) throw feil(`${name} må være en endelig koordinat.`);
-    return Number(raw);
-  };
-  const bounds = { vest: coordinate("vest"), sor: coordinate("sor"), ost: coordinate("ost"), nord: coordinate("nord") };
-  if (!isBoundedKartutsnitt(bounds, maksSideMeter)) {
-    throw feil(`Kartutsnittet må være gyldige lengde- og breddegrader, høyst ${maksSideMeter} meter langs hver side.`);
-  }
-  return { kommunenummer, ...bounds };
-}

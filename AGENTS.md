@@ -74,21 +74,6 @@ chat, or that every service is a søknad.
 - `apps/matrikkel-mock` (`8085`): mock of Kartverket Matrikkel Geointegrasjon BasisService (SOAP + REST helpers). Runs from the shared `node:24-alpine` image on the same `./:/workspace` bind mount as every other service; `apps/matrikkel-mock/Dockerfile` exists only for running it standalone.
 - `apps/pasientjournal-mock` (`8087`): mock of an elektronisk pasientjournal, serving the legeerklæringer the TT-kort case is assessed against. **This integration does not exist in reality** - a journal is owned by the virksomhet that provided the care, there is no national API for a legeerklæring, and today the citizen carries a stamped PDF and uploads it. The mock is the structured form of that attachment, and its README says so first. Two things are deliberate: `fnr` is required, so the surface never answers a bulk query, and it is behind Maskinporten rather than ID-porten - real health data sits behind HelseID at Norsk helsenett, which the sandbox does not have. The only *service* that reads `data/legeerklaeringer.json`; the gate reads it too.
 - `apps/brreg-mcp`, `apps/folkeregister-mcp` (no port): **these two are real MCP** - JSON-RPC 2.0 over stdio, newline-delimited, verified against `@modelcontextprotocol/inspector`. They are standalone servers for an external client (Claude Code, Cursor) to spawn; nothing in the sandbox talks to them. In particular `tools-api` does **not** - it reads the same `data/brreg.seed.json` and `data/folkeregister.seed.json` off disk and exposes its own REST equivalents, so the four brreg/folkeregister tools exist twice, in two protocols. Their compose entries only keep the containers alive on an idle stdin; they are not a dependency of anything.
-- `apps/plan-mock` (`8090`): offline kopi av Bergens kommuneplan, arealdelen 2018
-  (KPA2018). **Motsatt av de to mockene over: dette er ekte, åpne data.** Kilden
-  finnes på `kart.bergen.kommune.no`, og `sandbox-backend` slår faktisk opp mot den
-  live for arealformål og reguleringsplaner. Kopien finnes fordi et hackathon uten
-  nett ikke skal miste kartsteget, og fordi live-oppslaget spør om ett punkt uten
-  geometri og derfor ikke kan svare på om en sonegrense går tvers gjennom tomten.
-  Eneste leser av de sju `data/Kp*_2018.geojson`-filene; svarer på et kartutsnitt,
-  aldri på en eiendom eller en person, og står åpen uten token av samme grunn som
-  `matrikkel-mock`. Tre ting som ikke er tilfeldige, og som hver har en sjekk i
-  `pnpm test:plan-mock`: flatene er **klippet til utsnittet** (den største
-  enkeltdelen i støysonefilen har 106 860 punkter), indeksen ligger på
-  **polygondelen** og ikke på objektet (to landskapsflater har et omsluttende
-  rektangel som dekker hele kommunen), og `geometry: null` telles i stedet for å
-  feile. Selve skjæringen mot teigen gjøres i `sandbox-backend`, der reglene bor -
-  mocken er en ren datakilde og har ingen regel å holdes i takt med.
 - `apps/politiattest-mock` (`8088`): mock of a politiattest, serving the attest the vandelskontroll case is assessed against. **This integration does not exist in reality** - there is no API for a politiattest, the attest is a locked PDF with no machine-readable content, it is issued to the citizen rather than to the kommune, and nobody can look it up. The mock is the structured form of the document the citizen presents, and its README says so first. It does not model politiets reaksjonsregister: it answers only for attests already issued for a stated formål. Three things are deliberate: `fnr` is required, so the surface never answers a bulk query; `formaal` is required too, because an attest exists for one purpose and a lookup without one is «what does this person have on them»; and it is behind Maskinporten rather than ID-porten. The only *service* that reads `data/politiattester.json`; the gate reads it too.
 - `apps/ai-gateway` (`8082`): AI provider abstraction (`mock|ollama|openrouter|bedrock`). Switch live, no restart, at `GET /admin` (or `POST /admin/provider`) - persisted to `state/ai-provider-override.json`, which overrides `AI_PROVIDER`/`BEDROCK_MODEL_ID` on next boot. Also exposes `POST /ai/velg-verktoy` for dynamic step-tool discovery.
 - `apps/tools-api` (`8083`): 25 tool endpoints wrapping backend + AI + matrikkel, over REST. Includes `suggest_step_tools`, `matrikkel_finn_veger`, `matrikkel_hent_eiendom`, `matrikkel_hent_eiere`. The catalogue is `GET /verktoy`; a tool is invoked over `POST /verktoy/invoke` or `POST /verktoy/{name}/invoke`.
@@ -153,13 +138,12 @@ chat, or that every service is a søknad.
   whoever needs them: `assets.ts` (static files and type stripping - the two frontends),
   `registerdata.ts` (the shapes of `brreg.seed.json` and `folkeregister.seed.json` -
   `tools-api`, `fiks-simulator`, `matrikkel-mock` and `skjerming.ts`),
-  `geometri.ts` (the map extent, the GeoJSON guards and the ray cast -
-  `matrikkel-mock` and `plan-mock` both index by bounding box and validate the same
-  way, the rule and the browser both answer whether a point is inside a flate, and
-  the old names in `matrikkelteig.ts` promised matrikkel about plain geometry),
+  `geometri.ts` (the map extent, the GeoJSON guards and the ray cast - the rule and
+  the browser both answer whether a point is inside a flate, which is the reason it
+  is one module and not two),
   `hensynssoner.ts` (the KPA2018 sone kodeverk, the datasett ids and the wire shape -
-  which file and column each dataset has is plan-mock's own, in
-  `apps/plan-mock/src/datasett.ts`),
+  which ArcGIS layer each dataset is lives with the kommune registry, in
+  `apps/shared/tiltakshjelpen-kommuner.ts`),
   `innbyggerdata.ts` (the shapes of `personer.json`,
   `husstander.json`, the two plass-datasets and `samtykker.json` - `sandbox-backend` and
   `fiks-simulator`), `jsonstore.ts` (`seedDir`/`stateDir`, `readJson`, `updateJson` - the
@@ -275,12 +259,6 @@ chat, or that every service is a søknad.
   i tid» and «kjør sjekken på nytt» is both truer and actionable where «kunne ikke
   levere et gyldig svar» reads as a broken source. `pnpm test:tiltakshjelpen` pins the retry,
   that two timeouts are still a source failure, and that a 502 is not retried.
-  The client side of the same wait is in `perform` in
-  `apps/demo-gui/src/client/tiltakshjelpen.ts`: `VENTEMELDINGER` replaces the status line
-  after 2.5, 6 and 13 seconds, naming the municipality, the retry and what happens if
-  the source stays silent. Without it one label sat still for up to twelve seconds and
-  the page read as hung. `pnpm test:tiltakshjelpen` pins the texts, their order and that the
-  timers are cleared on both success and failure.
 - Audit events are first-class output (`state/revisjonslogg.json`); keep behavior observable.
 
 ## Adding a new case: what the last one taught
@@ -379,7 +357,7 @@ one. `pnpm test:revisjon` pins all of it.
   regnet ut, så den kan ikke flytte `utfall`. Grunnen er ikke forsiktighet: en
   hensynssone hjemlet i plan- og bygningsloven § 11-8 sier at et hensyn gjelder for
   området, mens om tiltaket er tillatt står i planbestemmelsene, som piloten ikke
-  leser - og uttrekket er dessuten frosset i 2018. Det samme gjelder
+  leser - og de leses ikke. Det samme gjelder
   `arealformaal-flate`. `pnpm test:tiltakshjelpen` pinner at et treff ikke endrer utfallet.
   Med én tilføyelse, som går den andre veien: en **faresone** holder tilbake
   `meldeplikt`-fritaket under, fordi et fritak er en påstand om at alt som gjelder er
@@ -415,11 +393,72 @@ one. `pnpm test:revisjon` pins all of it.
   rett foran nekter eller gjør setningen betinget. Grensen mot et mildere utfall er
   uendret. `pnpm test:tiltakshjelpen-raad` pinner begge retninger, inkludert at «du trenger
   ikke søke, og tiltaket er tillatt» fortsatt stoppes.
-- **Flatene fra `plan-mock` er klippet til kartutsnittet, og det står på tråden.**
-  `klippetTilUtsnitt: true` er påkrevd, og `sandbox-backend` avviser et svar uten
-  det. Ringene har derfor kanter langs utsnittet som ikke er sonegrenser: de kan
-  tegnes og brukes til å svare på om sonen berører eiendommen, men ingen avstand
-  skal måles mot dem.
+- **Innbyggeren ser hvilken kilde som hentes mens den hentes.**
+  `GET /api/garasje/grunnlag/hendelser` er et søsken til `/api/garasje/grunnlag`
+  med de samme parameterne, og svarer med `text/event-stream`: én `kilde`-hendelse
+  når et oppslag settes i gang, én til når det er ferdig, og `grunnlag` til slutt.
+  Ruten går gjennom `runRessurs` som alle andre katalogsteg - samtykkeporten og
+  revisjonssporet håndheves der, og en strømmerute er ikke et unntak.
+  **Strømmen åpnes først når noe faktisk skal sendes**, og det er en avgjort
+  forskjell og ikke en detalj: åpnet vi den med en gang, ville statuslinjen vært
+  skrevet før valideringen kjørte, og en 400, 403 eller 404 hadde blitt en 200 med
+  en feilhendelse i - altså en annen feilsemantikk enn JSON-tvillingen for nøyaktig
+  samme ressurs. Rekker noe å bli sendt først, er statuslinjen låst, og da går
+  feilen som en `feil`-hendelse.
+  Statusen `henter` finnes bare på strømmen. Et lagret grunnlag har den aldri.
+  Hver kilde som gjør et oppslag melder seg to ganger, også nabokartet: det ligger
+  i samme `Promise.all`, så innbyggeren venter på det selv om vilkårene ikke hviler
+  på det. `adresse` melder seg én gang, fordi den er hentet før strømmen finnes.
+  Klienten hadde tre `setTimeout` på 2,5, 6 og 13 sekunder som byttet ut én
+  setning etter en tidsplan kalibrert mot serverens tålmodighet. Den var gjettet:
+  kildene hentes i parallell og svarer i ulik rekkefølge, så teksten kunne verken
+  si hvilken kilde som var treg eller hvem som allerede hadde svart.
+  `pnpm test:tiltakshjelpen` driver nå hendelsene i stedet for klokken - både
+  klientens tegning av dem og selve ruten, hendelsesrekkefølgen, at en
+  valideringsfeil fortsatt er en JSON-400, og at rammeformatet tåler en kropp med
+  linjeskift.
+- **Grunnlaget gjenbrukes i tretti sekunder, per eiendom.** Hvert kall vifter ut
+  mot de samme seks kildene, og flere kall om samme eiendom følger tett på
+  hverandre: sjekken etter kartet, og et nytt oppslag når tiltakstypen bekreftes.
+  Verdt å vite om hva gjenbruket **ikke** dekker: plasseringen står i nøkkelen, og
+  grensesnittet krever at innbyggeren flytter markøren før plasseringen kan
+  bekreftes, så oppslaget for kartet og oppslaget for plasseringen har ulik nøkkel
+  og deler aldri svar. Nøkkelen er det som avgjør grunnlaget -
+  adresse, gnr/bnr, kommune og plassering - og ikke hele spørringen: `sporingsId`
+  og tiltaksopplysningene varierer mellom to kall om samme eiendom. Tiltakstypen
+  står med vilje ikke i nøkkelen: grensesnittet henter grunnlaget én gang før typen
+  er bekreftet og én gang etter, så med den i nøkkelen bommet gjenbruket alltid på
+  det andre kallet. Varslene for typen legges på etterpå, som ren utregning.
+  Revisjonssporet lyver ikke om alderen: `kilde.hentet` er tidspunktet kilden
+  faktisk svarte. `nullstillFerskeGrunnlag` finnes for testene, som bytter
+  oppstrøm mellom to ellers like kall.
+- **Planflatene hentes fra kommunens egne kartlag, og avgjørelsen tas på hele
+  flaten.** De kom en stund fra et frosset uttrekk klippet til kartutsnittet, fordi
+  punktoppslaget ble antatt å være det eneste kommunen svarte på. Det stemte ikke: en
+  utsnittsspørring med `returnGeometry=true` gir hele flater fra de samme lagene.
+  Ringene som går ut på tråden er likevel klippet til kartutsnittet, og forskjellen
+  fra den gamle ordningen er hvor klippingen står: `berorer` er avgjort på hele
+  polygonet først, og bare det kartet skal tegne er trimmet etterpå. Ett arealformål
+  i LNF er ett polygon over 27 x 40 kilometer, altså 396 kB for et teigutsnitt på 138
+  x 200 meter, mot 82 byte klippet. Følgen å kjenne: kantene langs utsnittet er ikke
+  sonegrenser, så ingen avstand skal måles mot de tegnede ringene - det gjelder
+  tegningen, ikke vurderingen, og `kilde.merknad` sier begge deler.
+  **Utsnittssjekken står på featuren, ikke på polygondelen.** ArcGIS svarer med hele
+  geometrien til det som treffer utsnittet, og en multiflate har deler langt unna.
+  Sto sjekken på delen, ville en enslig del noen hundre meter borte felt hele
+  plankilden - og med den hvert fritak `vurderMeldeplikt` kan gi, siden `alleKilderOk`
+  er en hviteliste.
+  Tre ting til er verdt å vite om oppslaget, og hver av dem har en sjekk i
+  `pnpm test:tiltakshjelpen`. **Gruppelag kan ikke spørres**: faresone og støysone er
+  grupper hos kommunen, så barnelagene spørres hver for seg - et gruppelag i
+  laglisten ville feilet i kjøring framfor i gjennomlesning. **Esri legger flere ytre
+  ringer i samme feature**, så svaret deles i polygondeler på fortegnet til arealet;
+  uten det leses den andre flaten som et hull, og «helt» gjelder grunn sonen ikke
+  dekker. Og **flatene forenkles** med `maxAllowableOffset` til om lag to meter: et
+  utsnitt på tre kilometer ga 5,8 MB uten, og 536 kB med. Det er ekte sonegrenser,
+  men ikke oppmålte, og den setningen står i `kilde.merknad` innbyggeren ser.
+  **Lagoppsettet huskes** mellom oppslag, ellers ville tretten sonelag tatt ett
+  grunnlagskall fra rundt 13 til rundt 35 utgående forespørsler.
 
 ## Language
 
@@ -725,7 +764,6 @@ pnpm test:agent:dialog     # starts isolated services with the AI mock, through 
 pnpm test:tools-matrikkel  # starts tools-api, matrikkel-mock and a fake Geonorge service
 pnpm test:agent:matrikkel  # starts process-agent and a fake tools-api
 pnpm test:matrikkel-mock   # starts its own matrikkel-mock
-pnpm test:plan-mock        # starts its own plan-mock against the real KPA2018 files
 ```
 - After editing source files in `apps/`, restart the affected containers so Node picks up the changes:
 ```bash
@@ -733,9 +771,9 @@ pnpm test:plan-mock        # starts its own plan-mock against the real KPA2018 f
 docker compose restart sandbox-backend demo-gui   # targeted restart if you only changed those two
 ```
   Source files are volume-mounted (`./:/workspace`), so no image rebuild is needed - a restart is enough.
-- All thirteen Node services (`sandbox-backend`, `demo-gui`, `ai-gateway`, `tools-api`,
+- All eleven Node services (`sandbox-backend`, `demo-gui`, `ai-gateway`, `tools-api`,
   `process-agent`, `fiks-simulator`, `process-builder`, `matrikkel-mock`, `digdir-mock`,
-  `pasientjournal-mock`, `politiattest-mock`, `plan-mock`) are volume-mounted and run via `scripts/dev.sh`, which selects the right watcher automatically:
+  `pasientjournal-mock`, `politiattest-mock`) are volume-mounted and run via `scripts/dev.sh`, which selects the right watcher automatically:
   - **Linux** and **macOS with Docker Desktop 4.15+** (VirtioFS default): `node --watch` - inotify
     events propagate natively; restarts are immediate.
   - **Windows** (Docker Desktop with project on Windows filesystem, `C:\...`): `nodemon --legacy-watch`
@@ -770,20 +808,20 @@ pnpm test:bergen-matrikkel
   `test:samtykke`, `test:forsendelse`, `test:upstream`, `test:innlevering`, `test:concurrency`,
   `test:replay`, `test:chat`, `test:parametere`, `test:imports`, `test:startup`, `test:kodeverk`,
   `test:revisjon`, `test:openapi`, `test:docs`, `test:agent:dialog`, `test:tools-matrikkel`,
-  `test:agent:matrikkel`, `test:matrikkel-mock` and `test:kontrakt` on every PR
+  `test:agent:matrikkel`, `test:matrikkel-mock`, `test:matrikkel-id` and `test:kontrakt` on every PR
   and on push to main, and uploads the contract dump as an artifact. It deliberately
   does **not** run `test:eval` (needs a live model). `test:agent:dialog` starts its own
   isolated services with the AI mock and runs `test:agent` and `test:agent:nl` through
   actual submission. Running `test:agent` or `test:agent:nl` on its own needs the
   stack. `test:tools-matrikkel`, `test:agent:matrikkel` and `test:matrikkel-mock` start their own
   services; they need neither a running stack nor a model.
-- All thirteen services have a `healthcheck` in `docker-compose.yml`, and `tools-api`
+- Every service in `docker-compose.yml` has a `healthcheck`, and `tools-api`
   and `process-agent` wait on `condition: service_healthy`. `./start.sh` still polls
   `/helse` itself, since the macOS path uses `--no-deps`.
 
 ## Integration edges and env vars
 - In Compose, services call each other by container DNS (`http://sandbox-backend:8080`, etc.).
-- Common env vars: `BACKEND_BASE_URL`, `AI_BASE_URL`, `TOOLS_BASE_URL`, `MATRIKKEL_BASE_URL`, `PLAN_BASE_URL`, `AI_PROVIDER`, `OLLAMA_BASE_URL`, `OLLAMA_MODEL`, `BEDROCK_AWS_REGION`, `BEDROCK_AWS_ACCESS_KEY_ID`, `BEDROCK_AWS_SECRET_ACCESS_KEY`, `BEDROCK_AWS_SESSION_TOKEN`, `BEDROCK_MODEL_ID`, `PASIENTJOURNAL_BASE_URL`, `POLITIATTEST_BASE_URL`, `STATE_DIR` - which
+- Common env vars: `BACKEND_BASE_URL`, `AI_BASE_URL`, `TOOLS_BASE_URL`, `MATRIKKEL_BASE_URL`, `AI_PROVIDER`, `OLLAMA_BASE_URL`, `OLLAMA_MODEL`, `BEDROCK_AWS_REGION`, `BEDROCK_AWS_ACCESS_KEY_ID`, `BEDROCK_AWS_SECRET_ACCESS_KEY`, `BEDROCK_AWS_SESSION_TOKEN`, `BEDROCK_MODEL_ID`, `PASIENTJOURNAL_BASE_URL`, `POLITIATTEST_BASE_URL`, `STATE_DIR` - which
   `docker-compose.yml` never passes on, so it is read only by scripts you start
   yourself, never by a service under compose.
 - `tools-api` uses `MATRIKKEL_BASE_URL` (default `http://matrikkel-mock:8085`) to reach the Matrikkel mock.
@@ -824,31 +862,46 @@ pnpm test:bergen-matrikkel
   call the model when the heuristic does not match. Four endpoints work but have no code
   callers in the sandbox: `/ai/dialogforslag`, `/ai/risikosjekk`, `/ai/klarsprak` (only
   `start.sh` probes it) and `/ai/forklar-databruk`. They are there for teams to use.
-- `MATRIKKEL_DATA_FILE` overrides the file `matrikkel-mock` seeds from; the default is
-  `data/matrikkel.json` - 388 streets and 18349 properties across the 97 kommuner the
-  population lives in, fetched from Geonorge by `node scripts/hent-matrikkel.ts`.
-  `data/matrikkel.seed.json` remains as the small four-street fixture the mock's own
-  tests point at. **Ownership is not in either file:** it lives in
-  `data/eierforhold.json` (`EIERFORHOLD_DATA_FILE`) and is merged in at load, because
-  title is in the grunnbok and not the matrikkel. `eiere` is only in the response from
+- **Addresses come from Geonorge at lookup time. Only four hand-authored streets sit
+  on disk.** `MATRIKKEL_DATA_FILE` overrides the file `matrikkel-mock` seeds from; the
+  default is `data/matrikkel.seed.json`, which holds Storgata, Nordnesveien,
+  Fjøsangerveien and Laksevågvegen in Bergen. None of them exist in the real register:
+  they are authored so the demos have a fixed property to point at, and the synthetic
+  population is anchored to them. Everything else is resolved live.
+  The 12.6 MB `data/matrikkel.json` is gone, and so is `scripts/hent-matrikkel.ts`.
+- **The id is the join, and it is built in one place.** `byggMatrikkelId` in
+  `apps/shared/adresse.ts` derives `matr-geo-{kommunenummer}-{adressekode}-{husnummer}{husbokstav}`
+  from a Geonorge address. Three callers must agree on it: `scripts/importer-tenor.ts`
+  stamps it into `data/personer.json` and `data/eierforhold.json`, and both
+  `matrikkel-mock` and `tools-api` rebuild it for every live lookup. They used to
+  disagree - the live path appended gnr and bnr - and the failure is silent, because a
+  property with no registered owner is a valid answer. `pnpm test:matrikkel-id` pins the
+  formula against `data/geonorge.fixtur.json`, and `pnpm test:matrikkel-mock` pins that
+  ownership still joins over HTTP.
+  **Ownership is not in the matrikkel:** it lives in `data/eierforhold.json`
+  (`EIERFORHOLD_DATA_FILE`) and is merged in both on the seed path and on the live one,
+  because title is in the grunnbok. `eiere` is only in the response from
   `/mock/matrikkel/eiendommer` when `personId` is given.
+- **`scripts/check-matrikkel-data-source.ts` is the check that keeps the file from
+  coming back.** It fails when `data/matrikkel.json` or `data/matrikkel_bk_25.json`
+  exists, when the fixture grows past 2 MB, or when a running mock says it read
+  something other than the fixture. A re-added extract would otherwise work perfectly
+  and silently serve frozen data. Run it with `pnpm check:matrikkel-source`.
 - `tools-api` uses `MATRIKKEL_BASE_URL` (default `http://matrikkel-mock:8085`) for mock
   lookups, and `MATRIKKEL_MODE=live|mock|hybrid` for street lookups. All three places
-  that set it - the code default, `docker-compose.yml` and `.env.example` - now say
-  `mock`, so there is one value to know. This paragraph used to reconcile two of them
-  against a third; it does not need to any more.
-  `mock` is right because the seed holds every Bergen street, so a live lookup has
-  nothing left to add and the conference network cannot break a street lookup. Pick
-  `hybrid` if you need streets outside the seed. Not `live` - it rethrows on network
-  failure, so every street lookup becomes a 500 when you are offline.
-  `MATRIKKEL_MODE` is read only by `tools-api`; `matrikkel-mock` always falls back to
-  live when a lookup misses the seed, and degrades to 404 («Fant ikke …») - not a 5xx -
-  when the network is down.
+  that set it - the code default, `docker-compose.yml` and `.env.example` - say `mock`.
+  The old reason for that default was that the seed held every Bergen street; it does
+  not any more. The reason now is better: `mock` is one hop to the one service that
+  knows how to build a `matrikkelId` and how to merge ownership, and it degrades to 404
+  («Fant ikke …») rather than 500 when the network is down. `live` still rethrows on
+  network failure, so every street lookup becomes a 500 when you are offline - and
+  offline is now the common failure rather than the rare one.
 
 ## Matrikkel integration pattern
-- `apps/matrikkel-mock` owns synthetic matrikkel data seeded from `data/matrikkel.json`, and it exposes that over SOAP (Geointegrasjon path) and REST helper endpoints. When a lookup is missing from seed data, the mock may fall back to live Geonorge address lookups.
+- `apps/matrikkel-mock` exposes a matrikkel over SOAP (Geointegrasjon path) and REST helper endpoints. Four hand-authored Bergen streets come from `data/matrikkel.seed.json`; everything else is a live Geonorge address lookup, and a lookup the seed misses is the normal case rather than the exception.
 - **It is the only reader of the matrikkel seed.** `sandbox-backend` reaches it over HTTP via `MATRIKKEL_BASE_URL`; nothing else opens the file. Keeping two read paths meant keeping two copies of the same post-processing in step by hand.
 - `data/matrikkel.seed.json` is the small curated fixture; keep it small, readable, and deterministic.
+- **There is no teig route any more.** `/mock/matrikkel/teiger` and `/mock/matrikkel/naboteiger` read a 96.6 MB extract covering Bergen alone, and `sandbox-backend` used them first with Kartverket as the fallback. The fallback is now the whole path: `api.kartverket.no/eiendom/v1` answers for the whole country, is not frozen at an extract year, and carries grensekvalitet, tvist and oppdateringsdato - three fields the extract never had, so they always read as unknown.
 - In `live` mode `tools-api` queries the Geonorge address API directly, with no local copy of Norway.
 - `apps/tools-api` wraps matrikkel via three tools: `matrikkel_finn_veger`, `matrikkel_hent_eiendom`, `matrikkel_hent_eiere`.
 - `matrikkel_hent_eiendom` and `matrikkel_hent_eiere` accept an exact address, e.g. `Storgata 5`.

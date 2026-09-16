@@ -1,18 +1,13 @@
 import { createServer } from "node:http";
-import { createReadStream } from "node:fs";
-import { constants } from "node:fs";
-import { access, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { routeOverview } from "../../shared/openapi.ts";
-import { createGunzip } from "node:zlib";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { cors, readRequestBody, svarhjelpere } from "../../shared/http.ts";
 import { feilkode, feilmelding } from "../../shared/errors.ts";
-import { buildEiendomKey, matchesAdresseFields, parseAdresse } from "../../shared/adresse.ts";
+import { buildEiendomKey, byggMatrikkelId, matchesAdresseFields, parseAdresse } from "../../shared/adresse.ts";
 import type { GeonorgeAdresse } from "../../shared/registerdata.ts";
-import { createTeigStore, parseTeigQuery, parseNaboteigQuery, TeigError } from "./teiger.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const openapiFile = path.resolve(__dirname, "../../../openapi/matrikkel-mock.yaml");
@@ -83,9 +78,8 @@ type Gate = {
   antallBoligeiendommer?: number;
 };
 
-/** Hvor dataene kom fra. Rapportert på /helse, se helsekilde(). */
-type Kildemetadata = { kommuner?: { kommunenummer: string }[]; [felt: string]: unknown };
-type Kilde = { metadata?: Kildemetadata | null; [felt: string]: unknown };
+/** Hvor dataene kom fra. Rapportert ordrett på /helse. */
+type Kilde = { [felt: string]: unknown };
 
 type Register = {
   gater: Gate[];
@@ -158,11 +152,12 @@ function createEmptyRegister(kilde: Kilde): Register {
   };
 }
 
-// Ownership is not in the matrikkel - it is in the grunnbok. data/matrikkel.json
-// carried `eiere` on every property anyway, which is both wrong in kind and the
-// reason the distribution rotted unnoticed: 28 people held 1280 titles across 1225
-// of 8202 properties, one of them 70. The titles live in data/eierforhold.json now
-// and are merged in here, so matrikkel-mock is still the only reader of both.
+// Ownership is not in the matrikkel - it is in the grunnbok. The old
+// data/matrikkel.json carried `eiere` on every property anyway, which is both
+// wrong in kind and the reason the distribution rotted unnoticed: 28 people held
+// 1280 titles across 1225 of 8202 properties, one of them 70. The titles live in
+// data/eierforhold.json now and are merged in here, so matrikkel-mock is still
+// the only reader of both.
 //
 // A property missing from that file has no registered owner. That is the honest
 // state for a synthetic register with 18349 properties and 200 households.
@@ -192,6 +187,16 @@ async function readEierforhold(): Promise<{ fil: string | null; perMatrikkelId: 
   return { fil: null, perMatrikkelId: new Map() };
 }
 
+/**
+ * Eierforholdene, lest én gang.
+ *
+ * De må være tilgjengelige to steder, ikke ett: både for eiendommene som kommer
+ * fra seedfilen og for dem som bygges av et live-oppslag mot Geonorge. Uten den
+ * andre veien ville et live-treff svart «ingen eiere» i stedet for å feile - et
+ * stille tap, fordi en eiendom uten registrert eier er en gyldig tilstand.
+ */
+const eierforholdPromise = readEierforhold();
+
 function leggPaaEierforhold(
   register: Register,
   eierforhold: { fil: string | null; perMatrikkelId: Map<string, Eierandel[]> }
@@ -208,25 +213,22 @@ function leggPaaEierforhold(
 }
 
 async function readMatrikkelData(): Promise<Register> {
-  // matrikkel.json is the full Bergen extract: 220 streets, 8202 properties with
-  // coordinates. It was 5.9 MB of dead weight that no code read, while the case
-  // that needs streets had four to choose from. matrikkel.seed.json stays as the
-  // small fixture the mock's own tests point at via MATRIKKEL_DATA_FILE.
+  // Bare den lille fiksturen ligger på disk nå.
+  //
+  // data/matrikkel.json - 388 gater og 18 349 eiendommer, 12,6 MB - er borte, og
+  // adressene hentes fra Geonorge ved oppslag i stedet. Det som står igjen er de
+  // fire håndskrevne bergensgatene, som ikke finnes hos Geonorge og aldri har
+  // gjort: de er forfattet for at demoene skal ha en fast eiendom å peke på.
   const kandidatfiler = [
     process.env.MATRIKKEL_DATA_FILE,
-    path.resolve(__dirname, "../../../data/matrikkel.json"),
-    path.resolve(__dirname, "../data/matrikkel.json"),
     path.resolve(__dirname, "../../../data/matrikkel.seed.json"),
     path.resolve(__dirname, "../data/matrikkel.seed.json")
   ].filter((fil): fil is string => Boolean(fil));
 
-  const eierforhold = await readEierforhold();
+  const eierforhold = await eierforholdPromise;
   for (const fil of kandidatfiler) {
     try {
-      const register = fil.endsWith(".jsonl") || fil.endsWith(".ndjson")
-        || fil.endsWith(".jsonl.gz") || fil.endsWith(".ndjson.gz")
-        ? await readJsonlRegister(fil)
-        : await readJsonRegister(fil);
+      const register = await readJsonRegister(fil);
       leggPaaEierforhold(register, eierforhold);
       return register;
     } catch (error) {
@@ -234,7 +236,7 @@ async function readMatrikkelData(): Promise<Register> {
     }
   }
 
-  throw new Error("Fant ikke matrikkeldata. Sett MATRIKKEL_DATA_FILE eller legg data/matrikkel.json i repoet.");
+  throw new Error("Fant ikke matrikkeldata. Sett MATRIKKEL_DATA_FILE eller legg data/matrikkel.seed.json i repoet.");
 }
 
 function addPrefixIndex(register: Register, prefix: string, matrikkelId: string): void {
@@ -435,26 +437,15 @@ function addEiendom(register: Register, gate: Gate, eiendomInput: Partial<Eiendo
   if (!gate.poststed && eiendom.poststed) gate.poststed = eiendom.poststed;
 }
 
-// The extract covers 97 kommuner, so the full list would be 500 lines of a health
-// check - and 500 lines of every contract dump. Summarised here; the per-kommune
-// detail stays in data/matrikkel.json, which is where provenance belongs.
-function helsekilde(register: Register) {
-  const metadata = register.kilde?.metadata;
-  if (!metadata?.kommuner) return register.kilde;
-  const { kommuner, ...resten } = metadata;
-  return {
-    ...register.kilde,
-    metadata: {
-      ...resten,
-      antallKommuner: kommuner.length,
-      kommunenummer: kommuner.map((k) => k.kommunenummer)
-    }
-  };
-}
-
 function utenEiere(eiendom: Partial<Eiendom>) {
   const { eiere, eierforhold, ...resten } = eiendom;
   return resten;
+}
+
+/** Samme stripping, for en gate som bærer eiendommene sine inline. */
+function utenEierlister<T extends object>(gate: T): T {
+  if (!("eiendommer" in gate)) return gate;
+  return { ...gate, eiendommer: (gate.eiendommer as Partial<Eiendom>[]).map(utenEiere) };
 }
 
 function ferdigstillRegister(register: Register): void {
@@ -490,99 +481,13 @@ function gateSomRespons(register: Pick<Register, "eiendomPerId">, gate: Gate, in
 
 async function readJsonRegister(fil: string): Promise<Register> {
   const json = JSON.parse(await readFile(fil, "utf8"));
-  const register = createEmptyRegister({ fil, format: "json", metadata: json.kilde || null });
+  const register = createEmptyRegister({ fil, format: "json" });
   for (const gateInput of json.gater || []) {
     const gate = getOrCreateGate(register, gateInput);
     for (const eiendom of gateInput.eiendommer || []) {
       addEiendom(register, gate, eiendom);
     }
   }
-  ferdigstillRegister(register);
-  return register;
-}
-
-/**
- * Én linje i det flate JSONL-formatet: gate og eiendom i samme rad. Feltene er
- * de importen skriver, se scripts/hent-matrikkel.js.
- */
-type FlatLinje = Partial<Gate> & Partial<Eiendom> & {
-  /** "meta" på provenienslinjen øverst i filen. */
-  type?: string;
-  /** Det nestede formatet: gate og eiendom hver for seg i stedet for flatt. */
-  gate?: Partial<Gate>;
-  eiendom?: Partial<Eiendom>;
-};
-
-function parseJsonlLinje(raw: string, linjeNr: number): FlatLinje {
-  try {
-    return JSON.parse(raw) as FlatLinje;
-  } catch (error) {
-    throw new Error(`Ugyldig JSONL pa linje ${linjeNr}: ${feilmelding(error)}`);
-  }
-}
-
-function gateFromFlatLine(post: FlatLinje): Partial<Gate> {
-  return {
-    gateId: post.gateId,
-    adressenavn: post.adressenavn,
-    kommunenummer: post.kommunenummer,
-    kommune: post.kommune,
-    postnummer: post.postnummer,
-    poststed: post.poststed
-  };
-}
-
-function eiendomFromFlatLine(post: FlatLinje): Partial<Eiendom> {
-  return {
-    matrikkelId: post.matrikkelId,
-    gnr: post.gnr,
-    bnr: post.bnr,
-    festenummer: post.festenummer,
-    undernummer: post.undernummer,
-    adressekode: post.adressekode,
-    adresse: post.adresse,
-    husnummer: post.husnummer,
-    husbokstav: post.husbokstav,
-    postnummer: post.postnummer,
-    poststed: post.poststed,
-    bruksenhetstype: post.bruksenhetstype,
-    adressetilleggsnavn: post.adressetilleggsnavn,
-    objtype: post.objtype,
-    koordinater: post.koordinater,
-    eiere: post.eiere
-  };
-}
-
-async function readJsonlRegister(fil: string): Promise<Register> {
-  // Validate early so missing files become normal ENOENT errors (handled by fallback logic).
-  await access(fil, constants.R_OK);
-  const input = createReadStream(fil);
-  const stream = fil.endsWith(".gz") ? input.pipe(createGunzip()) : input;
-  const reader = createInterface({ input: stream, crlfDelay: Infinity });
-  const register = createEmptyRegister({ fil, format: fil.endsWith(".gz") ? "jsonl.gz" : "jsonl", metadata: null });
-  let linjeNr = 0;
-
-  for await (const linje of reader) {
-    linjeNr += 1;
-    const trimmed = linje.trim();
-    if (!trimmed) continue;
-    const post = parseJsonlLinje(trimmed, linjeNr);
-
-    if (post.type === "meta") {
-      register.kilde.metadata = post as Kildemetadata;
-      continue;
-    }
-
-    const gateData = post.gate || gateFromFlatLine(post);
-    const eiendomData = post.eiendom || eiendomFromFlatLine(post);
-    if (!gateData?.adressenavn || !eiendomData?.matrikkelId) {
-      continue;
-    }
-
-    const gate = getOrCreateGate(register, gateData);
-    addEiendom(register, gate, eiendomData);
-  }
-
   ferdigstillRegister(register);
   return register;
 }
@@ -804,11 +709,20 @@ function geonorgeAdresseTilGate(adresse: GeonorgeAdresse): Partial<Gate> {
   };
 }
 
-function geonorgeAdresseTilEiendom(adresse: GeonorgeAdresse): Partial<Eiendom> {
+// `perMatrikkelId` er påkrevd, uten standardverdi. En tom standard ville svart
+// «ingen eiere», og det er et gyldig svar - så en kaller som glemte den ville
+// tappet eierskapet uten en eneste feilmelding. Det er nettopp den stille feilen
+// `byggMatrikkelId` ble samlet for å hindre.
+function geonorgeAdresseTilEiendom(
+  adresse: GeonorgeAdresse,
+  perMatrikkelId: Map<string, Eierandel[]>
+): Partial<Eiendom> {
   const husnummer = safeNumber(adresse?.nummer, 0);
   const husbokstav = String(adresse?.bokstav || "").trim().toUpperCase() || null;
+  const matrikkelId = byggMatrikkelId(adresse);
+  const eiere = perMatrikkelId.get(matrikkelId) || [];
   return {
-    matrikkelId: `geo-${String(adresse?.kommunenummer || "")}-${safeNumber(adresse?.adressekode, 0)}-${husnummer}${husbokstav || ""}-${safeNumber(adresse?.gardsnummer, 0)}-${safeNumber(adresse?.bruksnummer, 0)}`,
+    matrikkelId,
     gnr: safeNumber(adresse?.gardsnummer, 0),
     bnr: safeNumber(adresse?.bruksnummer, 0),
     festenummer: safeNumber(adresse?.festenummer, 0),
@@ -832,7 +746,10 @@ function geonorgeAdresseTilEiendom(adresse: GeonorgeAdresse): Partial<Eiendom> {
           epsg: String(adresse.representasjonspunkt.epsg || "EPSG:4258")
         }
       : null,
-    eiere: [],
+    // Samme form som seedveien setter i leggPaaEierforhold: en flat liste med
+    // eier-id-er på tråden, og hjemmelen fra grunnboken ved siden av.
+    eiere: eiere.map((e) => e.eier),
+    eierforhold: eiere,
     syntetisk: false,
     kilde: {
       navn: "Geonorge adresser v1",
@@ -844,7 +761,11 @@ function geonorgeAdresseTilEiendom(adresse: GeonorgeAdresse): Partial<Eiendom> {
 /** En gate satt sammen fra Geonorge-treff: eiendommene ligger inline, ikke som id-er. */
 type LiveGate = Omit<Gate, "eiendomIds"> & { eiendommer: Partial<Eiendom>[] };
 
-function buildLiveGateTreff(adresser: GeonorgeAdresse[], includeEiendommer = false): LiveGate[] {
+function buildLiveGateTreff(
+  adresser: GeonorgeAdresse[],
+  includeEiendommer: boolean,
+  perMatrikkelId: Map<string, Eierandel[]>
+): LiveGate[] {
   const perGate = new Map<string, LiveGate>();
   for (const adresse of adresser || []) {
     if (!adresse?.adressenavn) continue;
@@ -864,7 +785,7 @@ function buildLiveGateTreff(adresser: GeonorgeAdresse[], includeEiendommer = fal
     }
     const gate = perGate.get(key)!;
     gate.antallEiendommer = (gate.antallEiendommer ?? 0) + 1;
-    const eiendom = geonorgeAdresseTilEiendom(adresse);
+    const eiendom = geonorgeAdresseTilEiendom(adresse, perMatrikkelId);
     if (includeEiendommer) {
       gate.eiendommer.push(eiendom);
     }
@@ -903,7 +824,9 @@ async function getLiveAdresser(gateSoek: string, kommunenummer: string | null = 
 
 async function findEiendommerViaLive(adresse: string): Promise<Partial<Eiendom>[]> {
   try {
-    const candidates = (await getLiveAdresser(adresse, null, true)).map(geonorgeAdresseTilEiendom);
+    const { perMatrikkelId } = await eierforholdPromise;
+    const candidates = (await getLiveAdresser(adresse, null, true))
+      .map((treff) => geonorgeAdresseTilEiendom(treff, perMatrikkelId));
     return [...new Map(candidates.map((candidate) => [
       buildEiendomKey(candidate), candidate
     ])).values()];
@@ -914,7 +837,8 @@ async function findEiendommerViaLive(adresse: string): Promise<Partial<Eiendom>[
 }
 
 async function findGaterLive(gateSoek: string, includeEiendommer = false, kommunenummer: string | null = null) {
-  return buildLiveGateTreff(await getLiveAdresser(gateSoek, kommunenummer), includeEiendommer);
+  const { perMatrikkelId } = await eierforholdPromise;
+  return buildLiveGateTreff(await getLiveAdresser(gateSoek, kommunenummer), includeEiendommer, perMatrikkelId);
 }
 
 async function findEiendomLive(adresseSoek: string) {
@@ -922,7 +846,9 @@ async function findEiendomLive(adresseSoek: string) {
   if (!term) return null;
   const adresser = await getLiveAdresser(term);
   const adresseTreff = pickBestLiveAdresse(adresser, term);
-  return adresseTreff ? geonorgeAdresseTilEiendom(adresseTreff) : null;
+  if (!adresseTreff) return null;
+  const { perMatrikkelId } = await eierforholdPromise;
+  return geonorgeAdresseTilEiendom(adresseTreff, perMatrikkelId);
 }
 
 function soapEnvelope(innhold: string): string {
@@ -1115,7 +1041,6 @@ function handleSoap(operasjon: string | null, xml: string, matrikkel: Register):
 }
 
 const matrikkelPromise = readMatrikkelData();
-const teigStore = createTeigStore();
 
 const server = createServer(async (request: IncomingMessage, response: ServerResponse) => {
   const url = new URL(request.url!, `http://${request.headers.host}`);
@@ -1126,18 +1051,6 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
   }
 
   try {
-    if (request.method === "GET" && url.pathname === "/mock/matrikkel/naboteiger") {
-      const query = parseNaboteigQuery(url.searchParams);
-      jsonResponse(response, 200, await teigStore.getNaboteiger(query));
-      return;
-    }
-
-    if (request.method === "GET" && url.pathname === "/mock/matrikkel/teiger") {
-      const query = parseTeigQuery(url.searchParams);
-      jsonResponse(response, 200, await teigStore.getTeiger(query));
-      return;
-    }
-
     const register = await matrikkelPromise;
     const matrikkel = register;
 
@@ -1145,11 +1058,10 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
       jsonResponse(response, 200, {
         status: "ok",
         tjeneste: "matrikkel-mock",
-        kilde: helsekilde(register),
+        kilde: register.kilde,
         antallGater: register.gater.length,
         antallEiendommer: register.eiendommer.length,
         eierforhold: register.eierforhold ?? null,
-        teigdatasett: teigStore.getStatus(),
         wsdl: `${wsPath}?wsdl`,
         tidspunkt: new Date().toISOString(),
         lastetTidspunkt: register.lastetTidspunkt
@@ -1160,10 +1072,16 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
     if (request.method === "GET" && url.pathname === "/mock/matrikkel/gater") {
       const gateSoek = url.searchParams.get("gate");
       const includeEiendommer = url.searchParams.get("includeEiendommer") === "true";
+      // Eierlistene strippes uansett, og ruten har ingen personId å snevre inn med.
+      // Å spørre hvem som eier én eiendom er et grunnboksoppslag - offentlig, og det
+      // matrikkel_hent_eiere finnes for. Å be om eierlistene for en hel gate er
+      // bulkuttrekk, og /mock/matrikkel/eiendommer avviser det allerede med samme
+      // begrunnelse. Uten stripingen her ville gateruten vært veien utenom.
       if (gateSoek) {
-        const treff = findGater(register, gateSoek).map((gate) => gateSomRespons(register, gate, includeEiendommer));
+        const treff = findGater(register, gateSoek)
+          .map((gate) => utenEierlister(gateSomRespons(register, gate, includeEiendommer)));
         if (!treff.length) {
-          const liveTreff = await findGaterViaLive(gateSoek, includeEiendommer);
+          const liveTreff = (await findGaterViaLive(gateSoek, includeEiendommer)).map(utenEierlister);
           if (liveTreff.length) {
             jsonResponse(response, 200, paginate(liveTreff, url.searchParams));
             return;
@@ -1174,7 +1092,7 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
         jsonResponse(response, 200, paginate(treff, url.searchParams));
         return;
       }
-      const alle = register.gater.map((gate) => gateSomRespons(register, gate, includeEiendommer));
+      const alle = register.gater.map((gate) => utenEierlister(gateSomRespons(register, gate, includeEiendommer)));
       jsonResponse(response, 200, paginate(alle, url.searchParams));
       return;
     }
@@ -1359,10 +1277,6 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
 
     jsonResponse(response, 404, { feil: "Fant ikke endepunkt." });
   } catch (error) {
-    if (error instanceof TeigError) {
-      jsonResponse(response, error.status, { feil: feilmelding(error) });
-      return;
-    }
     jsonResponse(response, 500, { feil: "Intern feil i matrikkel-mock.", detalj: feilmelding(error), syntetisk: true });
   }
 });
