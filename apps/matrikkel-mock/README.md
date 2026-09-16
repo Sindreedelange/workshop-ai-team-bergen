@@ -6,59 +6,34 @@ Dockerfilen her er bare for å kjøre den frittstående, se nederst.
 
 ## Datasett
 
-`matrikkel-mock` starter fra `data/matrikkel.json` - 388 gater og 18 349 eiendommer i 97 kommuner - og bygger et syntetisk matrikkelregister ved oppstart. Eierforholdene ligger i `data/eierforhold.json` og slås sammen ved innlasting: eierskap hører i grunnboken, ikke i matrikkelen. `eiere` er bare med i svaret fra `/mock/matrikkel/eiendommer` når `personId` er oppgitt - å spørre hvem som eier én eiendom er et grunnbokoppslag, å hente eierlistene for en hel gate er bulkuttrekk. Den er eneste leser av matrikkeldataene i sandkassen: `sandbox-backend` kaller den over HTTP via `MATRIKKEL_BASE_URL`. Mangler et søk i seed-datasettet, prøver mocken å slå opp adressen direkte mot Geonorge.
+`matrikkel-mock` starter fra `data/matrikkel.seed.json`: fire håndskrevne bergensgater - Storgata, Nordnesveien, Fjøsangerveien og Laksevågvegen. Ingen av dem finnes i virkeligheten. De er forfattet for at demoene skal ha en fast eiendom å peke på, og den syntetiske befolkningen er forankret i dem.
+
+**Alle andre adresser hentes fra Geonorges åpne adresse-API ved oppslag.** Det er normalveien, ikke et unntak: et søk som bommer i seeden er det vanlige tilfellet. Uten nett degraderer oppslaget til `404` («Fant ikke …»), aldri til en serverfeil.
+
+Eierforholdene ligger i `data/eierforhold.json` og kobles på begge veier - både for seedens eiendommer og for dem som bygges av et Geonorge-svar. Eierskap hører i grunnboken, ikke i matrikkelen. `eiere` er bare med i svaret fra `/mock/matrikkel/eiendommer` når `personId` er oppgitt: å spørre hvem som eier én eiendom er et grunnbokoppslag, å hente eierlistene for en hel gate er bulkuttrekk.
+
+Koblingen hviler på at id-en er den samme begge veier. `byggMatrikkelId` i `apps/shared/adresse.ts` bygger den, og `pnpm test:matrikkel-id` holder importen og live-oppslaget i takt. Går de fra hverandre, svarer oppslaget «ingen eiere» uten å feile.
+
+Den er eneste leser av matrikkeldataene i sandkassen: `sandbox-backend` kaller den over HTTP via `MATRIKKEL_BASE_URL`.
 
 Bakgrunn:
 
 - `seeiendom.no` er fin til manuell utforsking, men frontend-en eksponerer ikke en stabil offentlig bulk-liste over alle veier i Bergen som egner seg godt for automatisert mocking.
 - Derfor holder vi `matrikkel-mock` lett og lokalt syntetisk, samtidig som vi beholder håndkuraterte demo-gater som `Storgata`, `Nordnesveien`, `Fjøsangerveien` og `Laksevågvegen`.
-- Adressegrunnlaget hentes med `node scripts/hent-matrikkel.ts`, som henter de gatene befolkningen faktisk bor i fra Geonorges adresse-API. Nett kreves når skriptet kjøres, ikke når sandkassen kjører.
+- Adressegrunnlaget kommer fra Geonorge ved oppslag. Nett kreves for alt utenfor de fire gatene.
 
-Seedfilen er stabil og skal være nok for vanlig lokal utvikling. Ved enkelte oppslag kan mocken hente data fra Geonorge dersom et treff mangler i seeden.
+### Teiggrensene ligger ikke her
 
-### Reelle teiggrenser for Bergen
+`matrikkel-mock` svarte en gang på `/mock/matrikkel/teiger` fra et 96,6 MB GeoJSON-uttrekk
+over Bergen. Ruten er borte, og filen med den.
 
-`GET /mock/matrikkel/teiger?kommunenummer=4601&gnr=105&bnr=209&fnr=0`
-leser `data/matrikkel_bk_25.json`, et separat GeoJSON-uttrekk med 21 258 teiger.
-Dette er reelle grenser, ikke det syntetiske adresse- og eierregisteret over.
-Bare `matrikkel-mock` leser filen; andre tjenester bruker dette endepunktet.
-Se responsen og parameterne i [OpenAPI-kontrakten](../../openapi/matrikkel-mock.yaml).
+Teiggeometrien hentes nå fra Kartverkets åpne eiendoms-API, som `sandbox-backend` kaller
+direkte. Tre ting ble bedre av det, og de er grunnen til at uttrekket ikke skal legges
+tilbake: kilden dekker hele landet framfor én kommune, den er fersk framfor frosset i
+2025, og den svarer på grensekvalitet, tvist og oppdateringsdato - felter uttrekket aldri
+hadde, og som derfor alltid sto som ukjent.
 
-- Uttrekket er uttrykkelig bundet til Bergen (4601). Filen har ikke kommunenummer
-  eller eget CRS. Koordinatene tolkes etter GeoJSON-standarden som lengdegrad og
-  breddegrad i EPSG:4326, ikke som projiserte meter.
-- 2025 er året utledet av filnavnet, ikke en måledato eller et løfte om oppdaterte
-  grenser. Kilden har ingen nøyaktighets- eller endringsdato som tjenesten kan
-  rapportere. Det lages ingen slike verdier.
-- `OBJECTID` beholdes som kildeidentitet, aldri som en global teigidentifikator.
-  Alle teiger for samme gårds-, bruks- og festenummer beholdes, med alle seksjoner,
-  polygoner og hull i opprinnelig rekkefølge. `fnr` betyr **festenummer** her.
-  Ingen seksjonsfiltrering støttes i denne første versjonen.
-- Enkelte teiger mangler areal i kilden. Den manglende verdien beholdes; den
-  erstattes ikke med et beregnet areal. Eieropplysninger og ukjente felter tas
-  aldri med i teigresponsen, heller ikke fra en alternativ testfil.
-- Andre kommuner får `ikke_dekket` og tom liste, uten å lese Bergen-filen.
-  En eiendom uten treff i Bergen får `tilgjengelig` og tom liste. Klienter som
-  bruker en offentlig kilde som reserve, kan dermed skille manglende dekning
-  fra kildefeil. Denne ruten gjør ikke selv et eksternt reserveoppslag.
-- Manglende fil, ugyldig JSON eller ugyldige felter og koordinater gir **502**.
-  En gammel indeks eller en tom treffliste skjuler aldri feilen.
-
-Filen lastes først ved et oppslag for Bergen, og indeksen deles mellom samtidige
-kall. Filmetadata kontrolleres ved senere oppslag; endringer utløser ny innlasting.
-En feilet innlasting kan prøves igjen etter at filen er rettet. Innlastingen
-kontrollerer felttyper, endelige koordinater og lukkede ringer, men gjør ikke en
-full topologisk kontroll av hele uttrekket.
-
-`MATRIKKEL_TEIG_DATA_FILE` kan settes av den som starter tjenesten for å bruke en
-annen GeoJSON-fil, for eksempel i tester. Det erstatter bare Bergen-kilden, aldri
-kommuneavgrensningen, og er ikke en parameter innbyggere kan velge. API-et viser
-bare filnavnet, ikke den fulle filstien. Et filnavn uten uttrekksår gir ingen
-årsangivelse. Det finnes ikke noe endepunkt for å laste ned hele filen.
-
-`GET /helse` viser sist kjente tilstand og antall fra teigindeksen. Det laster
-ikke teigfilen og leser ikke filmetadata. Feil i teigkilden hindrer ikke oppstart,
-helsesjekken eller de eksisterende adresse-, gate- og SOAP-oppslagene.
+`pnpm check:matrikkel-source` feiler hvis uttrekket kommer tilbake i `data/`.
 
 ## Kjør lokalt med Node
 
@@ -66,13 +41,11 @@ helsesjekken eller de eksisterende adresse-, gate- og SOAP-oppslagene.
 node apps/matrikkel-mock/src/server.ts
 ```
 
-`MATRIKKEL_DATA_FILE` støtter fortsatt:
+`MATRIKKEL_DATA_FILE` peker på en JSON-fil i `data/matrikkel.seed.json`-formatet.
+JSONL- og gzip-formatene er borte sammen med uttrekket de fantes for: et format
+uten en skriver er en påstand ingen kan prøve.
 
-- vanlig JSON (`data/matrikkel.json`-format)
-- `jsonl` / `ndjson`
-- `jsonl.gz` / `ndjson.gz`
-
-I `docker compose` leser `matrikkel-mock` standardfilen `data/matrikkel.json`. `data/matrikkel.seed.json` er beholdt som liten fixture for mockens egne tester.
+I `docker compose` leser `matrikkel-mock` standardfilen `data/matrikkel.seed.json`.
 
 Ved store datamengder kan du bruke `limit` og `offset` på `GET /mock/matrikkel/gater` og `GET /mock/matrikkel/eiendommer`.
 Et fullstendig `adresse`-søk på eiendomslisten beholder alle eksakte kandidater,
@@ -96,10 +69,10 @@ pnpm check:matrikkel-source -- --url=http://localhost:18085/helse
 
 Sandkassens `docker-compose.yml` bruker **ikke** denne Dockerfilen. Der kjører mocken fra
 `node:24-alpine` med `./:/workspace` montert inn, som alle de andre tjenestene, slik at
-`data/matrikkel.json` i arbeidstreet alltid er kilden.
+`data/matrikkel.seed.json` i arbeidstreet alltid er kilden.
 
 Dockerfilen finnes for å kjøre mocken frittstående, uten resten av sandkassen. Da bakes
-matrikkelen inn i imaget, og du må bygge på nytt hver gang `data/matrikkel.json` endrer seg:
+seedfilen inn i imaget, og du må bygge på nytt hver gang `data/matrikkel.seed.json` endrer seg:
 
 ```bash
 docker build -t workshop-ai/matrikkel-mock:local -f apps/matrikkel-mock/Dockerfile .
@@ -116,7 +89,6 @@ docker run --rm -p 8085:8085 workshop-ai/matrikkel-mock:local
 - `GET /mock/matrikkel/eiendommer?gate=Storgata`
 - `GET /mock/matrikkel/eiendom-oppslag?adresse=Storgata%205`
 - `GET /mock/matrikkel/eiendom/matr-storg-003`
-- `GET /mock/matrikkel/teiger?kommunenummer=4601&gnr=105&bnr=209&fnr=0`
 
 Responsene for eiendom inneholder nå også rikere mock-felter som `husnummer`, `husbokstav`, `adressekode`, `postnummer`, `poststed`, `koordinater`, `festenummer` og `undernummer` når data finnes eller kan utledes.
 
@@ -126,12 +98,6 @@ Grunnleggende mocktest:
 
 ```bash
 node scripts/test-matrikkel-mock.ts
-```
-
-Teigtest med isolert mock, små testfiler og kontroll av det ekte uttrekket:
-
-```bash
-node scripts/test-matrikkel-teiger.ts
 ```
 
 Bergen bulk-smoke test:

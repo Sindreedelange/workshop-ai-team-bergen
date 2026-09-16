@@ -69,14 +69,6 @@ const tjenester: Tjeneste[] = [
     port: Number(process.env.PARAM_ATTEST_PORT) || 18099,
     portVariabel: "PARAM_ATTEST_PORT",
     dekkerRuter: ["/attester", "/attester/{attestId}"]
-  },
-  {
-    navn: "plan-mock",
-    fil: "apps/plan-mock/src/server.ts",
-    spesifikasjon: "openapi/plan-mock.yaml",
-    port: Number(process.env.PARAM_PLAN_PORT) || 18100,
-    portVariabel: "PARAM_PLAN_PORT",
-    dekkerRuter: ["/mock/plan/arealformaal", "/mock/plan/hensynssoner"]
   }
 ];
 
@@ -166,7 +158,7 @@ async function proevTjeneste(tjeneste: Tjeneste) {
    *
    * Tokenet er middelet for å nå parametervakten, ikke det som testes - hvilket
    * scope en rute krever er sjekken i sjekk-openapi-dekning.ts sin sak. Skrevet
-   * ned her ville «plan-mock er åpen» vært en tredje håndskrevet påstand om det
+   * ned her ville «denne tjenesten er åpen» vært en tredje håndskrevet påstand om det
    * samme, ved siden av `security: []` i spesifikasjonen og `aapneRuter` i
    * skanneren, og en tjeneste som senere krever token ville svart 401 til noen
    * husket å endre den fjerde.

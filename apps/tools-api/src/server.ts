@@ -8,7 +8,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { cors, readRequestBody, svarhjelpere } from "../../shared/http.ts";
 import { feilkode, feilmelding } from "../../shared/errors.ts";
 import { isTiltakshjelpenKontekst } from "../../shared/tiltakshjelpen-begreper.ts";
-import { adressekjerne, adresseSoek, buildEiendomKey, matchesAdresseFields, parseAdresse } from "../../shared/adresse.ts";
+import { adressekjerne, adresseSoek, buildEiendomKey, byggMatrikkelId, matchesAdresseFields, parseAdresse } from "../../shared/adresse.ts";
 import type { Adresse } from "../../shared/adresse.ts";
 import type {
   FolkeregisterPerson,
@@ -858,7 +858,7 @@ function geonorgeAdresseTilEiendom(adresse: GeonorgeAdresse): Matrikkeleiendom {
   const fnr = safeInt(adresse?.festenummer, 0);
   const undernummer = safeInt(adresse?.undernummer, 0) || null;
   return {
-    matrikkelId: `geo-${kommunenummer}-${adressekode}-${husnummer}${husbokstav || ""}-${gnr}-${bnr}`,
+    matrikkelId: byggMatrikkelId(adresse),
     gnr,
     bnr,
     festenummer: fnr,

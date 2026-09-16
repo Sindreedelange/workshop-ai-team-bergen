@@ -14,7 +14,6 @@ process.env.AUTH_ENFORCE = "true";
 process.env.DIGDIR_BASE_URL = "http://garasje-prosess-digdir.test";
 process.env.DIGDIR_ISSUER = process.env.DIGDIR_BASE_URL;
 process.env.MATRIKKEL_BASE_URL = "http://garasje-prosess-matrikkel.test";
-process.env.PLAN_BASE_URL = "http://garasje-prosess-plan.test";
 const { publicKey, privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const kid = "garasje-prosess-test";
 const jwk = { ...publicKey.export({ format: "jwk" }), kid, alg: "RS256", use: "sig" };
@@ -46,28 +45,7 @@ globalThis.fetch = async (input, options) => {
     assert.equal(url.pathname, "/jwks");
     return Response.json({ keys: [jwk] });
   }
-  // Ingen kommuneplandekning i denne fixturen, som for teigene over. Uten en egen
-  // gren her ville planoppslaget falt gjennom til ArcGIS-grenen nederst, fått et
-  // lagmetadatasvar og blitt en kildefeil ingen la merke til.
-  if (url.hostname === "garasje-prosess-plan.test") {
-    assert(url.pathname.startsWith("/mock/plan/"), url.pathname);
-    return Response.json({
-      kommunenummer: url.searchParams.get("kommunenummer"), kildestatus: "ikke_dekket",
-      kilde: {
-        navn: "Bergen kommuneplan 2018", planId: null, versjon: null, filer: [],
-        uttrekksaar: null, koordinatsystem: "EPSG:4326", syntetisk: false,
-      },
-      type: "FeatureCollection", klippetTilUtsnitt: true, features: []
-    });
-  }
   if (url.hostname === "garasje-prosess-matrikkel.test") {
-    if (url.pathname === "/mock/matrikkel/teiger" || url.pathname === "/mock/matrikkel/naboteiger") {
-      return Response.json({
-        kommunenummer: url.searchParams.get("kommunenummer"), kildestatus: "ikke_dekket",
-        kilde: { navn: "Lokalt teiguttrekk", fil: null, uttrekksaar: null, koordinatsystem: "EPSG:4326", syntetisk: false },
-        type: "FeatureCollection", features: [], ...(url.pathname === "/mock/matrikkel/naboteiger" ? { avkortet: false } : {})
-      });
-    }
     assert.equal(url.pathname, "/mock/matrikkel/eiendommer");
     ownershipReads++;
     if (failOwnership) return Response.json({ feil: "Utilgjengelig" }, { status: 503 });
@@ -138,6 +116,8 @@ globalThis.fetch = async (input, options) => {
 };
 
 const { handleRequest } = await import("../apps/sandbox-backend/src/routes.ts");
+const { bytt, glemOppslag } = await import("./tiltakshjelpen-testoppsett.ts");
+
 const { normalizeProsess, readState } = await import("../apps/sandbox-backend/src/state.ts");
 const { lagreStegSvar, runStegHandling, buildProsessoektRespons } = await import("../apps/sandbox-backend/src/prosess.ts");
 const { runRessurs } = await import("../apps/sandbox-backend/src/ressurser.ts");
@@ -327,7 +307,7 @@ try {
   assert.equal(existingResult.resultat.grunnlag.bebyggelse.status, "bekreftet");
   assert.equal(existingResult.resultat.vurdering.nasjonaltUnntak, "oppfylt", "Et gammelt manuelt nei skal ikke overstyre hentet bebyggelse");
   const missing = await ready(0, { ...answer(), bebygdEiendom: true });
-  failBuildings = true;
+  bytt(() => { failBuildings = true; });
   const missingResult = await request<{ resultat: Result }>(`/api/prosessoekter/${missing.oektsId}/handling`, {});
   assert.equal(missingResult.resultat.grunnlag.bebyggelse.status, "uavklart");
   assert.equal(missingResult.resultat.vurdering.nasjonaltUnntak, "uavklart", "Et manuelt ja kan ikke fylle et hull i eiendomsgrunnlaget");
@@ -335,19 +315,19 @@ try {
   assert(missingResult.resultat.grunnlag.arealberegning.tomtearealM2 !== null);
   assert.equal(missingResult.resultat.grunnlag.arealberegning.kartlagtBebygdArealM2, null);
   assert.equal(missingResult.resultat.grunnlag.arealberegning.kartlagtAndelProsent, null);
-  failBuildings = false;
+  bytt(() => { failBuildings = false; });
 
   const standaloneSvar = normalizeTiltakshjelpenSvar(answer());
   const standaloneQuery = buildTiltakshjelpenSok(standaloneSvar);
   standaloneQuery.set("tiltak", JSON.stringify({ ...buildTiltakshjelpenTiltak(standaloneSvar), bebygdEiendom: false }));
   const standalone = await request<Omit<Result, "melding">>(`/api/garasje/sjekk?${standaloneQuery}`);
   assert.equal(standalone.vurdering.nasjonaltUnntak, "oppfylt");
-  failBuildings = true;
+  bytt(() => { failBuildings = true; });
   standaloneQuery.set("tiltak", JSON.stringify({ ...buildTiltakshjelpenTiltak(standaloneSvar), bebygdEiendom: true }));
   const standaloneMissing = await request<Omit<Result, "melding">>(`/api/garasje/sjekk?${standaloneQuery}`);
   assert.equal(standaloneMissing.vurdering.nasjonaltUnntak, "uavklart");
   assert.equal(standaloneMissing.vurdering.utfall, "maa_avklares");
-  failBuildings = false;
+  bytt(() => { failBuildings = false; });
 
   const state = await readState();
   const raw = structuredClone(state.prosessoekter.find(o => o.oektsId === retry.oektsId)!);

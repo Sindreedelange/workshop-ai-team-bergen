@@ -5,7 +5,7 @@ import { createContext, runInContext } from "node:vm";
 import { ringerInneholder } from "../apps/shared/geometri.ts";
 import { nearestPolygonBoundary } from "../apps/demo-gui/src/client/tiltakshjelpen-kart.ts";
 import { projectTiltakshjelpenDialogGrunnlag } from "../apps/shared/tiltakshjelpen-dialog.ts";
-import { beskrivTiltakshjelpenUtfall, hensynssonenavn } from "../apps/shared/tiltakshjelpen.ts";
+import { beskrivTiltakshjelpenUtfall, hensynssonenavn, KILDESTATUSTEKST } from "../apps/shared/tiltakshjelpen.ts";
 import type { TiltakshjelpenGrunnlag } from "../apps/shared/tiltakshjelpen.ts";
 import { findTiltakshjelpenKommunekilder, TILTAKSHJELPEN_KOMMUNER } from "../apps/shared/tiltakshjelpen-kommuner.ts";
 
@@ -458,6 +458,17 @@ const selection = createContext({
     loads.push(url);
     return new Promise<TiltakshjelpenGrunnlag>((resolve, reject) => { finishLoad = resolve; failLoad = reject; });
   },
+  // Grunnlaget hentes gjennom hendelsesstrømmen. Stubben melder de to kildene
+  // testen trenger for å se at listen fylles ut, og oppfører seg ellers som `api`.
+  apiStroem: (url: string, paaKilde: (kilde: { id: string; navn: string; status: string }) => void) => {
+    loads.push(url);
+    paaKilde({ id: "adresse", navn: "Kartverkets adresse-API", status: "ok" });
+    paaKilde({ id: "kpa", navn: "Bergen KPA2018 arealformål", status: "henter" });
+    return new Promise<TiltakshjelpenGrunnlag>((resolve, reject) => { finishLoad = resolve; failLoad = reject; });
+  },
+  KILDESTATUSTEKST,
+  nullstillFremdrift() {},
+  visFremdrift() {},
   renderGrunnlag() {},
   renderMap() { maps++; },
   updateMarker() {},
@@ -572,8 +583,8 @@ const neighbours = createContext({
   data: {
     eiendomsgrenser: [],
     nabotomter: {
-      tomter: [{ id: "nabo-1", teig: { gnr: 105, bnr: 1, fnr: 0 }, registrertArealM2: 43054.9, ringer: [] }],
-      kilde: { id: "nabotomter", navn: "Lokalt teiguttrekk", status: "ok", fil: "matrikkel_bk_25.json", url: "http://localhost/naboteiger" }
+      tomter: [{ id: "nabo-1", teig: { gnr: 105, bnr: 1, fnr: 0 }, ringer: [] }],
+      kilde: { id: "nabotomter", navn: "Kartverkets åpne eiendoms-API", status: "ok", url: "https://api.kartverket.no/eiendom/v1/punkt/omrader" }
     }
   }
 });
@@ -582,7 +593,7 @@ runInContext("renderNeighbours(data)", neighbours);
 assert.equal(drawnNeighbours, 1, "Nabogrensen skal fortsatt tegnes på kartet");
 assert.equal(neighbourLabels.children[0].textContent, "105/1", "Nabonummeret vises på kartet");
 const neighbourText = neighbourDetails.children.map(node => node.textContent).join(" ");
-assert(!neighbourText.includes("105/1") && !neighbourText.includes("43") && !neighbourText.includes("oppgitt teigareal"),
+assert(!neighbourText.includes("105/1"),
   "Detaljlisten over naboeiendommer skal ikke vises");
 
 const mapNodes = new Map<string, Element>();
@@ -826,29 +837,30 @@ assert.match(mapEl("zone-status").textContent, /ikke avklart\. Plankilden svarte
 mapView.grunnlag = null;
 
 /*
- * Ventemeldingene, som er det eneste innbyggeren har å gå etter når kommunens
- * kartlag bruker flere sekunder og serveren prøver en gang til. Uten dem sto den
- * første etiketten stille i opptil tolv sekunder, og det ser ut som en hengt side.
+ * Kildelisten mens oppslaget pågår.
+ *
+ * Her sto tre gjettede ventemeldinger på faste tidspunkter. De visste ikke hvilken
+ * kilde som var treg, om noen allerede hadde svart, eller om noe hadde feilet -
+ * bare at det var gått 2,5, 6 eller 13 sekunder. Serveren sier det nå selv, kilde
+ * for kilde, og testen driver hendelsene i stedet for klokken.
  */
 const ventenoder = new Map<string, Element>();
 const ventEl = (id: string) => {
   if (!ventenoder.has(id)) ventenoder.set(id, new Element());
   return ventenoder.get(id)!;
 };
-const timere = new Map<number, { fn: () => void; ms: number }>();
-let nesteTimer = 1;
 const venting = createContext({
+  KILDESTATUSTEKST,
   krevEl: ventEl,
   document: { querySelectorAll: () => [] as unknown[] },
   feilmelding: (error: unknown) => String((error as Error).message),
-  setTimeout: (fn: () => void, ms: number) => { timere.set(nesteTimer, { fn, ms }); return nesteTimer++; },
-  clearTimeout: (id: number) => { timere.delete(id); },
+  element: (_tag: string, text = "") => { const node = new Element(); node.textContent = text; return node; },
   busy: false, pendingSave: false, tiltaksvalg: null, utfylling: null
 });
-runInContext(functionBlock("const VENTEMELDINGER", "function addLink"), venting);
-const fyrAv = (ms: number) => {
-  for (const [id, timer] of [...timere]) if (timer.ms === ms) { timere.delete(id); timer.fn(); }
-};
+runInContext(functionBlock("const hentefremdrift", "function addLink"), venting);
+
+const kilde = (id: string, navn: string, status: string) =>
+  runInContext(`visFremdrift(${JSON.stringify({ id, navn, status })})`, venting);
 
 let slippVidere: (() => void) | undefined;
 const venter = new Promise<void>(resolve => { slippVidere = resolve; });
@@ -856,32 +868,41 @@ const utfort = runInContext("perform('Henter kart og opplysninger om eiendommen 
   Object.assign(venting, { oppdrag: venter }));
 assert.equal(ventEl("progress").textContent, "Henter kart og opplysninger om eiendommen …",
   "etiketten skal stå med en gang");
-assert.equal(timere.size, 3, "tre ventemeldinger er satt opp, ikke flere");
-fyrAv(2500);
-assert.match(ventEl("progress").textContent, /Henter fortsatt kart og planer fra kommunen/,
-  "etter noen sekunder skal siden si at den fortsatt jobber, og hos hvem");
-fyrAv(6000);
-assert.match(ventEl("progress").textContent, /svarer tregt akkurat nå, og vi prøver en gang til/,
-  "gjenforsøket skal være synlig, slik at ventingen er til å forstå");
-assert.match(ventEl("progress").textContent, /Du trenger ikke gjøre noe/);
-fyrAv(13000);
-assert.match(ventEl("progress").textContent, /Vi gjør ferdig vurderingen med de kildene som svarte/,
-  "og til slutt hva som skjer når kilden ikke svarer");
+assert.equal(ventEl("progress-sources").hidden, true, "listen står tom til første kilde melder seg");
+
+kilde("adresse", "Kartverkets adresse-API", "ok");
+kilde("kpa", "Bergen KPA2018 arealformål", "henter");
+assert.equal(ventEl("progress-sources").hidden, false);
+assert.equal(ventEl("progress-sources").children.length, 2, "én rad per kilde");
+assert.equal(ventEl("progress").textContent, "Henter opplysninger. 1 av 2 kilder har svart.",
+  "live-regionen oppsummerer framfor å lese opp hver rad");
+
+// Samme kilde igjen er en overgang, ikke en ny rad. Uten det ville listen vokst
+// til det dobbelte i løpet av ett oppslag.
+kilde("kpa", "Bergen KPA2018 arealformål", "feil");
+assert.equal(ventEl("progress-sources").children.length, 2);
+// Setningen sier aldri at alle har svart: antallet kilder er ikke kjent før
+// strømmen er ferdig, og adressen melder seg ferdig med den aller første hendelsen.
+// «Alle 1 kildene har svart» etterfulgt av «henter fra sju kilder» leses som en feil.
+assert.equal(ventEl("progress").textContent, "Henter opplysninger. 2 av 2 kilder har svart.");
+assert.equal(ventEl("progress-sources").children[1].children[0].textContent, KILDESTATUSTEKST.feil,
+  "en kilde som ikke svarte skal si det, ikke bare mangle");
+
 slippVidere!();
 await utfort;
 assert.equal(ventEl("progress").textContent, "", "statuslinjen tømmes når oppslaget er ferdig");
-assert.equal(timere.size, 0, "timerne må ryddes, ellers skriver de over en ferdig side");
+assert.equal(ventEl("progress-sources").hidden, true, "og listen ryddes, ellers står den igjen over et ferdig svar");
 
-// En feil skal vise feilmeldingen, og heller ikke da får en gammel timer skrive over den.
+// En feil skal vise feilmeldingen, og listen skal ryddes også da.
 let velt: ((grunn: Error) => void) | undefined;
 const feiler = new Promise<void>((_resolve, reject) => { velt = reject; });
 const feilet = runInContext("perform('Henter planer for plasseringen …', () => oppdrag)",
   Object.assign(venting, { oppdrag: feiler }));
-fyrAv(2500);
+kilde("bygninger", "Bergen bygningsflater", "henter");
 velt!(new Error("Kilden svarte ikke"));
 await feilet;
 assert.equal(ventEl("error").textContent, "Kilden svarte ikke");
-assert.equal(timere.size, 0);
+assert.equal(ventEl("progress-sources").hidden, true);
 assert.match(ventEl("progress").textContent, /Kunne ikke fullføre/);
 
 console.log("Hensynssoner: flatene tegnes under teigen, i riktig rekkefølge, og markøren melder sone før bekreftelse.");
@@ -890,4 +911,4 @@ console.log("Eiendomsvalg: adresse før kart, bekreftet plassering før utfyllin
 console.log("Vurderingskart: teiger, bygninger, nabogrenser og bakgrunn følger det ferske grunnlaget ved feil og gjenoppretting.");
 console.log("Bygningslaget: egne bygg skilles fra nabobygg, og kildestatusen forklares ved kartet.");
 console.log("Svaret: overskriften svarer ja, nei eller kontakt kommunen, og reglenes neste steg vises.");
-console.log("Venting: statuslinjen forteller at kommunens kartlag er tregt og at det prøves igjen, og timerne ryddes.");
+console.log("Venting: kildene meldes mens de hentes, en overgang blir ikke en ny rad, og listen ryddes ved både svar og feil.");

@@ -1,7 +1,8 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
 import { errorBody, headersFor, HttpError, statusFor } from "./errors.ts";
-import { readRequestBody, svarhjelpere } from "../../shared/http.ts";
+import { readRequestBody, svarhjelpere, type Hendelsesstroem } from "../../shared/http.ts";
+import { HENDELSE } from "../../shared/hendelsesstroem.ts";
 
 import {
   aktorFor,
@@ -57,7 +58,7 @@ import {
 
 // Default policy: GET,POST,PUT,OPTIONS and Content-Type,Authorization, on both
 // JSON and text responses. Same bytes this service has always sent.
-const { jsonResponse, textResponse } = svarhjelpere();
+const { jsonResponse, textResponse, hendelsesstroem } = svarhjelpere();
 const aktiveSteghandlinger = new Set<string>();
 
 // Hand-written, not generated from the spec: it lists the routes a newcomer
@@ -862,11 +863,38 @@ export async function handleRequest(request: IncomingMessage, response: ServerRe
 
     // No orchestration route matched: try the shared resource catalog, which the
     // process engine consults in exactly the same way.
-    if (findRessurs(request.method!, url.pathname)) {
-      const data = await runRessurs(tilstand, request.method!, url, {
-        sporingsId: getSporingsId(url),
-        kaller
-      });
+    const katalogtreff = findRessurs(request.method!, url.pathname);
+    if (katalogtreff) {
+      const sporingsId = getSporingsId(url);
+      // En strømmerute går gjennom nøyaktig samme runRessurs som de andre. Det
+      // eneste som er annerledes er hvordan svaret skrives.
+      //
+      // Strømmen åpnes først når noe faktisk skal sendes. Åpnet vi den med en
+      // gang, ville statuslinjen vært skrevet før valideringen kjørte, og en 400,
+      // 403 eller 404 hadde blitt til en 200 med en feilhendelse i - altså en
+      // annen feilsemantikk enn JSON-tvillingen for nøyaktig samme ressurs.
+      if (katalogtreff.ressurs.stroem) {
+        // Tilordningene står her og ikke i en `aapne()`-hjelper: tilordnes den
+        // bare inne i en tilbakekalling, smalner typescript `stroem` til `null`
+        // og catch-en under blir uttypet.
+        let stroem: Hendelsesstroem | null = null;
+        try {
+          const data = await runRessurs(tilstand, request.method!, url, {
+            sporingsId, kaller,
+            paaHendelse: (hendelse, kropp) => (stroem ??= hendelsesstroem(response)).send(hendelse, kropp)
+          });
+          (stroem ??= hendelsesstroem(response)).send(HENDELSE.grunnlag, data);
+        } catch (error) {
+          // Rakk noe å bli sendt, er statuslinjen låst og feilen må gå som en
+          // hendelse. Skjedde den før det, svarer vi som enhver annen rute.
+          if (!stroem) throw error;
+          stroem.send(HENDELSE.feil, { ...errorBody(error), status: statusFor(error) });
+        } finally {
+          stroem?.avslutt();
+        }
+        return;
+      }
+      const data = await runRessurs(tilstand, request.method!, url, { sporingsId, kaller });
       jsonResponse(response, 200, data);
       return;
     }

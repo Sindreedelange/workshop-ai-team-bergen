@@ -43,6 +43,7 @@ const DELTE_MODULER: Record<string, string> = {
   "arealsoner.ts": KLIENTSKRIPT,
   "hensynssoner.ts": KLIENTSKRIPT,
   "geometri.ts": KLIENTSKRIPT,
+  "hendelsesstroem.ts": KLIENTSKRIPT,
   "byggetiltak.ts": KLIENTSKRIPT
 };
 

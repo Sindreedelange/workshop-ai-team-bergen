@@ -1,9 +1,10 @@
 import {
-  beskrivTiltakshjelpenUtfall, hensynssonenavn,
+  beskrivTiltakshjelpenUtfall, hensynssonenavn, KILDESTATUSTEKST,
   type TiltakshjelpenAdresse, type TiltakshjelpenGrunnlag, type TiltakshjelpenPlanflate, type TiltakshjelpenPolygon,
-  type TiltakshjelpenPunkt, type FrittliggendeTiltak, type TiltakshjelpenVurdering
+  type TiltakshjelpenKilde, type TiltakshjelpenPunkt, type FrittliggendeTiltak, type TiltakshjelpenVurdering
 } from "../../../shared/tiltakshjelpen.ts";
 import { findTiltakshjelpenKommunekilder } from "../../../shared/tiltakshjelpen-kommuner.ts";
+import { HENDELSE, HENDELSESSKILLE, lesHendelse } from "../../../shared/hendelsesstroem.ts";
 import type { Hensynssonetype } from "../../../shared/hensynssoner.ts";
 import { findNabotomtLabel, fitKartutsnitt, nearestPolygonBoundary, projectTiltakshjelpenPunkt, unprojectTiltakshjelpenPunkt, type KartLabel } from "./tiltakshjelpen-kart.ts";
 import { ringerInneholder } from "../../../shared/geometri.ts";
@@ -84,17 +85,87 @@ function expireLogin(): never {
   throw new Error("Innloggingen er utløpt eller ugyldig. Logg inn igjen for å fortsette.");
 }
 
-async function api<T>(path: string): Promise<T> {
+/**
+ * Samme oppslag som `api`, men kildene meldes mens de hentes.
+ *
+ * `EventSource` kan ikke sette et Authorization-hode, og ruten krever
+ * innlogging - derfor leses strømmen med `fetch` i stedet. Formatet er det samme
+ * `text/event-stream` serveren skriver.
+ *
+ * Strømmen bærer HTTP 200 fra første byte, fordi statuslinjen sendes før
+ * oppslaget starter. En feil underveis kommer derfor som en `feil`-hendelse og
+ * kastes her, slik at kalleren ser den samme `Error` som fra `api`.
+ */
+async function apiStroem<T>(path: string, paaKilde: (kilde: TiltakshjelpenKilde) => void): Promise<T> {
+  const response = await hentMedToken(path);
+  if (!response.ok || !response.body) throw await oppslagsfeil(response);
+  const leser = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  let rest = "";
+  // Hvor langt i `rest` vi allerede har lett etter et skille. Uten den ville hver
+  // lesing skannet alt som er kommet inn til nå, og grunnlaget kommer som én
+  // `data:`-linje på flere hundre kilobyte: i et par tiendeler tekst er det et
+  // knapt målbart tap, men det vokser med kvadratet av svaret.
+  let soekFra = 0;
+  let resultat: T | undefined;
+  for (;;) {
+    const { done, value } = await leser.read();
+    if (value) rest += value;
+    // Hendelsene er atskilt med en blank linje. En halv hendelse blir stående i
+    // `rest` til resten kommer - uten det ville en stor melding blitt lest som to.
+    for (;;) {
+      const skille = rest.indexOf(HENDELSESSKILLE, soekFra);
+      if (skille === -1) {
+        soekFra = Math.max(0, rest.length - 1);
+        break;
+      }
+      const blokk = rest.slice(0, skille);
+      rest = rest.slice(skille + HENDELSESSKILLE.length);
+      soekFra = 0;
+      const hendelse = lesHendelse(blokk);
+      if (hendelse) {
+        const kropp = JSON.parse(hendelse.data);
+        if (hendelse.navn === HENDELSE.kilde) paaKilde(kropp);
+        else if (hendelse.navn === HENDELSE.grunnlag) resultat = kropp as T;
+        else if (hendelse.navn === HENDELSE.feil) {
+          // Resten av kroppen har ingen verdi når feilen er lest, og et grunnlag
+          // er lett flere hundre kilobyte å lese ferdig for ingenting.
+          await leser.cancel();
+          throw new Error(kropp.feil || "Oppslaget feilet.");
+        }
+      }
+    }
+    if (done) break;
+  }
+  if (resultat === undefined) throw new Error("Oppslaget ble avbrutt før grunnlaget var ferdig.");
+  return resultat;
+}
+
+/**
+ * Token, tidsgrense og ingen mellomlagring. Regelen står ett sted, ikke to.
+ *
+ * `api` og `apiStroem` leser svaret helt forskjellig, men de skal være enige om
+ * innlogging: en utløpt økt, en ny tidsgrense eller et nytt hode hører hjemme her
+ * og ikke i to kopier som kan gå fra hverandre.
+ */
+function hentMedToken(path: string): Promise<Response> {
   if (!tokenValid()) expireLogin();
-  const response = await fetch(`${backendBase}${path}`, {
+  return fetch(`${backendBase}${path}`, {
     headers: withToken(), signal: AbortSignal.timeout(60000), cache: "no-store"
   });
-  const data = await response.json();
-  if (!response.ok) {
-    if (response.status === 401) expireLogin();
-    throw new Error(data.feil || `Oppslaget feilet (HTTP ${response.status}).`);
-  }
-  return data as T;
+}
+
+/** Feilen et mislykket oppslag skal gi innbyggeren, med serverens egen setning når den finnes. */
+async function oppslagsfeil(response: Response): Promise<Error> {
+  if (response.status === 401) expireLogin();
+  const melding = await response.json().then(
+    (kropp: { feil?: string }) => kropp?.feil, () => undefined);
+  return new Error(melding || `Oppslaget feilet (HTTP ${response.status}).`);
+}
+
+async function api<T>(path: string): Promise<T> {
+  const response = await hentMedToken(path);
+  if (!response.ok) throw await oppslagsfeil(response);
+  return await response.json() as T;
 }
 
 function invalidateResult(): void {
@@ -135,19 +206,62 @@ function clearConfirmation(): void {
 }
 
 /**
- * Hva som står i statuslinjen mens et kartoppslag drar ut, og etter hvor lenge.
+ * Kildene som hentes nå, i den rekkefølgen de svarer.
  *
- * Kommunens kartlag svarer nesten alltid på et øyeblikk, men har en hale på flere
- * sekunder, og serveren prøver da en gang til. Uten disse setningene sto den
- * første etiketten helt stille i opptil tolv sekunder, og det ser ut som om siden
- * har hengt seg opp. Tekstene sier hva som skjer og hos hvem, slik at ventingen er
- * noe man kan forstå framfor noe man må tolke.
+ * Her sto tre `setTimeout` på 2,5, 6 og 13 sekunder som byttet ut én setning
+ * etter en tidsplan kalibrert mot serverens tålmodighet. Den var gjettet: den
+ * visste ikke hvilken kilde som var treg, om noen allerede hadde svart, eller om
+ * noe hadde feilet. Nå sier serveren det selv, kilde for kilde, og listen er det
+ * den sier.
+ *
+ * Kildene hentes i parallell, så rekkefølgen her er rekkefølgen de faktisk svarer
+ * i - ikke en fast liste som fylles ovenfra og ned.
  */
-const VENTEMELDINGER: readonly { etter: number; tekst: string }[] = [
-  { etter: 2500, tekst: "Henter fortsatt kart og planer fra kommunen. Dette tar av og til noen sekunder." },
-  { etter: 6000, tekst: "Kommunens kartlag svarer tregt akkurat nå, og vi prøver en gang til. Du trenger ikke gjøre noe." },
-  { etter: 13000, tekst: "Kartlaget svarte ikke i tid. Vi gjør ferdig vurderingen med de kildene som svarte, og sier hva som mangler." },
-];
+const hentefremdrift = new Map<string, { rad: HTMLElement; etikett: HTMLElement }>();
+
+function nullstillFremdrift(): void {
+  hentefremdrift.clear();
+  const liste = krevEl("progress-sources");
+  liste.replaceChildren();
+  liste.hidden = true;
+}
+
+function visFremdrift(kilde: TiltakshjelpenKilde): void {
+  const liste = krevEl("progress-sources");
+  // Raden oppdateres på plass. Bygget vi listen på nytt for hver hendelse, ville
+  // ett oppslag laget og kastet et par hundre noder, og en skjermleser som sto på
+  // en av dem ville mistet plassen sin fjorten ganger.
+  let oppforing = hentefremdrift.get(kilde.id);
+  if (!oppforing) {
+    const rad = element("li");
+    const etikett = element("span", "", "fetch-status");
+    rad.append(etikett, element("span", kilde.navn));
+    oppforing = { rad, etikett };
+    hentefremdrift.set(kilde.id, oppforing);
+    liste.append(rad);
+    liste.hidden = false;
+  }
+  // Statusen holdes ett sted, på noden. Sto den også i kartet, var det to
+  // skrivinger som måtte holdes i takt for en verdi CSS-en uansett leser herfra.
+  oppforing.rad.dataset.status = kilde.status;
+  const tekst = KILDESTATUSTEKST[kilde.status];
+  if (oppforing.etikett.textContent !== tekst) oppforing.etikett.textContent = tekst;
+
+  // Selve live-regionen er setningen over listen, og den oppsummerer framfor å
+  // lese opp hver rad: chat.ts lærte at en live-region som skrives om for ofte
+  // avbryter seg selv, og her skrives den om for hver kilde som svarer.
+  //
+  // Setningen sier aldri at alle har svart, og det er ikke forsiktighet: antallet
+  // kilder er ikke kjent før strømmen er ferdig. Den første hendelsen er adressen,
+  // som er hentet ferdig før strømmen finnes - og «alle har svart» etter én rad,
+  // etterfulgt av «henter fra sju kilder», leses som at noe gikk galt. At oppslaget
+  // er ferdig sier listen selv, ved å forsvinne.
+  let ferdige = 0;
+  for (const { rad } of hentefremdrift.values()) if (rad.dataset.status !== "henter") ferdige += 1;
+  const oppsummering = `Henter opplysninger. ${ferdige} av ${hentefremdrift.size} kilder har svart.`;
+  const linje = krevEl("progress");
+  if (linje.textContent !== oppsummering) linje.textContent = oppsummering;
+}
 
 async function perform(label: string, action: () => Promise<void>): Promise<void> {
   if (busy || pendingSave) return;
@@ -155,8 +269,7 @@ async function perform(label: string, action: () => Promise<void>): Promise<void
   tiltaksvalg?.refresh();
   krevEl("error").hidden = true;
   krevEl("progress").textContent = label;
-  const ventetimere = VENTEMELDINGER.map(melding =>
-    setTimeout(() => { krevEl("progress").textContent = melding.tekst; }, melding.etter));
+  nullstillFremdrift();
   const controls = document.querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement>(
     "button, #workspace input, #workspace select"
   );
@@ -169,7 +282,7 @@ async function perform(label: string, action: () => Promise<void>): Promise<void
     krevEl("error").hidden = false;
     krevEl("progress").textContent = "Kunne ikke fullføre. Kontroller meldingen og prøv igjen.";
   } finally {
-    for (const timer of ventetimere) clearTimeout(timer);
+    nullstillFremdrift();
     controls.forEach(control => { control.disabled = pendingSave; });
     busy = false;
     tiltaksvalg?.refresh();
@@ -310,7 +423,7 @@ async function refreshGrunnlag(): Promise<void> {
   krevEl("sources").replaceChildren();
   let data: TiltakshjelpenGrunnlag;
   try {
-    data = await api<TiltakshjelpenGrunnlag>(`/api/garasje/grunnlag?${selectedQuery()}`);
+    data = await apiStroem<TiltakshjelpenGrunnlag>(`/api/garasje/grunnlag/hendelser?${selectedQuery()}`, visFremdrift);
   } catch (error) {
     if (propertyConfirmed && version === propertyVersion) {
       if (placementChosen) {
@@ -352,9 +465,7 @@ function renderGrunnlag(data: TiltakshjelpenGrunnlag): void {
   }
   const teigkilde = data.kilder.find(kilde => kilde.id === "eiendomsgrenser");
   if (teigkilde?.status === "ok") {
-    facts.append(element("p", teigkilde.fil
-      ? `Tomtegrenser: Data hentet fra lokal fil (${teigkilde.fil}).`
-      : `Tomtegrenser: Data hentet fra API (${teigkilde.navn}).`, "ds-paragraph"));
+    facts.append(element("p", `Tomtegrenser: Data hentet fra API (${teigkilde.navn}).`, "ds-paragraph"));
   }
   for (const formaal of data.arealformaal) {
     facts.append(element("p", `${formaal.sonenavn || formaal.beskrivelse} · arealformål ${formaal.kode}` +
@@ -387,11 +498,9 @@ function renderGrunnlag(data: TiltakshjelpenGrunnlag): void {
   for (const polygon of data.eiendomsgrenser) {
     if (polygon.teig) {
       const teig = polygon.teig;
-      const id = polygon.kildeObjektId === undefined ? `Teig ${teig.teigId ?? polygon.id}` : `Objekt ${polygon.kildeObjektId} i lokalt teiguttrekk`;
+      const id = `Teig ${teig.teigId ?? polygon.id}`;
       facts.append(element("p", `${id} · ${teig.gnr}/${teig.bnr}. ` +
-        `Kvalitetsklasse fra kilden: ${polygon.kvalitetsklasse ?? teig.kvalitet ?? "ikke oppgitt"}. ` +
-        `Tvist: ${teig.tvist ?? "ikke oppgitt i denne kilden"}.` +
-        (polygon.registrertArealM2 === undefined ? "" : ` Oppgitt teigareal: ${polygon.registrertArealM2.toLocaleString("nb-NO")} m².`) +
+        `Kvalitetsklasse fra kilden: ${polygon.kvalitetsklasse ?? "ikke oppgitt"}.` +
         (polygon.oppdatert ? ` Geometrien sist oppdatert: ${polygon.oppdatert.replace("T", " ")}.` : ""), "ds-paragraph"));
     }
   }
@@ -410,13 +519,12 @@ function renderGrunnlag(data: TiltakshjelpenGrunnlag): void {
     facts.append(element("p", "Tomtegrensen kunne ikke vises. Kartet er da bare et utsnitt rundt adressen, ikke en avgrensning av eiendommen.", "ds-paragraph"));
   }
   const list = element("ul", undefined, "source-list");
-  const status = { ok: "Hentet", ingen_treff: "Ingen treff", feil: "Henting feilet", ikke_sjekket: "Ikke kontrollert" };
   for (const kilde of data.kilder) {
     const item = element("li");
     addLink(item, kilde.navn, kilde.url);
-    item.append(element("p", `${status[kilde.status]} · ${new Date(kilde.hentet).toLocaleString("nb-NO")}`, "ds-paragraph"));
+    item.append(element("p", `${KILDESTATUSTEKST[kilde.status]} · ${new Date(kilde.hentet).toLocaleString("nb-NO")}`, "ds-paragraph"));
     if (kilde.status === "ok") {
-      item.append(element("p", kilde.fil ? `Data hentet fra lokal fil: ${kilde.fil}` : "Data hentet fra API", "ds-paragraph"));
+      item.append(element("p", "Hentet fra API ved oppslag", "ds-paragraph"));
     }
     if (kilde.koordinatsystem) item.append(element("p", `Koordinatsystem: ${kilde.koordinatsystem}`, "ds-paragraph"));
     if (kilde.merknad) item.append(element("p", kilde.merknad, "ds-paragraph"));
@@ -497,8 +605,17 @@ function renderNeighbours(data: TiltakshjelpenGrunnlag): void {
     return;
   }
   const kilde = neighbours.kilde;
-  const statuses = { ok: `${parcels.length} naboflater i kartutsnittet.`, ingen_treff: "Ingen nabotomter funnet i dette utsnittet.", feil: "Nabodata kunne ikke hentes.", ikke_sjekket: "Nabodata er ikke tilgjengelig for dette utsnittet." };
-  status.textContent = `${statuses[kilde.status]} ${kilde.status === "ok" ? kilde.fil ? "Data hentet fra lokal fil." : "Data hentet fra API." : ""}`;
+  // Uttommende over hele kodeverket, ikke `Partial` med en reserve: en reserve
+  // her er en tom setning der innbyggeren skulle fått en, og kompilatoren er det
+  // eneste som fanger en ny statusverdi.
+  const statuses: Record<TiltakshjelpenKilde["status"], string> = {
+    henter: "Nabodata hentes nå.",
+    ok: `${parcels.length} naboflater i kartutsnittet.`,
+    ingen_treff: "Ingen nabotomter funnet i dette utsnittet.",
+    feil: "Nabodata kunne ikke hentes.",
+    ikke_sjekket: "Nabodata er ikke tilgjengelig for dette utsnittet.",
+  };
+  status.textContent = `${statuses[kilde.status]} ${kilde.status === "ok" ? "Hentet fra API ved oppslag." : ""}`;
   addLink(details, kilde.navn, kilde.url);
   if (kilde.merknad) details.append(element("p", kilde.merknad, "ds-paragraph"));
   details.append(element("p", "Nabotomtene er kun kartinformasjon. Eieropplysninger er ikke hentet, og naboflatene inngår ikke i arealet eller vurderingen av din tomt.", "ds-paragraph"));
@@ -770,9 +887,7 @@ function renderVurdering(data: TiltakshjelpenSvar): void {
   }
   const teigkilde = data.grunnlag.kilder.find(k => k.id === "eiendomsgrenser");
   if (teigkilde?.status === "ok") {
-    summary.append(element("p", teigkilde.fil
-      ? `Tomtegrenser: Data hentet fra lokal fil (${teigkilde.fil}).`
-      : `Tomtegrenser: Data hentet fra API (${teigkilde.navn}).`, "ds-paragraph"));
+    summary.append(element("p", `Tomtegrenser: Data hentet fra API (${teigkilde.navn}).`, "ds-paragraph"));
   }
   const national = { oppfylt: "De kontrollerte nasjonale unntaksvilkårene er oppfylt.", brudd: "Minst ett nasjonalt unntaksvilkår er ikke oppfylt.", uavklart: "Nasjonale unntaksvilkår er ikke ferdig avklart." };
   krevEl("result-basis").textContent = `${national[data.vurdering.nasjonaltUnntak]} ${data.grunnlag.adresse.adressetekst} · Sporings-ID: ${data.sporingsId}. Vurderingen gjelder innsendte mål og det valgte punktet, ikke et godkjent byggeprosjekt.`;

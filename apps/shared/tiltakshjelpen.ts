@@ -21,11 +21,26 @@ export type TiltakshjelpenKilde = {
   navn: string;
   url: string;
   hentet: string;
-  status: "ok" | "ingen_treff" | "feil" | "ikke_sjekket";
+  /**
+   * `henter` finnes bare mens oppslaget pågår, og bare på hendelsesstrømmen.
+   * Et lagret grunnlag har aldri den verdien: da er hvert oppslag ferdig, og
+   * svaret er ett av de fire andre.
+   */
+  status: "henter" | "ok" | "ingen_treff" | "feil" | "ikke_sjekket";
   merknad?: string;
-  fil?: string;
-  uttrekksaar?: number;
-  koordinatsystem?: "EPSG:4326" | "EPSG:4258";
+  koordinatsystem?: "EPSG:4258";
+};
+
+/**
+ * Klarspråksetiketten for hver kildestatus.
+ *
+ * Den bor ved siden av unionen den beskriver, fordi den ellers blir liggende i
+ * kopier: tre av dem fantes i demo-gui, og en ny statusverdi måtte føres inn i
+ * alle tre for å bli synlig.
+ */
+export const KILDESTATUSTEKST: Record<TiltakshjelpenKilde["status"], string> = {
+  henter: "Henter …", ok: "Hentet", ingen_treff: "Ingen treff",
+  feil: "Henting feilet", ikke_sjekket: "Ikke kontrollert",
 };
 
 /** Geographic [longitude, latitude] rings. Source CRS is retained with the geometry and source. */
@@ -37,8 +52,6 @@ export type TiltakshjelpenPolygon = {
   kvalitetsklasse?: string;
   oppdatert?: string;
   matrikkelnummer?: string;
-  kildeObjektId?: number;
-  registrertArealM2?: number;
 };
 
 export type TiltakshjelpenTeig = {
@@ -47,14 +60,11 @@ export type TiltakshjelpenTeig = {
   /** Festenummer, ikke fødselsnummer. */
   fnr: number;
   teigId?: number;
-  kvalitet?: string;
-  tvist?: string;
 };
 
 /** Normalised parcel GeoJSON. A dataset OBJECTID is never a Matrikkel teig ID. */
 export type TiltakshjelpenEiendomsGeoJson = {
   type: "FeatureCollection";
-  koordinatsystem?: "EPSG:4326" | "EPSG:4258";
   features: {
     type: "Feature";
     geometry:
@@ -67,12 +77,6 @@ export type TiltakshjelpenEiendomsGeoJson = {
       festenummer: number;
       seksjonsnummer: number;
       lokalid?: number;
-      kildeObjektId?: number;
-      kildefil?: string;
-      registrertArealM2?: number;
-      arealmerknad?: string | null;
-      tinglyst?: string;
-      antallMatrikkelenheter?: number;
       objekttype: "Teig";
       matrikkelnummertekst: string;
       "nøyaktighetsklasseteig"?: string;
@@ -154,12 +158,13 @@ export type TiltakshjelpenNabotomter = {
  * uten type. Den reserven kunne ikke inntreffe og ville uansett tegnet en
  * faresone grønn. Nå kan den ikke skrives.
  *
- * Ringene er klippet til kartutsnittet plan-mock ble spurt om, så de har kanter
- * som ikke er sonegrenser. De skal tegnes og brukes til å svare på om sonen
- * berører eiendommen. Ingen avstand skal måles mot dem.
+ * Ringene er klippet til kartutsnittet, og bare til tegning. `berorer` er avgjort
+ * på hele flaten før klippingen, så kantene langs utsnittet er ikke sonegrenser:
+ * ingen avstand skal måles mot ringene her. De ekte grensene er dessuten forenklet
+ * til om lag to meter, så de er grenser og ikke oppmålinger.
  */
 type TiltakshjelpenPlanflateFelles = {
-  /** Datasettet hos plan-mock: «stoy», «fare», «arealformaal», … */
+  /** Hvilket plandatasett flaten kommer fra: «stoy», «fare», «arealformaal», … */
   datasett: string;
   sonekode: number;
   /** Klarspråksnavnet fra et kontrollert register, ikke kildens egen tekst. */
@@ -331,6 +336,19 @@ export function beskrivTiltakshjelpenUtfall(vurdering: TiltakshjelpenVurdering):
     }),
   };
   return setninger[vurdering.utfall]();
+}
+
+/**
+ * Hver kilde grunnlaget faktisk spør, nabokartet inkludert.
+ *
+ * `kilder` bærer bare de kildene vilkårene hviler på. Nabokartet står utenfor,
+ * fordi det er kontekst - men innbyggeren venter like fullt på det, og et
+ * revisjonsspor eller en fremdriftsliste som utelater det sier at en kilde ikke
+ * ble hentet. Regelen bor her, hos typen, slik at den ikke må huskes på nytt av
+ * hver leser; den første som skrev den av glemte nettopp nabokartet.
+ */
+export function alleTiltakshjelpenKilder(grunnlag: TiltakshjelpenGrunnlag): TiltakshjelpenKilde[] {
+  return [...grunnlag.kilder, ...(grunnlag.nabotomter ? [grunnlag.nabotomter.kilde] : [])];
 }
 
 /**

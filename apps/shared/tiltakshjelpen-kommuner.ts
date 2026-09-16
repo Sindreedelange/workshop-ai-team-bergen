@@ -1,4 +1,16 @@
+import type { Datasettid } from "./hensynssoner.ts";
+
 type TiltakshjelpenKartlag = { path: string; navn: string };
+
+/**
+ * Ett barnelag under kommunens hensynssonetjeneste.
+ *
+ * `id` er lagnummeret i ArcGIS-tjenesten, og `kodefelt` kolonnen sonekoden står i.
+ * Kolonnenavnet varierer fra lag til lag fordi kommunen eksporterer ett lag per
+ * hensynstype og kaller kodekolonnen opp etter laget. Det er kildens form, ikke
+ * vår, og leseren må lese feltnavnet herfra i stedet for å gjette.
+ */
+export type TiltakshjelpenSonelag = { datasett: Datasettid; id: number; kodefelt: string };
 
 export type TiltakshjelpenKommunekilder = {
   kommunenummer: string;
@@ -13,6 +25,19 @@ export type TiltakshjelpenKommunekilder = {
   };
   reguleringsplan: TiltakshjelpenKartlag & { planportalUrl: string };
   bygninger: TiltakshjelpenKartlag;
+  /**
+   * Hensynssonene, som flater.
+   *
+   * `path` peker på tjenesten, og hvert barnelag spørres for seg. Gruppelagene
+   * over dem - 14 for faresone, 21 for støysone - står med vilje ikke i listen:
+   * ArcGIS svarer ikke på en spørring mot et gruppelag, så en oppføring der ville
+   * feilet i kjøring i stedet for i gjennomlesning.
+   *
+   * Arealformål står ikke her heller. Det er det samme laget som `kpa`, og det er
+   * en forbedring: punktoppslaget og flateoppslaget leste før to ulike kilder for
+   * samme faktum, én live og én frossen, og kunne bli uenige.
+   */
+  hensynssoner: TiltakshjelpenKartlag & { lag: readonly TiltakshjelpenSonelag[] };
   /**
    * Kommunens skjema for å melde inn et tiltak som ikke krever søknad.
    *
@@ -56,6 +81,25 @@ export const TILTAKSHJELPEN_KOMMUNER = {
       path: "Basis_kartdata/Bygning_Flate/MapServer/0",
       navn: "Bergen bygningsflater",
     },
+    hensynssoner: {
+      path: "KPA2018/KPA2018_Hensynssoner_imagelayer/MapServer",
+      navn: "Bergen KPA2018 hensynssoner",
+      lag: [
+        { datasett: "friluftsliv", id: 0, kodefelt: "KPANGITTHENSYN" },
+        { datasett: "kulturmiljoe", id: 1, kodefelt: "KPANGITTHENSYN" },
+        { datasett: "landbruk", id: 2, kodefelt: "KPANGITTHENSYN" },
+        { datasett: "landskap", id: 3, kodefelt: "KPANGITTHENSYN" },
+        { datasett: "naturmiljoe", id: 4, kodefelt: "KPANGITTHENSYN" },
+        { datasett: "fare", id: 15, kodefelt: "KPFARE" },
+        { datasett: "fare", id: 16, kodefelt: "KPFARE" },
+        { datasett: "fare", id: 17, kodefelt: "KPFARE" },
+        { datasett: "fare", id: 18, kodefelt: "KPFARE" },
+        { datasett: "fare", id: 19, kodefelt: "KPFARE" },
+        { datasett: "stoy", id: 22, kodefelt: "KPSTOY" },
+        { datasett: "stoy", id: 23, kodefelt: "KPSTOY" },
+        { datasett: "stoy", id: 24, kodefelt: "KPSTOY" },
+      ],
+    },
     meldeskjemaUrl: "https://www.bergen.kommune.no/innbyggerhjelpen/planer-bygg-og-eiendom/bygging/byggesak/bygge-uten-byggesoknad#3",
     uavklartVeiledning: {
       tekst: "Jeg anbefaler deg å kontakte en av våre veiledere for mer veiledning. Du kan bestille 15 minutters veiledning her:",
@@ -70,7 +114,7 @@ export function findTiltakshjelpenKommunekilder(kommunenummer: string): Tiltaksh
   return (TILTAKSHJELPEN_KOMMUNER as Readonly<Record<string, TiltakshjelpenKommunekilder>>)[kommunenummer];
 }
 
-export function getTiltakshjelpenKartlagUrl(kommune: TiltakshjelpenKommunekilder, lag: "kpa" | "reguleringsplan" | "bygninger"): string {
+export function getTiltakshjelpenKartlagUrl(kommune: TiltakshjelpenKommunekilder, lag: "kpa" | "reguleringsplan" | "bygninger" | "hensynssoner"): string {
   return new URL(kommune[lag].path, kommune.kartBaseUrl).href;
 }
 

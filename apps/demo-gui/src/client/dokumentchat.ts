@@ -64,7 +64,10 @@ async function sendSporsmaal(): Promise<void> {
   input.value = "";
   sendKnapp.disabled = true;
   addMsg("user", tekst);
-  addTyping();
+  // To helt forskjellige ventinger bak én boble: først et søk i dokumentene, så
+  // modellen som skriver. «Tenker…» over begge sa ingenting om hvor tiden gikk,
+  // og søket er som regel raskt mens modellen er den som tar tid.
+  addTyping("Søker i dokumentene …");
   try {
     const treff = await soekChunks(tekst);
     if (!treff.length) {
@@ -72,6 +75,8 @@ async function sendSporsmaal(): Promise<void> {
       addMsg("assistant", "Søket fant ingen relevante utdrag i de indekserte dokumentene.");
       return;
     }
+    removeTyping();
+    addTyping(`Fant ${treff.length} utdrag. Skriver svar …`);
     const svar = await sporApiEttSporsmaal(tekst, treff);
     removeTyping();
     addMsg("assistant", svar.tekst || "Jeg fikk ikke et svar fra modellen.");

@@ -1,7 +1,7 @@
 import { TILTAKSHJELPEN_BEGREPER } from "./tiltakshjelpen-begreper.ts";
 import { FRITTLIGGENDE_NASJONALE_KRAV } from "./frittliggende-regelgrunnlag.ts";
 import { listTiltakshjelpenSonetyper } from "./arealsoner.ts";
-import { TILTAKSHJELPEN_UTFALL } from "./tiltakshjelpen.ts";
+import { KILDESTATUSTEKST, TILTAKSHJELPEN_UTFALL } from "./tiltakshjelpen.ts";
 import { TILTAKSHJELPEN_KOMMUNER, findTiltakshjelpenKommunekilder } from "./tiltakshjelpen-kommuner.ts";
 import { BYGGETILTAK_KATALOG, isByggetiltakstype } from "./byggetiltak.ts";
 import { isPolygon, ringerInneholder } from "./geometri.ts";
@@ -17,8 +17,11 @@ export function projectTiltakshjelpenPlanflater(value: unknown) {
   const rows = Array.isArray(input.planflater) ? input.planflater : [];
   const source = record((Array.isArray(input.kilder) ? input.kilder.find(item => record(item).id === "planflater") : undefined)
     ?? input.planflatekilde);
-  const status = ["ok", "ingen_treff", "feil", "ikke_sjekket"].includes(String(source.status))
-    ? String(source.status) : "ikke_sjekket";
+  // Statusene leses ut av kodeverket, ikke skrevet av på nytt: `henter` finnes
+  // bare mens en strøm pågår, så et lagret grunnlag med den verdien er like
+  // ubrukelig som en ukjent. En ny statusverdi må svares på her, ikke arve et nei.
+  const lest = String(source.status);
+  const status = Object.hasOwn(KILDESTATUSTEKST, lest) && lest !== "henter" ? lest : "ikke_sjekket";
   const available = status === "ok" || status === "ingen_treff";
   const point = record(input.punkt);
   const hasPoint = typeof point.lon === "number" && Number.isFinite(point.lon) && Math.abs(point.lon) <= 180
@@ -69,7 +72,6 @@ export function projectTiltakshjelpenPlanflater(value: unknown) {
   return {
     planflater: selected,
     planflatekilde: { id: "planflater", status, navn: text(source.navn, 150), merknad: text(source.merknad, 400),
-      uttrekksaar: typeof source.uttrekksaar === "number" && Number.isSafeInteger(source.uttrekksaar) ? source.uttrekksaar : null,
       forkortet: sourceTruncated },
     planflatedekning: { antall: total, vist: selected.length, utelatt: total - selected.length,
       advarsel: warnings.length ? warnings.join(" ") : null },

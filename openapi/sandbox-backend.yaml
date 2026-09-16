@@ -821,6 +821,13 @@ paths:
                       type: string
                       nullable: true
                       description: Datakilde det må foreligge samtykke for, eller null.
+                    svarform:
+                      type: string
+                      enum: [hendelsesstroem]
+                      description: >
+                        Står bare på ruter som svarer med text/event-stream i
+                        stedet for ett JSON-svar. Uten feltet ser en slik rute
+                        ut som enhver annen i katalogen.
 
   /api/matrikkel/gater:
     get:
@@ -1396,10 +1403,10 @@ paths:
         Punktet representerer ikke hele tiltakets omriss. Manglende eller
         mislykkede kartoppslag fremgår av kildestatusen og er ikke bevis på at
         området er fritt for begrensninger.
-        Tomtegrenser hentes først fra matrikkelmockens lokale teiguttrekk.
-        Kartverkets eiendoms-API brukes når kommunen ikke dekkes eller
-        eiendommen mangler. Feil i den lokale kilden gir kildefeil uten et
-        stille kildebytte. Kilder viser filnavn og uttrekksår for lokale treff.
+        Tomtegrenser hentes fra Kartverkets åpne eiendoms-API ved oppslag.
+        Det finnes ingen lokal kopi å falle tilbake på: en kilde som ikke
+        svarer gir kildefeil, og sjekken blir uavklart framfor å hvile på
+        data som kan være utdaterte.
         Når tiltakstype er oppgitt etter klientens bekreftelse, returneres
         tiltaksvarsler uten at tiltakets mål eller øvrige svar kreves.
         Varslene bruker samme planregler som sluttvurderingen. Et treff i Bergen
@@ -1420,6 +1427,58 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/GarasjeGrunnlag"
+        "400":
+          description: Manglende eller ugyldige parametere
+        "401":
+          description: Innlogging mangler eller tokenet er ugyldig
+        "404":
+          description: Ingen entydig adresse med oppgitt eiendomsidentitet
+        "502":
+          $ref: "#/components/responses/OppstroemsFeil"
+
+  /api/garasje/grunnlag/hendelser:
+    get:
+      summary: Samme oppslag som /api/garasje/grunnlag, meldt underveis
+      security:
+        - idporten: []
+        - maskinporten: [ks:innbyggerdialog:les]
+      description: >
+        Samme parametere, samme oppslag og samme resultat som
+        /api/garasje/grunnlag, men kildene meldes mens de hentes. Ruten finnes
+        fordi kildene hentes i parallell og svarer i ulik rekkefølge: uten den
+        ser innbyggeren bare at noe tar tid, ikke hva som hentes eller hvem som
+        allerede har svart.
+
+
+        Svaret er en `text/event-stream` med tre hendelsestyper. `kilde` sendes
+        én gang når et oppslag settes i gang, med status `henter`, og én gang når
+        det er ferdig, med `ok`, `ingen_treff`, `feil` eller `ikke_sjekket`.
+        `grunnlag` sendes til slutt og bærer nøyaktig det
+        /api/garasje/grunnlag ville svart. `feil` sendes i stedet dersom
+        oppslaget ikke kan fullføres, og strømmen lukkes uansett.
+
+
+        Statusen `henter` finnes bare her. Et lagret grunnlag har den aldri.
+      parameters:
+        - $ref: "#/components/parameters/GarasjeAdresse"
+        - $ref: "#/components/parameters/GarasjeKommune"
+        - $ref: "#/components/parameters/GarasjeGnr"
+        - $ref: "#/components/parameters/GarasjeBnr"
+        - $ref: "#/components/parameters/GarasjeLat"
+        - $ref: "#/components/parameters/GarasjeLon"
+        - $ref: "#/components/parameters/GarasjeTiltakstype"
+      responses:
+        "200":
+          description: >
+            Hendelsesstrøm med kildene underveis og grunnlaget til slutt.
+            Strømmen åpnes først når den første hendelsen skal sendes, så en feil
+            før det beholder statuskoden sin og svarer som JSON slik ruten over
+            gjør. Er statuslinjen først sendt, kommer feilen som en
+            `feil`-hendelse i strømmen i stedet.
+          content:
+            text/event-stream:
+              schema:
+                type: string
         "400":
           description: Manglende eller ugyldige parametere
         "401":
@@ -1684,11 +1743,9 @@ components:
         navn: { type: string }
         url: { type: string, format: uri }
         hentet: { type: string, format: date-time }
-        status: { type: string, enum: [ok, ingen_treff, feil, ikke_sjekket] }
+        status: { type: string, enum: [henter, ok, ingen_treff, feil, ikke_sjekket] }
         merknad: { type: string }
-        fil: { type: string, description: Filnavn når grunnlaget er hentet fra et lokalt uttrekk gjennom matrikkelmocken. }
-        uttrekksaar: { type: integer, description: Årstallet uttrekket er merket med, ikke tidspunktet da eiendommen ble oppdatert. }
-        koordinatsystem: { type: string, enum: ["EPSG:4326", "EPSG:4258"] }
+        koordinatsystem: { type: string, enum: ["EPSG:4258"] }
     GarasjePolygon:
       type: object
       required: [id, ringer]
@@ -1696,27 +1753,23 @@ components:
         id: { type: string }
         teigId: { type: integer }
         matrikkelnummer: { type: string }
-        kildeObjektId: { type: integer, description: OBJECTID i lokalt uttrekk, aldri en Matrikkel-teig-ID. }
-        registrertArealM2: { type: number, description: Teigareal oppgitt i uttrekket, atskilt fra beregnet geometriareal. }
         kvalitetsklasse: { type: string, enum: [Grønt, Gult, Rødt] }
         oppdatert: { type: string, description: Oppdateringsdato slik den er oppgitt av Kartverket. }
         teig:
           type: object
-          description: Eiendomsidentitet og kvalitet fra kilden. Fravær av tvistopplysning betyr ikke at ingen tvist finnes.
+          description: Eiendomsidentitet fra kilden.
           required: [gnr, bnr, fnr]
           properties:
             gnr: { type: integer }
             bnr: { type: integer }
             fnr: { type: integer, description: Festenummer, ikke fødselsnummer. }
             teigId: { type: integer }
-            kvalitet: { type: string }
-            tvist: { type: string }
         ringer:
           type: array
           description: >
             Lukkede geografiske ringer, inkludert eventuelle hull. Hvert punkt er
             [lon, lat]. Eiendomskildens koordinatsystem står i kilder og
-            eiendomsgeojson. Lokal GeoJSON er EPSG:4326, API-oppslag er EPSG:4258.
+            eiendomsgeojson, og er EPSG:4258.
           items:
             type: array
             minItems: 4
@@ -1738,19 +1791,13 @@ components:
       type: object
       required: [type, features]
       description: >
-        Validert og normalisert GeoJSON fra lokalt teiguttrekk eller
-        Kartverkets eiendoms-API. Kilden identifiseres i kilder.
+        Validert og normalisert GeoJSON fra Kartverkets eiendoms-API,
+        hentet ved oppslag. Kilden identifiseres i kilder, med koordinatsystemet.
         Polygon og MultiPolygon beholder ringer og hull. Identiteten kontrolleres
         mot valgt kommunenummer, gnr./bnr. og festenummer. Bare dokumenterte
         eiendomsopplysninger beholdes, ingen eierdata.
-        Lokale OBJECTID-er blir kildeObjektId, ikke lokalid. Lokal kilde
-        mangler grensekvalitet og oppdateringsdato; disse blir ikke oppdiktet.
       properties:
         type: { type: string, enum: [FeatureCollection] }
-        koordinatsystem:
-          type: string
-          enum: ["EPSG:4326", "EPSG:4258"]
-          description: Lokal GeoJSON oppgir EPSG:4326. Ved eldre API-svar uten feltet er kilden EPSG:4258.
         features:
           type: array
           items:
@@ -1780,10 +1827,7 @@ components:
                             $ref: "#/components/schemas/GarasjeRing"
               properties:
                 type: object
-                required: [kommunenummer, gardsnummer, bruksnummer, festenummer, seksjonsnummer, objekttype, matrikkelnummertekst]
-                oneOf:
-                  - required: [lokalid]
-                  - required: [kildeObjektId, kildefil]
+                required: [kommunenummer, gardsnummer, bruksnummer, festenummer, seksjonsnummer, objekttype, matrikkelnummertekst, lokalid]
                 properties:
                   kommunenummer:
                     type: string
@@ -1793,12 +1837,6 @@ components:
                   festenummer: { type: integer }
                   seksjonsnummer: { type: integer }
                   lokalid: { type: integer }
-                  kildeObjektId: { type: integer }
-                  kildefil: { type: string }
-                  registrertArealM2: { type: number }
-                  arealmerknad: { type: [string, "null"] }
-                  tinglyst: { type: string }
-                  antallMatrikkelenheter: { type: integer, minimum: 0, description: Null som tall betyr ukjent antall i uttrekket, ikke én matrikkelenhet. }
                   objekttype: { type: string, enum: [Teig] }
                   matrikkelnummertekst: { type: string }
                   nøyaktighetsklasseteig: { type: string, enum: [Grønt, Gult, Rødt] }

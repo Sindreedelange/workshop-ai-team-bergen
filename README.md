@@ -210,7 +210,7 @@ Oversikten er ikke ferdig. Vi fyller den på etter hvert som flere kilder kobles
 | [Kartverkets adresse-API](https://ws.geonorge.no/adresser/v1/) | adresse, matrikkelidentitet og adressepunkt | REST, åpent |
 | [Matrikkelen - Eiendomskart Teig](https://kartkatalog.geonorge.no/metadata/uuid/74340c24-1c8a-4454-b813-bfe498e80f16) hos Geonorge | teiggeometrien for en konkret matrikkelidentitet | REST, GeoJSON |
 | [Bergen kommunes karttjenester](https://kart.bergen.kommune.no/arcgis/rest/services) | arealformål, reguleringsplanområder og bygninger | ArcGIS REST |
-| KPA2018, plankartet | hensynssoner og arealformål over hele eiendommen | GeoJSON gjennom `plan-mock` |
+| KPA2018, plankartet | hensynssoner og arealformål over hele eiendommen | Bergens egne kartlag, hentet ved oppslag |
 
 **Regelverk og dokumenter, indeksert i `pdf-extractor`:**
 
@@ -261,7 +261,7 @@ Hvem som svarer på hva, og hva svaret er verdt:
 | Hvilke eiendommer eier innbyggeren? | eierforhold mot matrikkelidentiteten | Hjemmel ligger i grunnboken, ikke i matrikkelen |
 | Hvor går tomtegrensen? | Kartverkets eiendoms-API | Kartanslag, ikke oppmålingsbevis |
 | Hva er arealformålet, og finnes en reguleringsplan? | Bergens karttjenester, live | Tilgjengelig geometri er ikke nøyaktige grenser |
-| Berører tiltaket en hensynssone? | KPA2018-plankartet | Frosset i 2018, og flatene er klippet til kartutsnittet |
+| Berører tiltaket en hensynssone? | KPA2018-plankartet | Sonegrensene er forenklet til om lag to meter |
 | Finnes det bebyggelse på eiendommen? | Bergens bygningslag, live | Treg kilde: oppslaget prøves to ganger før det gis opp |
 | Er tiltaket søknadspliktig? | `sandbox-backend`, faste regler etter SAK10 § 4-1 | Ingen modell er involvert |
 | Hvordan forklares det? | `ai-gateway` mot Telenor AI Factory | Kan ikke gjøre utfallet mildere enn reglene |
@@ -376,7 +376,7 @@ Sjekk at du har det:
 docker --version && node --version && git --version
 ```
 
-**Portene `3000`, `3001` og `8080`-`8090` må være ledige.** Med modell trengs også
+**Portene `3000`, `3001` og `8080`-`8089` må være ledige.** Med modell trengs også
 `11434` til Ollama. Er en av dem
 opptatt, står det i `docs/feilsoking.md` hvordan du finner ut hvilken.
 
@@ -424,7 +424,7 @@ Høy autonomi, og nok støtte til at teamene faktisk rekker å levere: felles AP
 
 ## Status
 
-Tretten kjørende tjenester, én valgfri avhengighet i kjøretid, sju komplette demo-case. På plass:
+Tolv kjørende tjenester, én valgfri avhengighet i kjøretid, sju komplette demo-case. På plass:
 
 - samtykkeflyt med sperre på inntektsdata uten samtykke, håndhevet ett sted
 - revisjonslogg over all datatilgang
@@ -432,7 +432,7 @@ Tretten kjørende tjenester, én valgfri avhengighet i kjøretid, sju komplette 
 - syntetiske data forankret i Folkeregisterets informasjonsmodell og KS Fiks beregnings-API
 - KI-spor: hvert modellkall lagres med prompt og svar, lesbart på `GET /trace`
 - evals av KI-laget: `pnpm test:eval`
-- OpenAPI for alle elleve API-tjenestene, komplett og holdt i takt med koden av
+- OpenAPI for alle ti API-tjenestene, komplett og holdt i takt med koden av
   `pnpm test:openapi`: hver rute dokumentert, med `security:` per rute
 
 Det vi la til:
@@ -498,7 +498,7 @@ faktisk svarer.
 
 `start.bat` og `stop.bat` finnes i repoet, men de er et nødløsningsalternativ, ikke en
 ekvivalent. `start.bat` sjekker portene, lager `.env` hvis den mangler, og venter til alle
-tretten tjenestene svarer på `/helse`. Den tar `--reset`, `--reload`, `-d`, `--down` og
+tolv tjenestene svarer på `/helse`. Den tar `--reset`, `--reload`, `-d`, `--down` og
 `--help`, men ingen modellflagg. **Den kjører alltid uten
 språkmodell** - den laster verken ned eller velger modell, så alt annet enn maltekst
 ville vært en tom lovnad. Vil du ha en ekte modell, bruk Git Bash eller WSL og
@@ -798,14 +798,18 @@ Syntetiske data ligger under `data/`:
 - `data/tjenestetilbud.json` - kommunale tilbud med målgruppe og kapasitet, grunnlaget for støttekontakt
 - `data/legeerklaeringer.json` - legeerklæringer til TT-kort, lest av `pasientjournal-mock`
 - `data/politiattester.json` - politiattester til vandelskontroll, lest av `politiattest-mock`
-- `data/matrikkel.json` - 388 gater og 18 349 eiendommer i 97 kommuner, lest av `matrikkel-mock`
-- `data/eierforhold.json` - tinglyst eierskap per matrikkelenhet, slått sammen av `matrikkel-mock` ved innlasting
-- `data/matrikkel.seed.json` - liten firegaters fixture for mockens egne tester
+- `data/matrikkel.seed.json` - fire håndskrevne bergensgater, demoenes faste holdepunkt. Alle andre adresser hentes fra Geonorge ved oppslag
+- `data/eierforhold.json` - tinglyst eierskap per matrikkelenhet, koblet på av `matrikkel-mock`
+- `data/geonorge.fixtur.json` - fanget svar fra Geonorge, inndata til testenes falske tjeneste. Ingen tjeneste leser den
 - `data/prosessdefinisjoner.json`
 - `data/informasjonsmodeller.json`
 
 `matrikkel-mock` er eneste leser av matrikkeldataene. `sandbox-backend` kaller den over
 HTTP, så det finnes bare én matrikkel i sandkassen - den som også snakker SOAP.
+Teiggeometrien går utenom: den hentes rett fra Kartverkets åpne eiendoms-API.
+
+Hvor hvert datasett kommer fra, og hva som er syntetisk, står samlet i
+[`docs/datakilder.md`](docs/datakilder.md).
 
 Søknader, samtykker, oppgaver, meldinger, prosessøkter og revisjonslogg har **ingen**
 fil i `data/`. De oppstår først under kjøring og finnes bare i `state/`, som er

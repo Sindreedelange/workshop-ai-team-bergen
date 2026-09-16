@@ -101,8 +101,8 @@ Kildedata i `data/`:
 | `inntekter.json` | **Generert** for de importerte, **forfattet** for de kuraterte. Poster med `kilde` og `medregnes`, og `stadie` (`OPPGJOER`/`UTKAST`) |
 | `krr.json` | **Generert.** Kontaktregisteret: én rad per bosatt person på 15 år eller mer - KRRs reelle aldersgrense - nøklet på fnr. `reservert`, `spraak` og kontaktinfo utledes deterministisk fra fødselsnummeret; kuraterte gjenbruker forfattet kontaktinfo, og forfattet `krr` i `kuratert.json` vinner. `kanVarsles` er utledet. Tenor-personers e-post og telefon finnes **bare her** - `personer.json` røres ikke |
 | `eierforhold.json` | **Generert.** Tinglyst eierskap per matrikkelenhet, med `eierform` og `andel`. Eierskap hører i grunnboken, ikke i matrikkelen - derfor egen fil |
-| `matrikkel.json` | Gater og eiendommer i de kommunene befolkningen bor i, hentet fra Geonorge. Seed for `matrikkel-mock`. Ingen eiere |
-| `matrikkel.seed.json` | Liten firegaters fixture for mockens egne tester |
+| `matrikkel.seed.json` | Fire håndskrevne bergensgater: Storgata, Nordnesveien, Fjøsangerveien og Laksevågvegen. Ingen av dem finnes i virkeligheten, og de er demoenes faste holdepunkt. Alle andre adresser slås opp live hos Geonorge |
+| `geonorge.fixtur.json` | Fanget svar fra Geonorges adresse-API. Inndata til den falske tjenesten i testene; ingen tjeneste leser den |
 | `satser.json` | Inntektsgrenser og 6 %-regelen, med `gjelderFra` og `kilde` |
 | `barnehageplasser.json`, `sfoplasser.json` | Plass og månedspris, som 6 %-regelen måles mot |
 | `tjenestetilbud.json` | Kommunale tilbud med målgruppe og ledige plasser. Grunnlaget for behovsavklaring |
@@ -134,8 +134,10 @@ i stedet.
 node scripts/importer-tenor.ts                # bygger alt fra kilde
 node scripts/importer-tenor.ts --tørrkjør     # viser tallene uten å skrive
 node scripts/importer-tenor.ts --glem-id-er   # tildeler id-er fra bunnen
-node scripts/hent-matrikkel.ts                # topper opp matrikkelen fra Geonorge
 ```
+
+Importen trenger nett: adressene den kobler personene til hentes fra Geonorge når den
+kjøres. Sandkassen trenger ikke nett for å starte.
 
 Importen bygger på nytt hver gang, men **id-ene er stabile**: `personId` og
 `husstandId` leses tilbake fra `personer.json`, så et nytt Tenor-uttrekk kan slippes
@@ -172,9 +174,9 @@ tenor/*.json   ─┴─→ importer-tenor.ts ─→ personer.json ────�
 | `personId` | `personer.json`, `husstander.medlemmer[]`, `folkeregister._sandbox.personId`, plassfilene, `eierforhold.eiere[].eier`. **Ikke i `inntekter`** - se raden under |
 | `syntetiskFodselsnummer` | `personer.json`. Heter `foedselsEllerDNummer` i FREG-modellen og `identifikator` i inntekt og Fiks-beregningen. Det er dette ID-porten legger i `pid`. **Inntekt nøkles på dette, ikke på `personId`:** bare de 25 kuraterte radene bærer også et `personId`-felt, så en join på `personId` finner 25 av 281 rader. API-et gjør koblingen for deg - dette gjelder bare om du leser `data/inntekter.json` direkte |
 | `husstandId` | `personer.json`, `husstander.json`, `forventet-utfall.json`. `null` for alle som ikke er `BOSATT` |
-| `adresseIdentifikatorFraMatrikkelen` | `personer.bostedsadresse` og `folkeregister.seed.json`. Peker på `matrikkel.json` sin `matrikkelId`. Alle bosatte har en |
-| `matrikkelId` | `matrikkel.json`, `eierforhold.json` |
-| `kommunenummer` | Nøkkelen mot `tjenestetilbud.json` og `matrikkel.json`. `kommune` er bare et visningsnavn |
+| `adresseIdentifikatorFraMatrikkelen` | `personer.bostedsadresse` og `folkeregister.seed.json`. Samme `matrikkelId` som et adresseoppslag bygger. Alle bosatte har en |
+| `matrikkelId` | `eierforhold.json`, `matrikkel.seed.json`, og utledet av `byggMatrikkelId` for alt som hentes live |
+| `kommunenummer` | Nøkkelen mot `tjenestetilbud.json`, og kommunen id-en selv bærer. `kommune` er bare et visningsnavn |
 | `ordning` | `satser.ordninger[].id`, `forventet-utfall.json`, `deltakercaser.json`, `?ordning=` i `SJEKK`-stegene |
 
 ## Spec-forankring

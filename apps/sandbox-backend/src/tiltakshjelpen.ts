@@ -282,6 +282,35 @@ export function getByggetiltakPlanvarsler(tiltakstype: Byggetiltakstype, grunnla
  *    stopper det ikke; de navngis i stedet i sjekkens tekst.
  *  - kommunen har et meldeskjema. Uten det vet vi ikke hvor innbyggeren skal melde.
  */
+/**
+ * Kildene vilkårsvurderingen hviler på, og hva som teller som et svar fra hver.
+ *
+ * Listen sto som en strengliteral i regelen og unntaket for `reguleringsplan` sto
+ * i to filer, uten at noe holdt dem i takt. En sjuende kilde ville derfor blitt
+ * lagt til uten å bli krevd, og fritaket ville hvilt på en kilde ingen sjekket.
+ *
+ * `ingenTreffErSvar` er sant der et tomt svar er et svar: en eiendom uten
+ * reguleringsplan er en normal eiendom, mens et bygningskart uten treff er noe
+ * annet enn et bygningskart som ikke svarte.
+ */
+export const VILKAARSKILDER = {
+  adresse: { ingenTreffErSvar: false },
+  kpa: { ingenTreffErSvar: false },
+  reguleringsplan: { ingenTreffErSvar: true },
+  eiendomsgrenser: { ingenTreffErSvar: false },
+  bygninger: { ingenTreffErSvar: false },
+  planflater: { ingenTreffErSvar: false },
+} as const satisfies Record<string, { ingenTreffErSvar: boolean }>;
+
+/** Om kilden svarte på det vilkårsvurderingen trenger. */
+export function kildeSvarte(kilde: { id: string; status: string } | undefined): boolean {
+  if (!kilde) return false;
+  if (kilde.status === "ok") return true;
+  if (kilde.status !== "ingen_treff") return false;
+  return Object.hasOwn(VILKAARSKILDER, kilde.id)
+    && VILKAARSKILDER[kilde.id as keyof typeof VILKAARSKILDER].ingenTreffErSvar;
+}
+
 function vurderMeldeplikt(input: {
   tiltakstype: Byggetiltakstype;
   nasjonaltUnntak: "oppfylt" | "brudd" | "uavklart";
@@ -387,14 +416,14 @@ export function evaluateTiltakshjelpen(tiltak: FrittliggendeTiltak | Byggetiltak
       : hensynssoner.length
         ? `Eiendomsgrensen berører ${hensynssoner.length === 1 ? "én hensynssone" : `${hensynssoner.length} hensynssoner`} i KPA2018: `
           + `${hensynssoner.map(navngi).join(" ")} Sonen sier at et hensyn gjelder for området, ikke om tiltaket er tillatt. `
-          + "Uttrekket er fra 2018; gjeldende plan og bestemmelser må leses."
-        : "Ingen hensynssone i KPA2018-uttrekket berører den kartlagte eiendommen. Uttrekket er fra 2018 og dekker ikke byggegrenser, "
+          + "Sonene er hentet fra kommunens egne kartlag ved oppslag; bestemmelsene til planen må leses."
+        : "Ingen hensynssone i KPA2018 berører den kartlagte eiendommen. Oppslaget dekker ikke byggegrenser, "
           + "reguleringsplanens egne soner eller forhold utenfor kommuneplanen.",
   });
   let alleKilderOk = true;
-  for (const id of ["adresse", "kpa", "reguleringsplan", "eiendomsgrenser", "bygninger", "planflater"]) {
+  for (const id of Object.keys(VILKAARSKILDER)) {
     const kilde = grunnlag.kilder.find(k => k.id === id);
-    if (!kilde || (kilde.status !== "ok" && !(id === "reguleringsplan" && kilde.status === "ingen_treff"))) {
+    if (!kildeSvarte(kilde)) {
       alleKilderOk = false;
       sjekker.push({
         id: `kilde-${id}`, navn: `Datagrunnlag: ${kilde?.navn ?? id}`, status: "uavklart",
@@ -414,8 +443,8 @@ export function evaluateTiltakshjelpen(tiltak: FrittliggendeTiltak | Byggetiltak
   const uavklarteForhold = [...new Set([
     ...grunnlag.uavklarteForhold,
     meldeplikt
-      ? "Vilkåret denne flyten bruker fra kommuneplanbestemmelsen er oppfylt, men bestemmelsesteksten er ikke lest maskinelt. Byggegrenser og tillatt utnyttelse for hele tiltaket er ikke kontrollert, og hensynssonene er navngitt fra et frosset KPA2018-uttrekk."
-      : "Gjeldende planbestemmelser, byggegrenser og tillatt utnyttelse må avklares for hele tiltaket. Hensynssonene er navngitt fra et frosset KPA2018-uttrekk, ikke lest ut av bestemmelsene.",
+      ? "Vilkåret denne flyten bruker fra kommuneplanbestemmelsen er oppfylt, men bestemmelsesteksten er ikke lest maskinelt. Byggegrenser og tillatt utnyttelse for hele tiltaket er ikke kontrollert, og hensynssonene er navngitt fra kommunens kartlag, ikke lest ut av bestemmelsene."
+      : "Gjeldende planbestemmelser, byggegrenser og tillatt utnyttelse må avklares for hele tiltaket. Hensynssonene er navngitt fra kommunens kartlag, ikke lest ut av bestemmelsene.",
     "Ledningskart, flom, skred, grunnforhold, kulturminner, naturverdier og avstand til vei, sjø og vassdrag er ikke kontrollert.",
     "Kartet viser et punkt, ikke tiltakets utstrekning. Grensekvalitet, mål og lovlig etablert bebyggelse er ikke bekreftet.",
     ...sjekker.filter(s => s.status === "uavklart").map(s => s.forklaring),

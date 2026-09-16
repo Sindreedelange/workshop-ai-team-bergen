@@ -75,7 +75,7 @@ innlasting (`apps/shared/skjerming.ts`): API-et viser «Skjermet person», mens 
 vilje står i klartekst. Kode 7 (fortrolig adresse) gir nullet adresse.
 
 **KPA2018** - Bergens kommuneplan, arealdelen 2018-2030: plankartet og bestemmelsene som
-sier hva et areal i kommunen kan brukes til. Plankartet svares av `plan-mock` (`:8090`)
+sier hva et areal i kommunen kan brukes til. Plankartet hentes fra Bergens egne karttjenester
 fra ekte, åpne data; bestemmelsene ligger som PDF i dokumentbasen. § 31.3 er den eneste
 planbestemmelsen Tiltakshjelpen faktisk kontrollerer.
 
@@ -134,7 +134,7 @@ Kvitteringen vises i `/chat`.
 
 **teig** - et sammenhengende stykke av en matrikkelenhet. En eiendom kan bestå av flere
 teiger som ikke henger sammen, og det er teiggeometrien, ikke gnr/bnr, som sier hvor
-grensen går i kartet. `matrikkel-mock` svarer på `/mock/matrikkel/teiger`.
+grensen går i kartet. Hentes fra Kartverkets åpne eiendoms-API ved oppslag.
 
 **TEK17** - byggteknisk forskrift: kravene til hvordan noe skal bygges, blant annet
 høyder, avstander og brannsikring. Den avgjør ikke om du må søke; den gjelder uansett.

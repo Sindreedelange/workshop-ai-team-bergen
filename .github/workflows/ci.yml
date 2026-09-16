@@ -173,6 +173,12 @@ jobs:
       - name: Matrikkel-mock over REST og SOAP
         run: pnpm test:matrikkel-mock
 
+      # Id-en er den eneste koblingen mellom en adresse hentet live fra Geonorge
+      # og eierskapet i data/eierforhold.json. Går de fra hverandre, svarer
+      # oppslaget «ingen eiere» i stedet for å feile. Rene funksjoner, ingen nett.
+      - name: Matrikkel-id fra en adresse
+        run: pnpm test:matrikkel-id
+
       # Kravet om fnr og formaal manglet en gang på id-ruten i begge mockene, og
       # rettelsen pinnet ingenting. Ruter, parametere og eksempelverdier leses av
       # spesifikasjonene. Tre tjenester på egne porter; ingen modell, ingen stack.
